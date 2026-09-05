@@ -30,6 +30,16 @@ def test_safe_defaults(monkeypatch):
     assert os.environ["PIP_MIRROR_URL"] == "https://pypi.org/simple"
 
 
+def test_direct_runtime_cors_defaults_are_safe(monkeypatch):
+    from app.core.config_parts.env_config import AppConfig
+
+    monkeypatch.delenv("CORS_ENABLED", raising=False)
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+
+    assert AppConfig.is_cors_enabled() is False
+    assert AppConfig.get_cors_origins() == ["http://127.0.0.1:8199"]
+
+
 def test_loopback_is_allowed_without_auth():
     validate_runtime_security(
         {
