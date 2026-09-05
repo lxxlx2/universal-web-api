@@ -108,3 +108,13 @@ def test_auto_update_needs_second_opt_in():
                 "CORS_ENABLED": "false",
             }
         )
+
+
+def test_hardened_start_delegates_upstream_helper_api():
+    import start
+
+    assert callable(start._build_service_env)
+    assert (
+        start._normalize_python_proxy_url("socks5://127.0.0.1:1080")
+        == "socks5h://127.0.0.1:1080"
+    )
