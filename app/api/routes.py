@@ -9,6 +9,7 @@ app/api/routes.py - API 路由聚合入口
 from fastapi import APIRouter
 
 # 导入子路由
+from app.api.codex_compat import router as codex_compat_router
 from app.api.chat import router as chat_router
 from app.api.anthropic_routes import router as anthropic_router
 from app.api.config_routes import router as config_router
@@ -20,6 +21,10 @@ from app.api.provider import router as provider_router
 
 # 创建主路由器
 router = APIRouter()
+
+# Codex 0.153+ 会请求 /v1/models?client_version=... 并期待 Codex 专用目录格式。
+# 必须先注册兼容路由；无 client_version 时该路由会委托给原 OpenAI 模型列表。
+router.include_router(codex_compat_router)
 
 # 聚合所有子路由
 router.include_router(chat_router)
