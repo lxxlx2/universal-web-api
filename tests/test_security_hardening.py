@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import os
+from pathlib import Path
 
 import pytest
 
@@ -31,13 +33,17 @@ def test_safe_defaults(monkeypatch):
 
 
 def test_direct_runtime_cors_defaults_are_safe(monkeypatch):
-    from app.core.config_parts.env_config import AppConfig
+    config_path = Path("app/core/config_parts/env_config.py").resolve()
+    spec = importlib.util.spec_from_file_location("uwapi_hardened_env_config", config_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
     monkeypatch.delenv("CORS_ENABLED", raising=False)
     monkeypatch.delenv("CORS_ORIGINS", raising=False)
 
-    assert AppConfig.is_cors_enabled() is False
-    assert AppConfig.get_cors_origins() == ["http://127.0.0.1:8199"]
+    assert module.AppConfig.is_cors_enabled() is False
+    assert module.AppConfig.get_cors_origins() == ["http://127.0.0.1:8199"]
 
 
 def test_loopback_is_allowed_without_auth():
