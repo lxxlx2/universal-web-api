@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip pytest
-      - run: python -m py_compile start.py security_guard.py
+      - run: python -m py_compile start.py start_upstream.py security_guard.py
       - run: python -m pytest -q tests/test_security_hardening.py
 
   upstream-regression:
@@ -35,4 +35,15 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt pytest
-      - run: python -m pytest -q
+      # Several upstream tests depend on runtime/local files intentionally
+      # excluded by the upstream .gitignore. Exclude only those fixture-bound
+      # suites/cases so CI exercises every reproducible tracked regression.
+      - name: Run reproducible upstream regression tests
+        run: >-
+          python -m pytest -q
+          --ignore=tests/test_arena_auto_battle_command.py
+          --ignore=tests/test_arena_command_persistence.py
+          --ignore=tests/test_workflow_js_exec_integration.py
+          --ignore=tests/test_workflow_script_loader.py
+          --deselect=tests/test_arena_direct_models.py::test_collect_model_entries_respects_tab_preset_isolation
+          --deselect=tests/test_media_stream_image_precedence.py::test_arena_conversation_image_window_script_sets_placeholder_attrs
