@@ -178,11 +178,11 @@ class AppConfig:
     # ===== CORS 配置 =====
     @staticmethod
     def is_cors_enabled() -> bool:
-        return os.getenv("CORS_ENABLED", "true").lower() in ("true", "1", "yes")
+        return os.getenv("CORS_ENABLED", "false").lower() in ("true", "1", "yes")
     
     @staticmethod
     def get_cors_origins() -> List[str]:
-        origins = os.getenv("CORS_ORIGINS", "*")
+        origins = os.getenv("CORS_ORIGINS", "http://127.0.0.1:8199")
         if origins == "*":
             return ["*"]
         return [o.strip() for o in origins.split(",") if o.strip()]
