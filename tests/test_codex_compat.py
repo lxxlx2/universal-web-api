@@ -37,6 +37,10 @@ def test_codex_model_catalog_uses_models_wrapper_and_hides_hostname_aliases():
     assert model["supported_in_api"] is True
     assert model["context_window"] == 64_000
     assert model["truncation_policy"] == {"mode": "tokens", "limit": 57_600}
+    assert "instructions_template" in model["model_messages"]
+    assert "ultra" in {
+        option["effort"] for option in model["supported_reasoning_levels"]
+    }
 
 
 def test_codex_model_catalog_preserves_real_model_ids():
