@@ -4,11 +4,14 @@ on:
   push:
     branches:
       - main
-      - security-hardening
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: security-hardening-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   security-tests:
