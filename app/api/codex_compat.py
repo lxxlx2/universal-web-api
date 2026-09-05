@@ -5,7 +5,7 @@ expects its own model-catalog schema (``{"models": [...]}``) rather than the
 standard OpenAI ``{"object": "list", "data": [...]}`` shape.
 
 Keep the public OpenAI-compatible models response unchanged for every other
-client.  Codex is detected by the query parameter it unconditionally appends
+client. Codex is detected by the query parameter it unconditionally appends
 to model-catalog requests.
 """
 
@@ -25,7 +25,19 @@ _REASONING_LEVELS = [
     {"effort": "low", "description": "Low"},
     {"effort": "medium", "description": "Medium"},
     {"effort": "high", "description": "High"},
+    {"effort": "ultra", "description": "Ultra"},
 ]
+
+# Keep the browser-bridge system prompt compact. Codex still sends tool schemas
+# and workspace context separately, so a concise instruction template avoids
+# wasting a large portion of each webpage request on generic agent boilerplate.
+_CODEX_INSTRUCTIONS = """You are a coding agent working in the user's local workspace.
+Use the tools supplied by the client to inspect files, run commands, edit code, and verify results.
+Prefer inspecting the real workspace over guessing. Make only changes needed for the user's request.
+When you modify code, run the most relevant available checks. Never claim a file, command, or test
+was changed or executed unless the corresponding tool result confirms it. Keep progress concise and
+finish with the concrete result plus any unresolved issue that matters.
+""".strip()
 
 
 def _canonical_model_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -55,8 +67,8 @@ def _to_codex_model(entry: Dict[str, Any], priority: int) -> Dict[str, Any]:
     display_name = str(entry.get("display_name") or model_id).strip() or model_id
     owner = str(entry.get("owned_by") or "universal-web-api").strip()
 
-    # Conservative local-browser limits.  The browser bridge can still carry
-    # large prompts, but advertising a finite context lets Codex compact before
+    # Conservative local-browser limits. The bridge has already handled large
+    # prompts successfully; a finite limit lets Codex compact before browser
     # requests become unnecessarily large or fragile.
     context_window = 64_000
 
@@ -72,6 +84,10 @@ def _to_codex_model(entry: Dict[str, Any], priority: int) -> Dict[str, Any]:
         "priority": priority,
         "availability_nux": None,
         "upgrade": None,
+        "model_messages": {"instructions_template": _CODEX_INSTRUCTIONS},
+        "include_skills_usage_instructions": False,
+        "include_plugin_usage_instructions": False,
+        "include_apps_usage_instructions": False,
         "support_verbosity": False,
         "default_verbosity": None,
         "apply_patch_tool_type": None,
