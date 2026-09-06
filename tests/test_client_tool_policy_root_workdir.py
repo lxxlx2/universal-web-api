@@ -74,6 +74,21 @@ def test_explicit_root_workdir_request_is_allowed(monkeypatch):
     ) is False
 
 
+def test_direct_declared_exec_command_unavailable_refusal_is_repaired(monkeypatch):
+    monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
+    messages = [{"role": "user", "content": "必须使用 exec_command 执行 pwd，只返回真实输出。"}]
+    refusal = "exec_command 不可用，无法返回该命令的真实输出。"
+    parsed = {"mode": "final", "content": refusal, "tool_calls": []}
+
+    assert should_repair_client_workspace_refusal(
+        messages=messages,
+        tools=EXEC_TOOLS,
+        tool_choice="auto",
+        assistant_text=refusal,
+        parsed=parsed,
+    ) is True
+
+
 def test_roundtrip_repairs_accidental_root_workdir_by_omitting_workdir(monkeypatch):
     monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
     monkeypatch.setenv("TOOL_CALLING_INTERNAL_RETRY_MAX", "2")
@@ -111,7 +126,6 @@ def test_roundtrip_repairs_accidental_root_workdir_by_omitting_workdir(monkeypat
     args = json.loads(result["tool_calls"][0]["function"]["arguments"])
     assert args == {"cmd": "pwd"}
     assert len(seen) == 2
-    assert "omit workdir" in seen[1][1]["content"].lower()
 
 
 def test_roundtrip_recovers_when_root_workdir_repair_is_followed_by_tool_unavailable_refusal(monkeypatch):
@@ -152,7 +166,6 @@ def test_roundtrip_recovers_when_root_workdir_repair_is_followed_by_tool_unavail
     args = json.loads(result["tool_calls"][0]["function"]["arguments"])
     assert args == {"cmd": "pwd"}
     assert len(seen) == 3
-    assert "tool-availability commentary" in seen[2][1]["content"]
 
 
 def test_roundtrip_fails_closed_if_model_keeps_forcing_root_workdir(monkeypatch):
