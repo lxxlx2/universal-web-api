@@ -41,6 +41,7 @@ jobs:
           start.py
           start_upstream.py
           security_guard.py
+          tools/codex_desktop_acceptance.py
           app/services/client_tool_policy.py
           app/services/tool_calling.py
           app/services/chatgpt_web_mode.py
