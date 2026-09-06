@@ -27,6 +27,11 @@ from typing import Callable, Dict, Iterable, List, Tuple
 DEFAULT_ROOT = Path.home() / "uwa-codex-acceptance"
 MARKER = ".uwa_codex_acceptance"
 CONTEXT_TOKEN = "EMBER-7319"
+FAILURE_RECOVERY_TEST_CMD = "python3 -m unittest discover -s failure_recovery/tests -v"
+FAILURE_RECOVERY_AUDITED_CMD = (
+    FAILURE_RECOVERY_TEST_CMD
+    + "; rc=$?; printf '%s\\n' \"$rc\" >> failure_recovery/.run_history; exit \"$rc\""
+)
 
 
 def _workspace_guard_prompt(scenario_dir: str) -> str:
@@ -48,11 +53,12 @@ PROMPTS: Dict[str, str] = {
     ),
     "failure_recovery": (
         _workspace_guard_prompt("failure_recovery")
-        + "工作区校验成功后，先原样运行 "
-        "python3 -m unittest discover -s failure_recovery/tests -v 获取首次真实失败。"
-        "然后根据这个真实失败读取相关实现和测试，只修改实现。"
-        "最后原样重新运行同一测试命令直到通过。"
-        "不要修改测试。最终汇报必须同时引用首次失败和最终成功这两个真实执行步骤。"
+        + "工作区校验成功后，先逐字执行下面这条审计命令，必须让它产生首次真实失败并记录退出码：\n"
+        + FAILURE_RECOVERY_AUDITED_CMD
+        + "\n然后根据这个真实失败读取相关实现和测试，只修改 failure_recovery/parser.py。"
+        "不要修改测试，不要修改或删除 failure_recovery/.run_history。"
+        "修复后逐字重新执行同一条审计命令直到通过。"
+        "最终汇报必须同时引用首次失败和最终成功；checker 还会独立验证 .run_history 的首条非 0、末条为 0。"
     ),
     "git_diff": (
         _workspace_guard_prompt("git_diff")
@@ -336,6 +342,9 @@ def preflight(root: Path, scenario: str) -> int:
         failure_line = next((line for line in output.splitlines() if "FAIL" in line or "ERROR" in line), "")
         if failure_line:
             print(f"PREFLIGHT_SAMPLE={failure_line[:240]}")
+        if normalized == "failure_recovery" and (root / "failure_recovery" / ".run_history").exists():
+            print("PREFLIGHT_FAIL failure_recovery_history_already_exists")
+            return 1
     elif normalized == "interactive":
         result_file = root / "interactive" / "result.txt"
         if result_file.exists():
@@ -365,6 +374,46 @@ def _changed_paths(root: Path) -> List[str]:
     return changed
 
 
+def _check_failure_recovery(root: Path) -> Tuple[bool, str]:
+    suite_green, suite_output = _unit_test(root, "failure_recovery")
+    history_path = root / "failure_recovery" / ".run_history"
+    raw_history = history_path.read_text(encoding="utf-8") if history_path.exists() else ""
+    codes: List[int] = []
+    invalid_history: List[str] = []
+    for line in raw_history.splitlines():
+        token = line.strip()
+        if not token:
+            continue
+        try:
+            codes.append(int(token))
+        except ValueError:
+            invalid_history.append(token)
+
+    first_failed = len(codes) >= 2 and codes[0] != 0
+    last_passed = len(codes) >= 2 and codes[-1] == 0
+
+    diff = _run(["git", "diff", "--name-only", "--", "failure_recovery"], cwd=root)
+    tracked_changes = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+    unexpected_tracked = [
+        path for path in tracked_changes if path != "failure_recovery/parser.py"
+    ]
+
+    ok = (
+        suite_green
+        and first_failed
+        and last_passed
+        and not invalid_history
+        and not unexpected_tracked
+    )
+    detail = (
+        f"suite_green={suite_green} history={codes} invalid_history={invalid_history} "
+        f"tracked_changes={tracked_changes} unexpected_tracked={unexpected_tracked}"
+    )
+    if not suite_green:
+        detail += "\n" + suite_output.rstrip()
+    return ok, detail
+
+
 def _check_git_diff(root: Path) -> Tuple[bool, str]:
     expected = root / "git_diff" / "config.py"
     text = expected.read_text(encoding="utf-8") if expected.exists() else ""
@@ -377,6 +426,7 @@ def _check_git_diff(root: Path) -> Tuple[bool, str]:
         "multi_file/math_ops.py",
         "multi_file/summary.py",
         "failure_recovery/parser.py",
+        "failure_recovery/.run_history",
         "interactive/result.txt",
         "context/result.txt",
     }
@@ -405,7 +455,7 @@ def check(root: Path, scenario: str | None = None) -> int:
     _guard_root(root, allow_create=False)
     checks = {
         "multi_file": lambda: _unit_test(root, "multi_file"),
-        "failure_recovery": lambda: _unit_test(root, "failure_recovery"),
+        "failure_recovery": lambda: _check_failure_recovery(root),
         "git_diff": lambda: _check_git_diff(root),
         "interactive": lambda: _check_interactive(root),
         "context": lambda: _check_context(root),
