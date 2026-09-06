@@ -138,8 +138,12 @@ const mediumPattern = /^(medium|中)$/i;
 const reasoningRow = selectedRows.find((row) => highPattern.test(row.text) || highPattern.test(row.aria) || mediumPattern.test(row.text) || mediumPattern.test(row.aria))
   || visibleRows.find((row) => highPattern.test(row.text) || highPattern.test(row.aria) || mediumPattern.test(row.text) || mediumPattern.test(row.aria));
 
-const enableTemp = rows.find((row) => /开启临时聊天|enable temporary chat/i.test(combined(row)));
-const disableTemp = rows.find((row) => /关闭临时聊天|disable temporary chat/i.test(combined(row)));
+const tempRows = Array.from(document.querySelectorAll('button,[role="button"]')).map((el) => ({
+  text: norm(el.innerText || el.textContent),
+  aria: norm(el.getAttribute('aria-label')),
+}));
+const enableTemp = tempRows.find((row) => /开启临时聊天|启用临时聊天|enable temporary chat/i.test(`${row.text} ${row.aria}`));
+const disableTemp = tempRows.find((row) => /关闭临时聊天|停用临时聊天|disable temporary chat/i.test(`${row.text} ${row.aria}`));
 let temp = null;
 if (disableTemp) temp = true;
 else if (enableTemp) temp = false;
@@ -155,6 +159,48 @@ return {
   model: modelRow ? 'GPT-5.6 Sol' : null,
   reasoning,
   temporary_chat: temp,
+};
+"""
+
+
+_DIAGNOSTICS_JS = r"""
+const visible = (el) => {
+  if (!el) return false;
+  const style = window.getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  return !!style && style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+};
+const norm = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+const relevant = /gpt|model|模型|reason|thinking|思考|high|medium|临时|temporary|^高$|^中$/i;
+const controls = Array.from(document.querySelectorAll('button,[role="button"],[role="option"],[role="menuitem"],[role="menuitemradio"],[aria-label],[data-testid]'))
+  .filter((el) => visible(el))
+  .map((el) => ({
+    tag: String(el.tagName || '').toLowerCase(),
+    role: norm(el.getAttribute('role')),
+    text: norm(el.innerText || el.textContent).slice(0, 120),
+    aria: norm(el.getAttribute('aria-label')).slice(0, 120),
+    testid: norm(el.getAttribute('data-testid')).slice(0, 120),
+    state: norm(el.getAttribute('data-state')).slice(0, 40),
+    checked: norm(el.getAttribute('aria-checked')).slice(0, 20),
+    expanded: norm(el.getAttribute('aria-expanded')).slice(0, 20),
+    haspopup: norm(el.getAttribute('aria-haspopup')).slice(0, 40),
+  }))
+  .filter((item) => relevant.test(`${item.text} ${item.aria} ${item.testid} ${item.role}`))
+  .slice(0, 80);
+
+return {
+  page: {
+    host: location.hostname,
+    pathname: location.pathname.slice(0, 180),
+    lang: document.documentElement.lang || '',
+  },
+  exact_selectors: {
+    temp_enable_exact: !!document.querySelector('button[aria-label="开启临时聊天"]'),
+    temp_disable_exact: !!document.querySelector('button[aria-label="关闭临时聊天"]'),
+    prompt: !!document.querySelector('#prompt-textarea'),
+    send: !!document.querySelector('[data-testid="send-button"]'),
+  },
+  controls,
 };
 """
 
@@ -200,6 +246,7 @@ return {
   clicked: true,
   text: norm(target.innerText || target.textContent).slice(0, 80),
   aria: norm(target.getAttribute('aria-label')).slice(0, 80),
+  testid: norm(target.getAttribute('data-testid')).slice(0, 80),
 };
 """
 
@@ -238,6 +285,19 @@ def inspect_chatgpt_web_mode(tab: Optional[Any] = None) -> Dict[str, Any]:
     }
 
 
+def inspect_chatgpt_web_mode_diagnostics(tab: Optional[Any] = None) -> Dict[str, Any]:
+    """Return only sanitized model/mode control metadata, never conversation text."""
+    target = tab or _find_chatgpt_tab()
+    result = _run_js(target, _DIAGNOSTICS_JS)
+    payload = result if isinstance(result, dict) else {}
+    return {
+        "state": inspect_chatgpt_web_mode(target),
+        "page": payload.get("page") if isinstance(payload.get("page"), dict) else {},
+        "exact_selectors": payload.get("exact_selectors") if isinstance(payload.get("exact_selectors"), dict) else {},
+        "controls": payload.get("controls") if isinstance(payload.get("controls"), list) else [],
+    }
+
+
 def _ensure_temporary_chat(tab: Any) -> None:
     if not temporary_chat_enabled():
         return
@@ -246,8 +306,9 @@ def _ensure_temporary_chat(tab: Any) -> None:
         return
     clicked = _click(
         tab,
-        contains_texts=["开启临时聊天", "enable temporary chat"],
-        aria_contains=["开启临时聊天", "enable temporary chat"],
+        contains_texts=["开启临时聊天", "启用临时聊天", "enable temporary chat", "temporary chat"],
+        aria_contains=["开启临时聊天", "启用临时聊天", "enable temporary chat", "temporary chat"],
+        testid_contains=["temporary", "temp-chat"],
     ).get("clicked")
     if clicked:
         time.sleep(0.35)
@@ -260,7 +321,7 @@ def _ensure_model(tab: Any, desired_model: str) -> None:
 
     opened = _click(
         tab,
-        starts_with_texts=["gpt-", "gpt "],
+        contains_texts=["选择模型", "模型", "select model", "choose model"],
         aria_contains=["model", "模型"],
         testid_contains=["model"],
     ).get("clicked")
@@ -309,9 +370,6 @@ def _ensure_reasoning(tab: Any, effort: str) -> bool:
 
     time.sleep(0.3)
 
-    # The compact composer button may keep the generic label "思考强度" even
-    # after a choice is selected. Re-open the menu and inspect its selected
-    # option so strict mode verifies the actual menu state instead of guessing.
     if _open_reasoning_menu(tab):
         time.sleep(0.2)
         probe = inspect_chatgpt_web_mode(tab)
@@ -354,8 +412,6 @@ def ensure_codex_chatgpt_web_mode(reasoning: Any = None) -> Dict[str, Any]:
     effort = normalize_reasoning_effort(reasoning)
     tab = _find_chatgpt_tab()
 
-    # Temporary Chat is enabled first because entering it can recreate parts of
-    # the composer UI. Model and reasoning are then applied to the final state.
     _ensure_temporary_chat(tab)
     _ensure_model(tab, target_web_model())
     reasoning_verified = _ensure_reasoning(tab, effort)
