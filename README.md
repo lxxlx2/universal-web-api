@@ -33,7 +33,7 @@ Codex Desktop
 - GPT-5.6 Sol / High 网页模式：当前实机路径
 - UWA Responses continuation 私有持久化：代码与 CI 完成，重启实机验收仍在 Stage F
 
-Stage B failure-recovery 仍在实机调试。已经确认真实多轮 `exec_command` 可执行；近期问题集中在网页模型后续错误声称 `exec_command` 不存在，以及 Codex 后台 Memories 请求干扰主标签页。
+Stage B failure-recovery 仍在实机调试。已经确认真实多轮 `exec_command` 可执行；近期问题集中在网页模型后续错误声称 `exec_command` 不存在、误把 `workdir` 强制设为 `/`，以及 Codex 后台 Memories 请求干扰主标签页。
 
 ## 架构
 
@@ -125,6 +125,28 @@ exec_command 没有暴露
 ```
 
 如果当前请求仍声明客户端工具，且历史已经出现真实工具调用，UWA 会把这些说法视为矛盾并进行有限重试。真实的 `No such file`、权限错误、测试失败等工具结果不会被掩盖；达到重试上限仍 fail closed。
+
+### Root workdir 防护
+
+2026-09-06 的 CLI 实机探针确认了一个独立故障：Codex 自己报告的 turn workdir 是正确的 `/Users/.../uwa-codex-acceptance`，但网页模型生成的 `exec_command` 实际把 shell 跑到了 `/`。官方 Codex 在不传 `workdir` 时会继承 turn cwd，因此当前 bridge 把未被用户明确要求的 `workdir: "/"` 视为错误工具调用。
+
+当前策略：
+
+```text
+用户未明确要求 filesystem root
++
+exec_command / shell_command / local_shell 生成 workdir="/"
+↓
+UWA 在交给 Codex 前拒绝该候选
+↓
+内部要求保留原命令并完全省略 workdir
+↓
+Codex 继承当前 turn cwd
+```
+
+不会把 `/` 自动替换成猜测出来的绝对路径。用户明确要求根目录时仍允许 `workdir: "/"`。重复强制 root 超过修复上限时 fail closed。
+
+回归：`tests/test_client_tool_policy_root_workdir.py`。详细实机记录：`docs/CODEX_ROOT_WORKDIR_FIX_2026-09-06.md`。
 
 ## Codex Responses 最小工具流
 
@@ -238,6 +260,7 @@ curl -sS http://127.0.0.1:8199/v1/codex/continuity | python3 -m json.tool
 - `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md`
 - `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
 - `docs/CODEX_UWA_MEMORIES.md`
+- `docs/CODEX_ROOT_WORKDIR_FIX_2026-09-06.md`
 - Draft PR #1
 
 新 thread / 新对话恢复顺序：
@@ -311,7 +334,7 @@ python3 tools/codex_desktop_acceptance.py check --scenario <scenario>
 ```text
 单文件 calc.py                       PASS
 Stage A 多文件读/改/测                PASS
-Stage B failure recovery              rerun after tool-refusal + memory isolation fixes
+Stage B failure recovery              rerun after root-workdir guard live probe
 Stage C Git diff discipline           pending
 Stage D long process + write_stdin     pending
 Stage E same-thread context             pending
@@ -352,6 +375,7 @@ Chromium DevTools 端口可控制受控浏览器，严禁暴露到公网或普�
 
 ## 当前待办
 
+- 先实机确认 root-workdir guard 让 `exec_command(pwd)` 继承正确 turn cwd
 - Stage B 重跑并进入 C-F
 - ChatGPT Web tool-loop 增量 continuation / 会话复用
 - 完整重启后的 thread continuation
