@@ -65,9 +65,13 @@ _POST_TOOL_UNAVAILABLE_PATTERNS = (
     re.compile(r"\b(?:exec_command|shell_command|local_shell|apply_patch|write_stdin)\b.{0,100}\b(?:not|isn't|is not|wasn't|was not)\s+(?:available|exposed|provided|enabled|accessible)\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"\b(?:no|without)\s+(?:local\s+)?(?:execution|shell|workspace)\s+tool\b", re.IGNORECASE),
     re.compile(r"\b(?:tool|client tool)\b.{0,100}\b(?:not|isn't|is not)\s+(?:available|exposed|provided|enabled)\b", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\b(?:available|callable|declared|provided|exposed)\s+(?:client\s+)?tools?\b.{0,140}\b(?:do(?:es)?\s+not|don't|doesn't|cannot|can't|no)\b.{0,100}\b(?:include|contain|have|list|expose|provide)?\b.{0,80}\b(?:exec_command|shell_command|local_shell|apply_patch|write_stdin)\b", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\b(?:exec_command|shell_command|local_shell|apply_patch|write_stdin)\b.{0,120}\b(?:missing|absent)\b.{0,80}\b(?:tool|tools|toolset|tool list)\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"(?:没有|未|并未|未能).{0,30}(?:暴露|提供|启用|开放).{0,40}(?:exec_command|shell_command|本地执行工具|执行工具|客户端工具)"),
     re.compile(r"(?:exec_command|shell_command|本地执行工具|执行工具|客户端工具).{0,40}(?:没有|未|并未).{0,20}(?:暴露|提供|启用|开放|可用)"),
     re.compile(r"(?:当前(?:这个)?会话|当前环境).{0,80}(?:没有|未).{0,30}(?:exec_command|本地执行工具|执行工具|客户端工具)"),
+    re.compile(r"(?:当前|这轮|现在)?.{0,30}(?:实际)?(?:可调用|可用|提供|暴露)(?:的)?.{0,30}(?:客户端)?工具.{0,50}(?:没有|不存在|不包含|不含|找不到).{0,35}(?:名为\s*)?(?:exec_command|shell_command|本地执行工具|执行工具|客户端工具)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"(?:当前|这轮|现在)?.{0,30}(?:实际)?(?:可调用|可用)(?:工具|工具列表|tool list).{0,60}(?:没有|不存在|不包含|不含).{0,35}(?:exec_command|shell_command|local_shell|apply_patch|write_stdin)", re.IGNORECASE | re.DOTALL),
     re.compile(r"(?:无法|不能).{0,40}(?:真实|实际).{0,30}(?:写入|修改|运行|测试).{0,100}(?:因为|由于).{0,80}(?:工具|exec_command).{0,50}(?:没有|未|不可用|未暴露)"),
     re.compile(r"(?:当前(?:这轮|这个)?(?:实际)?可调用的执行环境|当前(?:这个)?会话(?:实际)?可用的(?:执行环境|文件系统)|当前环境).{0,120}(?:没有|未).{0,30}(?:挂载|映射).{0,100}(?:本机|本地|工作区|目录|路径|/Users/|/home/)", re.IGNORECASE | re.DOTALL),
     re.compile(r"(?:没有|未).{0,30}(?:挂载|映射).{0,100}(?:本机|本地|工作区|/Users/|/home/).{0,120}(?:无法|不能).{0,50}(?:真实|实际).{0,30}(?:写入|修改|运行|测试)", re.IGNORECASE | re.DOTALL),
@@ -191,21 +195,22 @@ def should_repair_client_workspace_refusal(
         return False
     if not has_client_workspace_tools(tools):
         return False
-    if not looks_like_local_workspace_request(messages):
-        return False
 
     has_history = _has_tool_history(messages)
-    if not has_history:
-        return looks_like_client_access_refusal(assistant_text)
+    if has_history:
+        # Once a workspace tool has really appeared in the conversation, an
+        # explicit later claim that the same declared tool is absent is a direct
+        # contradiction. Do not depend on the latest user-shaped message still
+        # looking like the original coding request: Codex follow-up turns often
+        # encode tool output as the newest user item.
+        return (
+            _has_workspace_tool_call_history(messages)
+            and looks_like_post_tool_unavailable_claim(assistant_text)
+        )
 
-    # After a real tool call/result, genuine file-not-found or permission errors
-    # are allowed to stand. However, a claim that exec_command/client tooling was
-    # never exposed, or that the client execution environment has no mounted
-    # workspace after a prior workspace call, contradicts the history.
-    return (
-        _has_workspace_tool_call_history(messages)
-        and looks_like_post_tool_unavailable_claim(assistant_text)
-    )
+    if not looks_like_local_workspace_request(messages):
+        return False
+    return looks_like_client_access_refusal(assistant_text)
 
 
 def build_client_workspace_repair_messages(
@@ -220,6 +225,7 @@ def build_client_workspace_repair_messages(
 
     workspace_tools = _workspace_tool_defs(tools)
     preferred_name = _tool_name(workspace_tools[0]) if workspace_tools else "exec_command"
+    declared_names = [name for name in (_tool_name(item) for item in workspace_tools) if name]
     tool_defs = json.dumps(workspace_tools, ensure_ascii=False, indent=2)
     user_request = _latest_user_text(messages).strip()
     if len(user_request) > 2200:
@@ -245,6 +251,8 @@ def build_client_workspace_repair_messages(
         "Never infer that a local workspace is unmounted, unavailable, or missing merely because the web page "
         "cannot see it. The authoritative way to inspect the workspace is to call a declared client tool. "
         + prior_history_rule
+        + f"The current request explicitly declares these workspace tool names: {declared_names}. "
+        "This declaration is authoritative for tool availability in this request. "
         + f"For a local workspace task, call {preferred_name} before claiming that a path or file is unavailable. "
         "For inspection tasks, a minimal first command such as pwd plus a directory listing is appropriate; then "
         "read the requested file with the same client tool. After a successful read, continue with the requested "
@@ -258,17 +266,29 @@ def build_client_workspace_repair_messages(
         f"{tool_defs}"
     )
 
+    repeated = attempt > 1
     if has_prior_workspace_call:
         correction = (
             "The previous reply contradicted the existing client tool history by claiming that the client execution "
             "tool or mounted local workspace was unavailable. Correct that contradiction now."
         )
+        if repeated:
+            correction += (
+                " This is a repeated contradiction. The current request still explicitly declares the workspace "
+                "tool, and prior history proves that the client already executed it. Do not discuss whether the tool "
+                "exists or is exposed."
+            )
         action = f"Continue the task by calling {preferred_name} again as needed. Return only the corrected tool-call output."
     else:
         correction = (
             "The previous reply incorrectly treated the browser's lack of direct filesystem visibility as evidence "
             "that the local coding client had no mounted workspace. Correct that behavior now."
         )
+        if repeated:
+            correction += (
+                " This is a repeated contradiction. Do not answer with tool-availability commentary; use the declared "
+                "client tool now."
+            )
         action = f"Call {preferred_name} now to inspect the actual client workspace. Return only the corrected tool-call output."
 
     user = (
