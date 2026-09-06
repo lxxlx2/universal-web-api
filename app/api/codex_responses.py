@@ -1,20 +1,42 @@
-"""Codex-specific Responses preflight.
+"""Codex-specific Responses bridge.
 
-For the logical ``chatgpt`` browser route, this layer prepares a fresh ChatGPT
-composer, verifies the web reasoning mode, and applies ChatGPT-only network
-budgets suitable for High reasoning before delegating to the existing Responses
-implementation.
+For the logical ``chatgpt`` browser route this layer prepares a fresh ChatGPT
+composer, verifies the requested web reasoning mode, and applies ChatGPT-only
+network budgets suitable for High reasoning.
+
+For streamed Codex requests that expose client tools, it intentionally uses a
+minimal Responses SSE sequence instead of translating the internal Chat
+Completions tool stream event-by-event. This mirrors the event shape used by the
+upstream Codex test harness and avoids leaking an intermediate browser refusal as
+an assistant final message when a valid function call was recovered internally.
 """
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import ipaddress
-from typing import Dict
+import json
+import time
+from typing import Any, AsyncIterator, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.api.chat import ResponsesRequest, create_response as create_response_backing, verify_auth
+from app.api.chat import (
+    ResponsesRequest,
+    _build_responses_object,
+    _new_response_id,
+    _responses_completion_status_from_chat_payload,
+    _responses_error_payload,
+    _responses_request_to_chat_request,
+    _run_chat_completion_final,
+    _store_responses_state,
+    create_response as create_response_backing,
+    verify_auth,
+)
+from app.core.config import get_logger
 from app.services.chatgpt_web_mode import (
     ChatGPTWebModeError,
     inspect_chatgpt_web_mode_diagnostics,
@@ -28,6 +50,8 @@ from app.services.codex_web_policy import (
 
 
 router = APIRouter()
+logger = get_logger("API.CODEX_RESPONSES")
+_CODEX_SSE_KEEPALIVE_SEC = 5.0
 
 
 def _is_loopback(host: str) -> bool:
@@ -41,6 +65,212 @@ def _require_loopback(request: Request) -> None:
     host = request.client.host if request.client else ""
     if not _is_loopback(host):
         raise HTTPException(status_code=403, detail="Codex Web mode control is local-only")
+
+
+def _sanitize_codex_tool_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop contradictory assistant text when the same response contains real tool calls.
+
+    Web models can emit a sentence such as "I cannot access the local tool" and
+    still emit a valid XML/function call after UWA repair. Codex should receive
+    the function call as the authoritative output for that round; user-facing
+    prose belongs after the client returns the tool result.
+    """
+
+    clean = copy.deepcopy(payload if isinstance(payload, dict) else {})
+    choices = clean.get("choices") if isinstance(clean.get("choices"), list) else []
+    if not choices or not isinstance(choices[0], dict):
+        return clean
+    message = choices[0].get("message") if isinstance(choices[0].get("message"), dict) else None
+    if not isinstance(message, dict):
+        return clean
+    tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
+    if tool_calls:
+        message["content"] = None
+        # Media accompanying a recovered client tool call is not authoritative
+        # tool output and should not turn this round into a final assistant item.
+        message.pop("media", None)
+        clean.pop("media", None)
+    return clean
+
+
+def _codex_wire_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the conservative Responses item shape Codex itself uses in tests."""
+
+    item_type = str(item.get("type") or "").strip().lower()
+    if item_type == "function_call":
+        return {
+            "type": "function_call",
+            "call_id": str(item.get("call_id") or ""),
+            "name": str(item.get("name") or ""),
+            "arguments": str(item.get("arguments") or "{}"),
+        }
+    if item_type == "message":
+        wire = {
+            "type": "message",
+            "role": str(item.get("role") or "assistant"),
+            "content": item.get("content") if isinstance(item.get("content"), list) else [],
+        }
+        if item.get("id"):
+            wire["id"] = item.get("id")
+        return wire
+    return dict(item)
+
+
+def _pack_codex_sse(event: str, payload: Dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _codex_event(event: str, *, sequence_number: int, **fields: Any) -> str:
+    payload: Dict[str, Any] = {
+        "type": event,
+        "sequence_number": sequence_number,
+        **fields,
+    }
+    return _pack_codex_sse(event, payload)
+
+
+async def _stream_codex_minimal_responses(
+    *,
+    request: Request,
+    body: ResponsesRequest,
+    authenticated: bool,
+) -> AsyncIterator[str]:
+    """Run the browser/tool adapter to completion, then emit minimal Codex SSE.
+
+    The browser may need tens of seconds to reason. Keepalive comments preserve
+    the HTTP stream while the internal non-stream Chat Completions tool adapter
+    performs refusal repair and tool-call validation.
+    """
+
+    response_id = _new_response_id()
+    created_at = int(time.time())
+    sequence = 1
+    chat_body = _responses_request_to_chat_request(body, stream=False)
+
+    in_progress = _build_responses_object(
+        body,
+        {"choices": [], "usage": {}},
+        response_id=response_id,
+        created_at=created_at,
+        status="in_progress",
+        error=None,
+    )
+    yield _codex_event(
+        "response.created",
+        sequence_number=sequence,
+        response=in_progress,
+    )
+    sequence += 1
+
+    task = asyncio.create_task(
+        _run_chat_completion_final(
+            request=request,
+            body=chat_body,
+            authenticated=authenticated,
+        )
+    )
+    try:
+        while not task.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(task),
+                    timeout=_CODEX_SSE_KEEPALIVE_SEC,
+                )
+            except asyncio.TimeoutError:
+                if await request.is_disconnected():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+                yield ": keepalive\n\n"
+
+        status_code, raw_payload = task.result()
+    except Exception as exc:
+        failed = _build_responses_object(
+            body,
+            {"choices": [], "usage": {}},
+            response_id=response_id,
+            created_at=created_at,
+            status="failed",
+            error={
+                "message": str(exc),
+                "type": "execution_error",
+                "code": "responses_backing_request_failed",
+            },
+        )
+        yield _codex_event(
+            "response.failed",
+            sequence_number=sequence,
+            response=failed,
+        )
+        return
+
+    payload = _sanitize_codex_tool_payload(raw_payload)
+    if status_code >= 400 or "error" in payload:
+        failed = _build_responses_object(
+            body,
+            payload,
+            response_id=response_id,
+            created_at=created_at,
+            status="failed",
+            error=_responses_error_payload(payload),
+        )
+        yield _codex_event(
+            "response.failed",
+            sequence_number=sequence,
+            response=failed,
+        )
+        return
+
+    response_status, incomplete_details, terminal_event = (
+        _responses_completion_status_from_chat_payload(payload)
+    )
+    completed = _build_responses_object(
+        body,
+        payload,
+        response_id=response_id,
+        created_at=created_at,
+        status=response_status,
+        error=None,
+        incomplete_details=incomplete_details,
+    )
+
+    output = completed.get("output") if isinstance(completed.get("output"), list) else []
+    tool_names = []
+    for output_index, item in enumerate(output):
+        if not isinstance(item, dict):
+            continue
+        wire_item = _codex_wire_item(item)
+        if wire_item.get("type") == "function_call":
+            tool_names.append(str(wire_item.get("name") or ""))
+        yield _codex_event(
+            "response.output_item.done",
+            sequence_number=sequence,
+            output_index=output_index,
+            item=wire_item,
+        )
+        sequence += 1
+
+    _store_responses_state(
+        response_id,
+        chat_body.messages,
+        payload,
+        enabled=body.store is not False,
+    )
+
+    logger.info(
+        "[CODEX_RESPONSES] minimal stream completed: "
+        f"response_id={response_id} output_items={len(output)} "
+        f"tool_names={tool_names or ['none']} status={response_status}"
+    )
+
+    yield _codex_event(
+        terminal_event,
+        sequence_number=sequence,
+        response=completed,
+    )
 
 
 class CodexWebModeApplyRequest(BaseModel):
@@ -88,10 +318,8 @@ async def codex_aware_responses(
     body: ResponsesRequest,
     authenticated: bool = Depends(verify_auth),
 ):
-    if str(body.model or "").strip().lower() == "chatgpt" and web_mode_enabled():
-        # Install before the backing StreamingResponse starts iterating. The
-        # wrapper changes only NetworkMonitor configs whose parser id is
-        # ``chatgpt``; all other web providers keep their original budgets.
+    is_codex_web = str(body.model or "").strip().lower() == "chatgpt" and web_mode_enabled()
+    if is_codex_web:
         install_codex_chatgpt_network_tuning()
         try:
             prepare_and_verify_codex_web_mode(body.reasoning)
@@ -103,6 +331,25 @@ async def codex_aware_responses(
                     "message": str(exc),
                 },
             ) from exc
+
+        # Codex currently sends its local client functions in every agent turn.
+        # For those streamed tool-capable turns, emit the smallest Responses SSE
+        # shape known to be consumed by Codex reliably. Ordinary no-tool requests
+        # retain the generic Responses adapter for compatibility.
+        if bool(body.stream) and isinstance(body.tools, list) and body.tools:
+            return StreamingResponse(
+                _stream_codex_minimal_responses(
+                    request=request,
+                    body=body,
+                    authenticated=authenticated,
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache, no-transform",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
 
     return await create_response_backing(
         request=request,
