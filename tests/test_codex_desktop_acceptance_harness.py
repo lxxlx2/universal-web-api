@@ -70,7 +70,7 @@ def test_context_prompts_are_two_round_same_thread_protocol(tmp_path):
     assert "不要向我询问上一轮令牌" in second.stdout
 
 
-def test_failure_recovery_prompt_guards_current_workspace(tmp_path):
+def test_failure_recovery_prompt_guards_current_workspace_and_audits_runs(tmp_path):
     root = tmp_path / "acceptance"
     assert _run("setup", "--root", str(root)).returncode == 0
 
@@ -79,6 +79,8 @@ def test_failure_recovery_prompt_guards_current_workspace(tmp_path):
     assert ".uwa_codex_acceptance" in prompt.stdout
     assert "ACCEPTANCE_WORKSPACE_MISMATCH" in prompt.stdout
     assert "不要探测其他绝对路径" in prompt.stdout
+    assert "failure_recovery/.run_history" in prompt.stdout
+    assert "printf '%s\\n'" in prompt.stdout
     assert "/Users/" not in prompt.stdout
 
 
@@ -118,6 +120,7 @@ def test_prepare_restores_only_selected_scenario_and_preflight_proves_red(tmp_pa
     assert preflight.returncode == 0, preflight.stdout
     assert "PREFLIGHT_EXPECTED_RED scenario=failure_recovery" in preflight.stdout
     assert "PREFLIGHT_PASS scenario=failure_recovery" in preflight.stdout
+    assert not (root / "failure_recovery" / ".run_history").exists()
 
 
 def test_prepare_creates_missing_acceptance_workspace(tmp_path):
@@ -133,3 +136,77 @@ def test_prepare_creates_missing_acceptance_workspace(tmp_path):
     assert "SETUP_PASS" in prepared.stdout
     assert "PREPARE_PASS scenario=failure_recovery created_workspace=true" in prepared.stdout
     assert (root / ".uwa_codex_acceptance").is_file()
+
+
+def test_failure_recovery_check_requires_failure_then_success_evidence(tmp_path):
+    root = tmp_path / "acceptance"
+    assert _run("setup", "--root", str(root)).returncode == 0
+
+    parser = root / "failure_recovery" / "parser.py"
+    parser.write_text(
+        "def parse_port(value):\n"
+        "    if not isinstance(value, str):\n"
+        "        raise ValueError('invalid port')\n"
+        "    value = value.strip()\n"
+        "    if not value.isdigit():\n"
+        "        raise ValueError('invalid port')\n"
+        "    port = int(value)\n"
+        "    if port < 1 or port > 65535:\n"
+        "        raise ValueError('invalid port')\n"
+        "    return port\n",
+        encoding="utf-8",
+    )
+
+    missing_evidence = _run(
+        "check",
+        "--root",
+        str(root),
+        "--scenario",
+        "failure_recovery",
+    )
+    assert missing_evidence.returncode != 0
+    assert "failure_recovery: FAIL" in missing_evidence.stdout
+    assert "history=[]" in missing_evidence.stdout
+
+    history = root / "failure_recovery" / ".run_history"
+    history.write_text("1\n0\n", encoding="utf-8")
+    accepted = _run(
+        "check",
+        "--root",
+        str(root),
+        "--scenario",
+        "failure_recovery",
+    )
+    assert accepted.returncode == 0, accepted.stdout
+    assert "failure_recovery: PASS" in accepted.stdout
+    assert "ACCEPTANCE_PASS" in accepted.stdout
+
+
+def test_failure_recovery_check_rejects_test_file_edits(tmp_path):
+    root = tmp_path / "acceptance"
+    assert _run("setup", "--root", str(root)).returncode == 0
+
+    parser = root / "failure_recovery" / "parser.py"
+    parser.write_text(
+        "def parse_port(value):\n"
+        "    value = value.strip()\n"
+        "    port = int(value)\n"
+        "    if port < 1 or port > 65535:\n"
+        "        raise ValueError('invalid port')\n"
+        "    return port\n",
+        encoding="utf-8",
+    )
+    (root / "failure_recovery" / ".run_history").write_text("1\n0\n", encoding="utf-8")
+    test_file = root / "failure_recovery" / "tests" / "test_parser.py"
+    test_file.write_text(test_file.read_text(encoding="utf-8") + "\n# changed\n", encoding="utf-8")
+
+    rejected = _run(
+        "check",
+        "--root",
+        str(root),
+        "--scenario",
+        "failure_recovery",
+    )
+    assert rejected.returncode != 0
+    assert "failure_recovery: FAIL" in rejected.stdout
+    assert "failure_recovery/tests/test_parser.py" in rejected.stdout
