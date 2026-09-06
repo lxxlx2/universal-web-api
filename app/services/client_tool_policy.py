@@ -5,9 +5,10 @@ Codex-style client this assumption is incomplete: the web page itself has no loc
 filesystem access, but declared function tools such as ``exec_command`` execute in
 the client under the client's own sandbox and approval policy.
 
-This module only repairs a narrow failure mode: an obvious local-workspace access
-refusal before any client tool result has been observed. It never executes commands
-itself and it never bypasses client permission checks.
+This module repairs a narrow class of contradictions where the web model claims
+that the local workspace or client execution tool is unavailable even though the
+client declared that tool. It never executes commands itself and it never bypasses
+client permission checks.
 """
 
 from __future__ import annotations
@@ -55,6 +56,20 @@ _REFUSAL_PATTERNS = (
     re.compile(r"(?:因此|所以).{0,35}(?:无法|不能).{0,50}(?:读取|修改|测试|运行|访问)"),
 )
 
+# Strong contradiction patterns that remain invalid even after a prior tool result.
+# A previous client tool call proves the declared client-side tool existed, so a
+# later claim that the tool was never exposed/available should be repaired rather
+# than accepted as a final answer.
+_POST_TOOL_UNAVAILABLE_PATTERNS = (
+    re.compile(r"\b(?:exec_command|shell_command|local_shell|apply_patch|write_stdin)\b.{0,100}\b(?:not|isn't|is not|wasn't|was not)\s+(?:available|exposed|provided|enabled|accessible)\b", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\b(?:no|without)\s+(?:local\s+)?(?:execution|shell|workspace)\s+tool\b", re.IGNORECASE),
+    re.compile(r"\b(?:tool|client tool)\b.{0,100}\b(?:not|isn't|is not)\s+(?:available|exposed|provided|enabled)\b", re.IGNORECASE | re.DOTALL),
+    re.compile(r"(?:没有|未|并未|未能).{0,30}(?:暴露|提供|启用|开放).{0,40}(?:exec_command|shell_command|本地执行工具|执行工具|客户端工具)"),
+    re.compile(r"(?:exec_command|shell_command|本地执行工具|执行工具|客户端工具).{0,40}(?:没有|未|并未).{0,20}(?:暴露|提供|启用|开放|可用)"),
+    re.compile(r"(?:当前(?:这个)?会话|当前环境).{0,80}(?:没有|未).{0,30}(?:exec_command|本地执行工具|执行工具|客户端工具)"),
+    re.compile(r"(?:无法|不能).{0,40}(?:真实|实际).{0,30}(?:写入|修改|运行|测试).{0,100}(?:因为|由于).{0,80}(?:工具|exec_command).{0,50}(?:没有|未|不可用|未暴露)"),
+)
+
 
 def _flag_enabled(name: str, default: bool = True) -> bool:
     raw = str(os.getenv(name, "1" if default else "0") or "").strip().lower()
@@ -96,6 +111,25 @@ def _has_tool_history(messages: List[Dict[str, Any]]) -> bool:
     return False
 
 
+def _has_workspace_tool_call_history(messages: List[Dict[str, Any]]) -> bool:
+    workspace_names = set(_WORKSPACE_TOOL_PRIORITY)
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for item in tool_calls:
+                if _tool_name(item) in workspace_names:
+                    return True
+        function_call = message.get("function_call")
+        if isinstance(function_call, dict) and _tool_name(function_call) in workspace_names:
+            return True
+        role = str(message.get("role") or "").strip().lower()
+        if role in {"tool", "function"} and str(message.get("name") or "").strip() in workspace_names:
+            return True
+    return False
+
+
 def _latest_user_text(messages: List[Dict[str, Any]]) -> str:
     for message in reversed(messages or []):
         if not isinstance(message, dict):
@@ -127,6 +161,13 @@ def looks_like_client_access_refusal(text: str) -> bool:
     return any(pattern.search(value) for pattern in _REFUSAL_PATTERNS)
 
 
+def looks_like_post_tool_unavailable_claim(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+    return any(pattern.search(value) for pattern in _POST_TOOL_UNAVAILABLE_PATTERNS)
+
+
 def should_repair_client_workspace_refusal(
     *,
     messages: List[Dict[str, Any]],
@@ -135,7 +176,7 @@ def should_repair_client_workspace_refusal(
     assistant_text: str,
     parsed: Dict[str, Any],
 ) -> bool:
-    """Return True only for the narrow pre-tool local-access refusal case."""
+    """Repair false local-workspace/tool-availability claims without masking real failures."""
 
     if not _flag_enabled("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", True):
         return False
@@ -147,13 +188,20 @@ def should_repair_client_workspace_refusal(
         return False
     if not has_client_workspace_tools(tools):
         return False
-    # After a real tool call/result, a missing file or permission failure may be
-    # genuine. Do not transform such a final answer into an endless tool loop.
-    if _has_tool_history(messages):
-        return False
     if not looks_like_local_workspace_request(messages):
         return False
-    return looks_like_client_access_refusal(assistant_text)
+
+    has_history = _has_tool_history(messages)
+    if not has_history:
+        return looks_like_client_access_refusal(assistant_text)
+
+    # After a real tool call/result, genuine file-not-found or permission errors
+    # are allowed to stand. However, a claim that exec_command/client tooling was
+    # never exposed is self-contradictory because the history proves it existed.
+    return (
+        _has_workspace_tool_call_history(messages)
+        and looks_like_post_tool_unavailable_claim(assistant_text)
+    )
 
 
 def build_client_workspace_repair_messages(
@@ -176,15 +224,26 @@ def build_client_workspace_repair_messages(
     if len(rejected) > 1400:
         rejected = rejected[:1397] + "..."
 
+    has_prior_workspace_call = _has_workspace_tool_call_history(messages)
+    prior_history_rule = (
+        "A prior workspace client tool call/result is already present in the conversation. "
+        "That proves the client tool is exposed and executable in this session. Continue using the declared "
+        "client tools as needed; do not claim that exec_command or the local execution tool is unavailable. "
+        if has_prior_workspace_call
+        else ""
+    )
+
     system = (
         "You are the reasoning backend for a local coding client. The declared client tools are real. "
         "The web page itself has no filesystem access, but the client tools DO execute on the user's machine "
         "under the client's sandbox and approval policy. Browser-visible filesystem state is not authoritative. "
         "Never infer that a local workspace is unmounted, unavailable, or missing merely because the web page "
         "cannot see it. The authoritative way to inspect the workspace is to call a declared client tool. "
-        f"For a local workspace task, call {preferred_name} before claiming that a path or file is unavailable. "
+        + prior_history_rule
+        + f"For a local workspace task, call {preferred_name} before claiming that a path or file is unavailable. "
         "For inspection tasks, a minimal first command such as pwd plus a directory listing is appropriate; then "
-        "read the requested file with the same client tool. Do not ask the user to upload a file and do not give "
+        "read the requested file with the same client tool. After a successful read, continue with the requested "
+        "edit and test instead of stopping at an explanation. Do not ask the user to upload a file and do not give "
         "commands for the user to run manually when a declared client tool can perform the action. "
         "Only report a missing path, permission error, or failed test after an actual client tool result says so. "
         "Return exactly one complete <adapter_calls> root when calling tools. Put the tool name in the call name "
@@ -194,16 +253,28 @@ def build_client_workspace_repair_messages(
         f"{tool_defs}"
     )
 
+    if has_prior_workspace_call:
+        correction = (
+            "The previous reply incorrectly claimed that the local client execution tool was not exposed even "
+            "though a prior client tool call/result is already in the conversation. Correct that contradiction now."
+        )
+        action = f"Continue the task by calling {preferred_name} again as needed. Return only the corrected tool-call output."
+    else:
+        correction = (
+            "The previous reply incorrectly treated the browser's lack of direct filesystem visibility as evidence "
+            "that the local coding client had no mounted workspace. Correct that behavior now."
+        )
+        action = f"Call {preferred_name} now to inspect the actual client workspace. Return only the corrected tool-call output."
+
     user = (
         "[Client Workspace Repair]\n"
         f"Attempt: {attempt}/{total_attempts}\n"
-        "The previous reply incorrectly treated the browser's lack of direct filesystem visibility as evidence "
-        "that the local coding client had no mounted workspace. Correct that behavior now.\n\n"
+        f"{correction}\n\n"
         "Original user request:\n"
         f"{user_request}\n\n"
         "Rejected reply:\n"
         f"{rejected}\n\n"
-        f"Call {preferred_name} now to inspect the actual client workspace. Return only the corrected tool-call output."
+        f"{action}"
     )
 
     return [
@@ -217,5 +288,6 @@ __all__ = [
     "has_client_workspace_tools",
     "looks_like_client_access_refusal",
     "looks_like_local_workspace_request",
+    "looks_like_post_tool_unavailable_claim",
     "should_repair_client_workspace_refusal",
 ]
