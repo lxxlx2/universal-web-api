@@ -1,6 +1,8 @@
 # Codex Desktop Web Bridge Progress
 
-This document records the security-hardening fork's Codex Desktop integration work so progress is not lost between test sessions.
+This document records the `security-hardening` fork's Codex Desktop integration work so progress is not lost between test sessions.
+
+Checkpoint: **2026-09-06**
 
 ## Upstream acknowledgement
 
@@ -36,46 +38,92 @@ The web page does not receive direct filesystem access. Local file reads, writes
 - Codex CLI inference through the custom provider
 - Codex Desktop loading the custom `uwa` provider
 - official/UWA configuration can be kept separate locally
+- Codex catalog now labels the `chatgpt` route as a browser-selected web model instead of pretending it identifies a concrete model
+- unmapped `low/high/ultra` reasoning choices are no longer advertised by this fork
 
-## Known gaps found during real Codex Desktop testing
+## Phase 2 changes implemented in this checkpoint
 
-### 1. Local coding tool loop is not yet reliable
+### Client workspace refusal repair
 
-Observed failure: for a request to inspect and fix a local `calc.py`, the web model answered that it could not access the local machine and returned shell instructions to the user. No `exec_command` function call reached Codex.
+Real Desktop testing exposed this failure:
 
-Cause: UWA currently emulates tool calling by describing client tools to the web model in text and parsing XML/JSON tool-call output. A web chat model can still fall back to its normal "I cannot access your local files" behavior.
+> The web model was asked to inspect and fix a local `calc.py`, but answered that it could not access the local machine and returned shell commands for the user to run manually. No `exec_command` function call reached Codex.
 
-Current remediation: add a Codex/client-workspace policy that explicitly explains that client tools execute on the user's machine and automatically retries obvious local-access refusal answers when `exec_command` or equivalent client tools are available.
+UWA tool calling is a text protocol adapter. It describes client tools to the web model and parses XML/JSON tool-call output. A normal web chat model can still fall back to its usual "I cannot access your local files" behavior.
 
-### 2. Model identity is indirect
+The fork now includes `app/services/client_tool_policy.py` and integrates it into both synchronous and asynchronous tool-call round trips.
 
-The `chatgpt` model id currently means "route to the ChatGPT browser tab". It does not prove which selectable ChatGPT web model is active. The controlled browser remains the source of truth for the actual selected web model.
+Behavior:
 
-The Codex catalog should therefore describe this route as a browser-selected ChatGPT model and avoid presenting unsupported reasoning levels as if they were mapped.
+1. Only activates when a declared client workspace tool such as `exec_command` is available.
+2. Only activates for an apparent local workspace/code request.
+3. Only activates before any genuine tool call/result has occurred.
+4. Detects a narrow set of English/Chinese local-access refusal patterns.
+5. Sends a compact focused repair explaining that the browser has no direct filesystem access while the declared client tool executes locally under Codex sandbox/approval controls.
+6. Requires a real tool call instead of asking the user to upload files or run commands manually.
+7. Uses bounded retries.
+8. Fails closed after repeated false refusals instead of returning an unexecuted manual command as a successful task result.
 
-### 3. Reasoning level is not mapped yet
+Tests cover the observed refusal, a successful refusal-to-`exec_command` repair, retry exhaustion, and the important case where a real tool result has already confirmed a missing file. In the latter case the policy does not override the genuine failure.
 
-Codex can send `reasoning.effort`, but the current Responses-to-browser conversion does not map that field to the ChatGPT web UI's reasoning controls. Advertising `low/medium/high/ultra` is misleading until a stable UI mapping exists.
+### Model metadata honesty
 
-### 4. Responses continuation state is process-local
+The `chatgpt` id means "route to the controlled ChatGPT browser tab". It does not prove which selectable ChatGPT web model is active. The controlled browser remains the source of truth.
+
+Codex metadata now displays `ChatGPT Web (browser-selected model)` for that route and documents this limitation.
+
+### Reasoning metadata honesty
+
+Codex can send `reasoning.effort`, but the current Responses-to-browser conversion does not map that field to ChatGPT web UI reasoning controls. The fork now advertises only a `medium` / Web default placeholder until a stable browser-side mapping exists.
+
+### Context overhead
+
+The hardened `.env.example` disables optional tool-calling prompt padding by default. Focused repair prompts remain available when a tool call needs correction. Existing local `.env` files are not automatically rewritten, so a previously copied config may need manual adjustment.
+
+### Public repository safety
+
+- added [`SECURITY.md`](../SECURITY.md)
+- expanded `.gitignore` for future Responses state databases and local `.uwa` runtime state
+- progress docs and tests use synthetic examples only
+- no real Cookie, token, browser profile, local username, private filesystem path, or private project content should be committed
+
+## Known gaps
+
+### 1. Real Codex Desktop coding-agent acceptance test still pending
+
+The repair logic now has automated unit coverage. It still needs a real browser acceptance test:
+
+```text
+clean local workspace
+-> read calc.py with client tool
+-> modify the deliberately wrong function
+-> run a real test
+-> receive function_call_output
+-> continue the model/tool loop
+-> report the verified result
+```
+
+A pass here is required before treating the UWA path as ready for normal coding work.
+
+### 2. Responses continuation state is process-local
 
 Current Responses continuation state is in memory, has a one-hour TTL, and disappears when UWA restarts. Long-running Codex threads can therefore lose `previous_response_id` continuity.
 
-Planned direction: optional local persistence with a private runtime database, explicit retention limits, file permissions, and Git ignore rules. Persistence must remain opt-in or clearly documented because it can contain source code, tool output, and conversation history.
+Planned direction: optional local persistence with a private runtime database, explicit retention limits, restrictive file permissions, and Git ignore rules. Persistence can contain source code, tool output, and conversation history, so this change needs a dedicated privacy/security review before implementation.
 
-### 5. Token accounting is approximate/missing
+### 3. Token accounting is approximate/missing
 
 Web responses currently report zero token usage. Codex context indicators and compaction decisions should not be assumed to match the real web model context usage.
 
 Planned direction: local approximate token accounting and conservative context metadata after empirical 32K/64K/96K/128K stability tests.
 
-### 6. ChatGPT Memory isolation is not guaranteed
+### 4. ChatGPT Memory isolation is not guaranteed
 
 A normal signed-in ChatGPT browser conversation may use account personalization and may create normal chat history. For coding-agent use, account memory and coding context should ideally be isolated.
 
-Planned direction: investigate a stable Temporary Chat workflow. This must be implemented cautiously because UI selectors can change. Until then, users should understand that normal ChatGPT account behavior may apply.
+Planned direction: investigate a stable Temporary Chat workflow. This must be implemented only after current ChatGPT DOM behavior is inspected and tested because UI selectors can change. Until then, users should assume normal account behavior may apply.
 
-### 7. Advanced Codex tools are not guaranteed
+### 5. Advanced Codex tools are not guaranteed
 
 Core function tools such as `exec_command` are the first compatibility target. Namespace tools, MCP, plugins, hosted search, multi-agent features, and other Codex-specific capabilities may need separate adapters and tests.
 
@@ -90,14 +138,14 @@ Core function tools such as `exec_command` are the first compatibility target. N
 - local Codex tool execution must remain subject to Codex sandbox/approval controls
 - do not weaken local permission checks merely to make tool calling easier
 - redact screenshots and logs before posting them to this public repository
-- if a secret is ever committed, remove it from history when practical and rotate/revoke it immediately
+- if a secret is ever committed, rotate/revoke it immediately and remove it from history when practical
 
 ## Current milestone
 
 Phase 1, local security hardening: complete for the tested macOS workflow.
 
-Phase 2, Codex Desktop core agent loop: in progress. Acceptance test is a clean local workspace where Codex can read `calc.py`, fix a deliberately incorrect function, run a real test, and report the verified result without asking the user to execute commands manually.
+Phase 2, Codex Desktop core agent loop: code-side refusal repair implemented and awaiting real Desktop acceptance testing.
 
-Phase 3, continuity and memory isolation: pending.
+Phase 3, continuity and memory isolation: pending dedicated design and security review.
 
 Phase 4, context accounting and advanced tool compatibility: pending.
