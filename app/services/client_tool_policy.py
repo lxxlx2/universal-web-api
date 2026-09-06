@@ -38,6 +38,7 @@ _WORKSPACE_REQUEST_PATTERNS = (
     re.compile(r"\b(?:read|inspect|open|edit|modify|fix|patch|test|run)\b.{0,80}\b(?:file|code|test|project|repo)\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"(?:^|[\s/])[^\s/]+\.(?:py|js|jsx|ts|tsx|java|kt|kts|cs|cpp|cc|c|h|hpp|go|rs|rb|php|swift|sh|zsh|bash|toml|yaml|yml|json|md)(?:\b|$)", re.IGNORECASE),
     re.compile(r"(?:/Users/|/home/|[A-Za-z]:\\)", re.IGNORECASE),
+    re.compile(r"\b(?:exec_command|shell_command|local_shell|apply_patch|write_stdin)\b", re.IGNORECASE),
     re.compile(r"(?:本机|本地|工作区|仓库|项目|文件|目录|代码|测试|修复|修改|检查)"),
 )
 
