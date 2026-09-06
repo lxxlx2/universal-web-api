@@ -57,9 +57,10 @@ _REFUSAL_PATTERNS = (
 )
 
 # Strong contradiction patterns that remain invalid even after a prior tool result.
-# A previous client tool call proves the declared client-side tool existed, so a
-# later claim that the tool was never exposed/available should be repaired rather
-# than accepted as a final answer.
+# A previous client tool call proves the declared client-side tool existed. A later
+# claim that the tool was never exposed, or that the same client execution
+# environment suddenly has no mounted workspace despite a successful read, should
+# be repaired rather than accepted as a final answer.
 _POST_TOOL_UNAVAILABLE_PATTERNS = (
     re.compile(r"\b(?:exec_command|shell_command|local_shell|apply_patch|write_stdin)\b.{0,100}\b(?:not|isn't|is not|wasn't|was not)\s+(?:available|exposed|provided|enabled|accessible)\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"\b(?:no|without)\s+(?:local\s+)?(?:execution|shell|workspace)\s+tool\b", re.IGNORECASE),
@@ -68,6 +69,8 @@ _POST_TOOL_UNAVAILABLE_PATTERNS = (
     re.compile(r"(?:exec_command|shell_command|本地执行工具|执行工具|客户端工具).{0,40}(?:没有|未|并未).{0,20}(?:暴露|提供|启用|开放|可用)"),
     re.compile(r"(?:当前(?:这个)?会话|当前环境).{0,80}(?:没有|未).{0,30}(?:exec_command|本地执行工具|执行工具|客户端工具)"),
     re.compile(r"(?:无法|不能).{0,40}(?:真实|实际).{0,30}(?:写入|修改|运行|测试).{0,100}(?:因为|由于).{0,80}(?:工具|exec_command).{0,50}(?:没有|未|不可用|未暴露)"),
+    re.compile(r"(?:当前(?:这轮|这个)?(?:实际)?可调用的执行环境|当前(?:这个)?会话(?:实际)?可用的(?:执行环境|文件系统)|当前环境).{0,120}(?:没有|未).{0,30}(?:挂载|映射).{0,100}(?:本机|本地|工作区|目录|路径|/Users/|/home/)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"(?:没有|未).{0,30}(?:挂载|映射).{0,100}(?:本机|本地|工作区|/Users/|/home/).{0,120}(?:无法|不能).{0,50}(?:真实|实际).{0,30}(?:写入|修改|运行|测试)", re.IGNORECASE | re.DOTALL),
 )
 
 
@@ -197,7 +200,8 @@ def should_repair_client_workspace_refusal(
 
     # After a real tool call/result, genuine file-not-found or permission errors
     # are allowed to stand. However, a claim that exec_command/client tooling was
-    # never exposed is self-contradictory because the history proves it existed.
+    # never exposed, or that the client execution environment has no mounted
+    # workspace after a prior workspace call, contradicts the history.
     return (
         _has_workspace_tool_call_history(messages)
         and looks_like_post_tool_unavailable_claim(assistant_text)
@@ -229,6 +233,7 @@ def build_client_workspace_repair_messages(
         "A prior workspace client tool call/result is already present in the conversation. "
         "That proves the client tool is exposed and executable in this session. Continue using the declared "
         "client tools as needed; do not claim that exec_command or the local execution tool is unavailable. "
+        "Do not claim that the workspace is unmounted merely because the browser itself cannot see it. "
         if has_prior_workspace_call
         else ""
     )
@@ -255,8 +260,8 @@ def build_client_workspace_repair_messages(
 
     if has_prior_workspace_call:
         correction = (
-            "The previous reply incorrectly claimed that the local client execution tool was not exposed even "
-            "though a prior client tool call/result is already in the conversation. Correct that contradiction now."
+            "The previous reply contradicted the existing client tool history by claiming that the client execution "
+            "tool or mounted local workspace was unavailable. Correct that contradiction now."
         )
         action = f"Continue the task by calling {preferred_name} again as needed. Return only the corrected tool-call output."
     else:
