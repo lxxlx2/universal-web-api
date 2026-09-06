@@ -114,6 +114,47 @@ def test_roundtrip_repairs_accidental_root_workdir_by_omitting_workdir(monkeypat
     assert "omit workdir" in seen[1][1]["content"].lower()
 
 
+def test_roundtrip_recovers_when_root_workdir_repair_is_followed_by_tool_unavailable_refusal(monkeypatch):
+    monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
+    monkeypatch.setenv("TOOL_CALLING_INTERNAL_RETRY_MAX", "2")
+    replies = iter(
+        [
+            (
+                '<adapter_calls><call name="exec_command">'
+                '<arguments encoding="json"><![CDATA['
+                '{"cmd":"pwd","workdir":"/"}'
+                ']]></arguments></call></adapter_calls>'
+            ),
+            "exec_command 不可用，无法返回该命令的真实输出。",
+            (
+                '<adapter_calls><call name="exec_command">'
+                '<arguments encoding="json"><![CDATA['
+                '{"cmd":"pwd"}'
+                ']]></arguments></call></adapter_calls>'
+            ),
+        ]
+    )
+    seen = []
+
+    def executor(browser_messages):
+        seen.append(browser_messages)
+        return next(replies)
+
+    result = complete_tool_calling_roundtrip(
+        messages=[{"role": "user", "content": "必须使用 exec_command 执行 pwd，只返回真实输出。"}],
+        tools=EXEC_TOOLS,
+        tool_choice="auto",
+        parallel_tool_calls=False,
+        round_executor=executor,
+    )
+
+    assert result["mode"] == "tool_calls"
+    args = json.loads(result["tool_calls"][0]["function"]["arguments"])
+    assert args == {"cmd": "pwd"}
+    assert len(seen) == 3
+    assert "tool-availability commentary" in seen[2][1]["content"]
+
+
 def test_roundtrip_fails_closed_if_model_keeps_forcing_root_workdir(monkeypatch):
     monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
     monkeypatch.setenv("TOOL_CALLING_INTERNAL_RETRY_MAX", "1")
