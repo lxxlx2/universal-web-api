@@ -3,21 +3,19 @@
 Last updated: 2026-09-06
 Branch: `security-hardening`
 
-This file is the canonical handoff for the current project state. Future work should read this file, `README.md`, and `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md` before changing the bridge.
+This is the canonical handoff. Future work should read this file, `README.md`, and `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md` before changing the bridge.
 
 ## Goal
 
-Use Codex Desktop / Codex CLI as the local coding client while routing model reasoning through the controlled ChatGPT web session. Local filesystem, shell, tests, Git, sandbox and approval remain Codex-side capabilities.
-
-Target path:
+Use Codex Desktop / CLI as the local coding client while routing model reasoning through a controlled ChatGPT Web session. Filesystem, shell, tests, Git, sandbox and approval remain Codex-side capabilities.
 
 ```text
-Codex Desktop
--> OpenAI Responses-compatible request
--> UWA on 127.0.0.1:8199
--> controlled ChatGPT Web tab
+Codex Desktop / CLI
+-> Responses-compatible request
+-> UWA 127.0.0.1:8199
+-> ChatGPT Web
 -> GPT-5.6 Sol / High
--> web model chooses client tools
+-> web model chooses declared client tool
 -> UWA emits Responses function_call
 -> Codex executes locally
 -> function_call_output returns through UWA
@@ -26,126 +24,111 @@ Codex Desktop
 
 ## Live verified
 
-- Codex Desktop loads custom `uwa` provider
+- custom `uwa` provider loads in Codex Desktop and CLI
 - ordinary text inference through ChatGPT Web
-- GPT-5.6 Sol UI label with High reasoning in the tested web session
-- workspace-refusal detection and bounded repair
+- GPT-5.6 Sol / High target web mode
 - minimal Codex Responses SSE function-call delivery
-- real `exec_command` execution on macOS
-- real function-call output continuation
-- single-file `calc.py` read/edit/test loop
-- multi-file Stage A acceptance
-  - two implementation files modified
-  - tests untouched
-  - three real unit tests passed
-  - generated checker returned `multi_file: PASS` and `ACCEPTANCE_PASS`
-- Stage B attempt 1 proved `exec_command` delivery and tool-result continuation but was invalid because the selected execution context could not see the synthetic acceptance workspace
-- Stage B attempt 2 proved several consecutive `exec_command` deliveries and follow-up tool-result turns, then exposed a false post-tool claim that `exec_command` was absent
-- a later clean CLI probe proved the Codex turn cwd itself was correct while the web-generated tool call still executed from `/`, isolating an accidental root `workdir` override
+- real `exec_command` on macOS
+- real function-call-output continuation
+- single-file read/edit/test loop
+- Stage A multi-file acceptance: PASS / `ACCEPTANCE_PASS`
+- multiple consecutive `exec_command` rounds have executed successfully
 - localhost security defaults and public-repository safety scan
 
-## Stage B policy fixes
+## Current Stage B status
 
-Two earlier policy gaps were fixed:
+Stage B failure-recovery is still pending live PASS. The important failures found so far have been converted into code, regression tests and public checkpoints.
 
-1. Chinese/English claims such as `当前实际可调用工具中没有名为 exec_command 的客户端工具` are recognized as contradictions after a real tool call has already succeeded.
-2. Post-tool contradiction repair no longer depends on the newest user-shaped item still resembling the original coding request, because Codex follow-up turns may encode tool output as that newest item.
+### 1. False workspace/tool refusal
 
-Regression coverage: `tests/test_client_tool_policy_repeated_refusal.py`.
-
-## Root workdir diagnosis and current fix
-
-A clean CLI probe was launched from `~/uwa-codex-acceptance`. Codex itself reported the correct turn workdir:
+The web model has emitted claims such as:
 
 ```text
-workdir: /Users/jerson/uwa-codex-acceptance
-provider: uwa
-model: chatgpt
+current callable tools do not include exec_command
+exec_command is unavailable
 ```
 
-The user required a real `exec_command` containing only `pwd`, but the actual tool output was `/`.
+Current policy:
 
-Official Codex inherits the turn environment cwd when `exec_command.workdir` is omitted. The observed result therefore isolates the failure to the web-generated tool arguments overriding the client cwd with `workdir: "/"`.
+- if a workspace tool is declared, explicit claims that the named declared tool is unavailable are repairable contradictions;
+- if a real workspace tool call already exists in history, later claims that the same declared tool disappeared are repaired without relying on the newest user-shaped item still looking like the original coding request;
+- explicit user references to `exec_command`, `shell_command`, `local_shell`, `apply_patch`, or `write_stdin` count as local client-tool requests, so minimal probes are covered;
+- repair is bounded and fails closed after the retry budget;
+- genuine tool errors such as missing files, permission errors and failed tests remain visible.
+
+Regression coverage:
+
+- `tests/test_client_tool_policy.py`
+- `tests/test_client_tool_policy_repeated_refusal.py`
+- `tests/test_client_tool_policy_root_workdir.py`
+
+### 2. Accidental root workdir override
+
+A clean CLI probe showed Codex's own turn cwd was correct, while the actual `exec_command(pwd)` ran from `/`. This isolated a web-generated `workdir="/"` override.
 
 Current guard:
 
-1. for `exec_command`, `shell_command`, and `local_shell`, `/` is rejected as an implicit/default workdir unless the user explicitly requested filesystem root;
-2. the internal repair preserves the intended command and requires the corrected call to omit `workdir` entirely;
-3. UWA never guesses an absolute replacement path;
-4. repeated root forcing fails closed after the bounded retry budget;
-5. explicit root requests remain allowed.
-
-Regression coverage: `tests/test_client_tool_policy_root_workdir.py`.
-
-Detailed checkpoint: `docs/CODEX_ROOT_WORKDIR_FIX_2026-09-06.md`.
-
-CI run #115 passed all jobs, including full regression and public-repository safety.
-
-## Live acceptance still pending
-
-- rerun the minimal CLI `pwd` probe after the root-workdir guard
-- Stage B failure-recovery rerun only after that probe returns the acceptance workspace path
-- Stage C: Git-aware change discipline
-- Stage D: long-running process + stdin continuation / `write_stdin`
-- Stage E: same-thread conversational continuity
-- Stage F: fully quit/reopen Codex + restart UWA + reopen same thread
-- larger context windows and compaction
-- MCP / namespace tools / plugins / multi-agent
-- auxiliary Codex model request optimization
-
-## ChatGPT web-conversation churn
-
-A Codex agent task can create several ChatGPT sidebar conversations today. This is currently expected from the generic UWA workflow, not evidence that Codex Desktop created duplicate tasks.
-
-Current behavior:
-
 ```text
-one Codex Responses tool turn
--> one reconstructed ChatGPT web request
--> generic workflow prefers a fresh ChatGPT conversation
--> tool result returns to Codex
--> next Responses turn creates another reconstructed web request
+user did not explicitly request filesystem root
++
+exec-like tool proposes workdir="/"
+-> reject candidate before delivery to Codex
+-> preserve intended command
+-> require corrected call to omit workdir
+-> Codex inherits its turn cwd
 ```
 
-Internal workspace-repair retries also run additional browser rounds. During Stage B this produced several similar ChatGPT sidebar entries and repeatedly uploaded large reconstructed contexts.
+UWA does not guess a replacement absolute path. Explicit root requests remain allowed. Repeated root forcing fails closed.
 
-Why this is not being fixed by globally enabling page reuse: outer-turn payloads currently contain reconstructed full history. Reusing the same ChatGPT conversation while sending that full history again would duplicate context inside the web conversation.
+After the first live root guard test, the repair round returned the text `exec_command unavailable` instead of a corrected call. A second policy gap was found: the minimal probe explicitly named `exec_command` but did not contain generic workspace/file keywords. Explicit workspace tool names are now included in local-task detection, and the exact direct-unavailable behavior is covered by regression.
 
-Planned safe optimization order:
+Latest compatibility CI: Security hardening #122, all 6 jobs passed including full upstream regression and public-repository safety.
 
-1. reuse the current ChatGPT conversation for bounded internal repair rounds;
-2. add Codex tool-loop web-session affinity and send only incremental new tool result / continuation payloads when the mapped web conversation is healthy;
-3. fall back to fresh chat + full reconstructed history after UWA/browser restart, mapping loss, explicit isolation, or unhealthy page state;
-4. keep Git/project checkpoint and private Responses state independent from browser-chat persistence.
+## Next live gate
 
-Until that optimization lands, multiple ChatGPT sidebar chats are a known efficiency/UX limitation, not a correctness requirement.
+Do not run full Stage B until both short CLI probes pass.
 
-## Acceptance workspace discipline
+Probe 1 must execute `pwd` through real `exec_command` and return the synthetic acceptance workspace, not `/` and not a tool-unavailable message.
 
-Live acceptance uses a synthetic local repository. The harness has two scenario-scoped gates:
+Probe 2 must return:
+
+```text
+<acceptance-workspace>
+MARKER=YES
+SCENARIO=YES
+```
+
+If both pass, reset and rerun Stage B.
+
+## Acceptance matrix
+
+```text
+single-file read/edit/test                 PASS
+Stage A multi-file read/edit/test          PASS
+Stage B failure recovery                   pending short-probe gate
+Stage C Git diff discipline                pending
+Stage D long process + write_stdin         pending
+Stage E same-thread continuity             pending
+Stage F Codex + UWA restart continuity     pending
+Codex automatic Memories                   isolated / future dedicated acceptance
+```
+
+The synthetic acceptance harness uses:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py prepare --scenario <name>
 python3 tools/codex_desktop_acceptance.py preflight --scenario <name>
+python3 tools/codex_desktop_acceptance.py prompts --scenario <name>
+python3 tools/codex_desktop_acceptance.py check --scenario <name>
 ```
 
-`prepare` recreates only the selected scenario and preserves other scenario results. `preflight` verifies the marker, local Git root, target scenario and expected initial red/clean state.
-
-Action prompts also require a client-side marker check. When the active Codex workdir is wrong, the expected result is:
-
-```text
-ACCEPTANCE_WORKSPACE_MISMATCH
-```
-
-The model must stop there instead of probing unrelated absolute paths or switching to a different execution environment.
-
-Stage B additionally records actual test exit codes in `.run_history`. The checker requires the first audited test run to be non-zero and the final one to be zero.
+Stage B records actual test exit codes in `.run_history`; checker requires first audited run non-zero and final run zero.
 
 ## Codex automatic Memories isolation
 
-Live testing showed that Codex can start background memory-consolidation work after a foreground task completes. Under the custom provider those requests also entered UWA, consumed the single controlled ChatGPT tab and generated extra web chats.
+Codex can start background memory-consolidation after a foreground task. Under the custom provider those requests also entered UWA and competed for the controlled ChatGPT tab.
 
-Until dedicated acceptance is complete, UWA mode disables:
+Until dedicated acceptance is complete, UWA mode uses:
 
 ```toml
 [memories]
@@ -161,48 +144,32 @@ python3 tools/codex_uwa_memory_guard.py disable
 python3 tools/codex_uwa_memory_guard.py restore
 ```
 
-This does not delete existing Codex threads, project files, Git state, existing memory files, or the UWA continuation database.
+This does not delete Codex threads, project files, Git state, existing memory files, or UWA continuation state.
+
+## ChatGPT web-conversation churn
+
+A single Codex agent task can currently generate several similar ChatGPT sidebar conversations. Each outer tool turn reconstructs history and the generic workflow tends to create a fresh ChatGPT conversation. Internal repair can add more browser rounds.
+
+Planned safe optimization:
+
+1. reuse current web conversation for bounded repair rounds;
+2. add tool-loop web-session affinity;
+3. send incremental tool-result continuation when mapping is healthy;
+4. fall back to fresh chat plus reconstructed history after mapping loss/restart/unhealthy state.
+
+Do not globally reuse one page with full reconstructed history, because that would duplicate context.
 
 ## Continuity model
 
-There are three different kinds of state. They must not be conflated.
+Three independent layers:
 
-### 1. Codex Desktop thread history
+1. Codex Desktop thread history.
+2. UWA private Responses continuation store: `~/.uwa/codex_responses.sqlite3`.
+3. Git-tracked project checkpoint.
 
-Codex Desktop visibly keeps prior threads in its own sidebar/history. Closing the app does not modify project files or Git history. Reopening the SAME thread is the intended way to continue that thread.
+The continuation DB may contain prompts, code snippets and tool output. It is private runtime state and must never be committed.
 
-### 2. UWA Responses continuation state
-
-The Codex bridge adds a private local fallback store:
-
-```text
-~/.uwa/codex_responses.sqlite3
-```
-
-Default policy:
-
-```text
-persistence          enabled
-retention            7 days
-max entries          4096
-max single snapshot  8 MiB
-parent permissions   0700 when supported
-DB/WAL/SHM mode      0600 when supported
-```
-
-The database may contain prompts, source snippets and tool output. It is runtime-private data and must never be committed.
-
-Local metadata only:
-
-```bash
-curl -sS http://127.0.0.1:8199/v1/codex/continuity | python3 -m json.tool
-```
-
-### 3. Git-tracked project checkpoint
-
-Long-term project progress belongs in Git, not in model memory.
-
-Canonical tracked files:
+Canonical tracked handoff files:
 
 - `README.md`
 - `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
@@ -212,13 +179,7 @@ Canonical tracked files:
 - `docs/CODEX_ROOT_WORKDIR_FIX_2026-09-06.md`
 - Draft PR #1
 
-If a ChatGPT/Codex conversation hits a context limit or a new thread is opened, read these files plus current Git diff/status before continuing.
-
-## New-thread behavior
-
-A brand-new Codex thread should be treated as a fresh conversational context. Project files and Git state remain unchanged, but model-side conversational details from the old thread are not guaranteed to appear automatically.
-
-For reliable continuation:
+New thread recovery:
 
 ```text
 read README.md
@@ -227,32 +188,29 @@ read docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md
 git status
 git log -5 --oneline
 inspect relevant diff/tests
-continue work
+continue
 ```
-
-## Memory / ChatGPT account personalization
-
-ChatGPT account memory is not used as a project source of truth. Temporary Chat remains best-effort. The project must remain correct even if no account-level memory is available.
 
 ## Security
 
-- API and Chromium DevTools stay loopback-only by default
+- API and Chromium DevTools remain loopback-only by default
 - no public/LAN DevTools exposure
-- unsafe Python command-engine capability stays disabled
-- auto-update stays disabled in the hardened workflow
-- Codex sandbox and approval remain authoritative for local execution
-- private continuation DB, browser profile, logs, cookies and `.env` are never committed
-- public docs/tests use synthetic examples only
+- unsafe Python command-engine capability disabled
+- auto-update disabled in hardened workflow
+- Codex sandbox and approval remain authoritative
+- private DB, browser profile, logs, cookies, `.env`, local memory content and private workspace data are never committed
+- public docs/tests use synthetic or redacted examples only
 
 ## Immediate next work
 
-1. pull/restart UWA and rerun the minimal CLI `exec_command(pwd)` probe;
-2. require `/Users/.../uwa-codex-acceptance`, not `/`, before Stage B resumes;
-3. rerun Stage B and update the acceptance checkpoint immediately if it passes;
-4. live-test Stage C, then D, E, F;
-5. optimize ChatGPT web-session churn with repair-round reuse first, then safe incremental tool-loop continuation;
-6. only after A-F are classified, move to context/token accounting and advanced tools.
+1. pull latest branch and restart UWA;
+2. rerun short CLI `exec_command(pwd)` probe;
+3. if it passes, run marker/scenario probe;
+4. only then rerun Stage B;
+5. immediately record Stage B result in README/current-state/acceptance/PR;
+6. continue C, D, E, F;
+7. after correctness gates, optimize web-session churn and advanced tools.
 
-## Project-history note
+## Project history
 
-The repository keeps its existing license and commit history. This fork's README and active design documentation describe the current Codex web-bridge architecture and do not reuse the previous project's feature-tour documentation.
+The repository keeps its existing license and Git commit history. Active README and architecture/acceptance docs describe this fork's own Codex Web Bridge design and maintenance path.
