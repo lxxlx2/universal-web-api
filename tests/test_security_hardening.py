@@ -18,6 +18,9 @@ def test_safe_defaults(monkeypatch):
         "AUTO_UPDATE_ENABLED",
         "PROXY_ENABLED",
         "PIP_MIRROR_URL",
+        "TOOL_CALLING_CLIENT_WORKSPACE_REPAIR",
+        "TOOL_CALLING_PROMPT_PADDING_ENABLED",
+        "TOOL_CALLING_PROMPT_PADDING_OBFUSCATE",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -30,6 +33,19 @@ def test_safe_defaults(monkeypatch):
     assert os.environ["AUTO_UPDATE_ENABLED"] == "false"
     assert os.environ["PROXY_ENABLED"] == "false"
     assert os.environ["PIP_MIRROR_URL"] == "https://pypi.org/simple"
+    assert os.environ["TOOL_CALLING_CLIENT_WORKSPACE_REPAIR"] == "true"
+    assert os.environ["TOOL_CALLING_PROMPT_PADDING_ENABLED"] == "false"
+    assert os.environ["TOOL_CALLING_PROMPT_PADDING_OBFUSCATE"] == "false"
+
+
+def test_safe_defaults_do_not_override_explicit_tool_settings(monkeypatch):
+    monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "false")
+    monkeypatch.setenv("TOOL_CALLING_PROMPT_PADDING_ENABLED", "true")
+
+    ensure_safe_defaults()
+
+    assert os.environ["TOOL_CALLING_CLIENT_WORKSPACE_REPAIR"] == "false"
+    assert os.environ["TOOL_CALLING_PROMPT_PADDING_ENABLED"] == "true"
 
 
 def test_direct_runtime_cors_defaults_are_safe(monkeypatch):
