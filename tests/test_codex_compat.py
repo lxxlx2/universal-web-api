@@ -32,15 +32,24 @@ def test_codex_model_catalog_uses_models_wrapper_and_hides_hostname_aliases():
     assert len(result["models"]) == 1
     model = result["models"][0]
     assert model["slug"] == "chatgpt"
+    assert model["display_name"] == "ChatGPT Web (browser-selected model)"
+    assert "controlled browser is the source of truth" in model["description"]
     assert model["shell_type"] == "shell_command"
     assert model["visibility"] == "list"
     assert model["supported_in_api"] is True
     assert model["context_window"] == 64_000
     assert model["truncation_policy"] == {"mode": "tokens", "limit": 57_600}
     assert "instructions_template" in model["model_messages"]
-    assert "ultra" in {
-        option["effort"] for option in model["supported_reasoning_levels"]
-    }
+    instructions = model["model_messages"]["instructions_template"]
+    assert "exec_command" in instructions
+    assert "sandbox and approval policy" in instructions
+    assert model["default_reasoning_level"] == "medium"
+    assert model["supported_reasoning_levels"] == [
+        {
+            "effort": "medium",
+            "description": "Web default (reasoning effort is not mapped by UWA yet)",
+        }
+    ]
 
 
 def test_codex_model_catalog_preserves_real_model_ids():
@@ -55,3 +64,4 @@ def test_codex_model_catalog_preserves_real_model_ids():
 
     result = build_codex_models_response(payload)
     assert [model["slug"] for model in result["models"]] == ["gpt-alpha", "gpt-beta"]
+    assert [model["display_name"] for model in result["models"]] == ["GPT Alpha", "GPT Beta"]
