@@ -40,11 +40,27 @@ Codex Desktop
   - three real unit tests passed
   - generated checker returned `multi_file: PASS` and `ACCEPTANCE_PASS`
 - Stage B attempt 1 still proved `exec_command` delivery and tool-result continuation; the attempt itself was invalid because the selected execution context could not see the synthetic acceptance workspace
+- Stage B attempt 2 proved several consecutive `exec_command` deliveries and follow-up tool-result turns in the correct synthetic workspace; the run then stopped because the web model falsely claimed that the currently callable tool list did not contain `exec_command`
 - localhost security defaults and public-repository safety scan
+
+## Stage B live issue and current fix
+
+The second Stage B run reached a later multi-round failure. UWA emitted multiple real `exec_command` calls and Codex returned tool results, so the bridge and workspace were active. The final web-model reply nevertheless said that the currently callable client tools did not contain `exec_command`.
+
+Two policy gaps were found:
+
+1. the Chinese refusal pattern did not cover wording such as `当前实际可调用工具中没有名为 exec_command 的客户端工具`;
+2. post-tool contradiction repair still depended on the latest user-shaped message looking like a workspace request, but Codex follow-up turns may encode tool output as the newest user item.
+
+The current branch fixes both. Once a real workspace tool call exists in history and the current request still declares that tool, a later explicit claim that the tool is absent is treated as a contradiction regardless of the newest user-item shape. Exact Chinese/English callable-tool-list absence wording is covered, repeated repair becomes stricter, and repeated false claims still fail closed when the retry budget is exhausted.
+
+Regression coverage: `tests/test_client_tool_policy_repeated_refusal.py`.
+
+Latest CI for this policy fix: run #105, all jobs passed.
 
 ## Live acceptance still pending
 
-- Stage B rerun after scenario `prepare` + `preflight`
+- Stage B rerun with the repeated-tool-absence fix
 - Stage C: Git-aware change discipline
 - Stage D: long-running process + stdin continuation / `write_stdin`
 - Stage E: same-thread conversational continuity
@@ -53,11 +69,38 @@ Codex Desktop
 - MCP / namespace tools / plugins / multi-agent
 - auxiliary Codex model request optimization
 
+## ChatGPT web-conversation churn
+
+A Codex agent task can create several ChatGPT sidebar conversations today. This is currently expected from the generic UWA workflow, not evidence that Codex Desktop created duplicate tasks.
+
+Current behavior:
+
+```text
+one Codex Responses tool turn
+-> one reconstructed ChatGPT web request
+-> generic workflow prefers a fresh ChatGPT conversation
+-> tool result returns to Codex
+-> next Responses turn creates another reconstructed web request
+```
+
+Internal workspace-repair retries also run additional browser rounds. During the Stage B live run this produced several similar ChatGPT sidebar entries and repeatedly uploaded roughly 45-50k characters of reconstructed context.
+
+Why this is not being fixed by globally enabling page reuse: the current outer-turn payload contains reconstructed full history. Reusing the same ChatGPT conversation while sending that full history again would duplicate context inside the web conversation.
+
+Planned safe optimization order:
+
+1. reuse the current ChatGPT conversation for bounded internal repair rounds, because those are corrections to the immediately preceding web reply;
+2. add Codex tool-loop web-session affinity and send only the incremental new tool result / continuation payload when the mapped web conversation is healthy;
+3. fall back to a fresh conversation plus full reconstructed history after UWA/browser restart, mapping loss, explicit isolation, or unhealthy page state;
+4. keep Git/project checkpoint and private Responses state independent from browser-chat persistence.
+
+Until that optimization lands, multiple ChatGPT sidebar chats are a known efficiency/UX limitation, not a correctness requirement.
+
 ## Acceptance workspace discipline
 
 Live acceptance uses a synthetic local repository. A stale Codex project selection can make a valid client `exec_command` execute in the wrong workspace even while the UWA bridge itself is functioning.
 
-The harness now has two scenario-scoped gates:
+The harness has two scenario-scoped gates:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py prepare --scenario <name>
@@ -73,6 +116,8 @@ ACCEPTANCE_WORKSPACE_MISMATCH
 ```
 
 The model must stop there instead of probing unrelated absolute paths or switching to some other execution environment.
+
+Stage B additionally records actual test exit codes in the synthetic scenario's `.run_history`. The checker requires the first audited test run to be non-zero and the final one to be zero, so the stage cannot pass from final green state alone.
 
 ## Continuity model
 
@@ -165,12 +210,14 @@ ChatGPT account memory is not used as a project source of truth. Temporary Chat 
 
 ## Immediate next work
 
-1. rerun Stage B with `prepare` + `preflight` and the hardened workspace guard;
-2. live-test Stage C;
-3. live-test Stage D;
-4. live-test Stage E;
-5. explicitly run Stage F with a full Codex + UWA restart;
-6. only after A-F are classified, move to context/token accounting and advanced tools.
+1. rerun Stage B with the repeated-tool-absence policy fix;
+2. if Stage B passes, update the acceptance checkpoint immediately;
+3. live-test Stage C;
+4. live-test Stage D;
+5. live-test Stage E;
+6. explicitly run Stage F with a full Codex + UWA restart;
+7. optimize ChatGPT web-session churn with repair-round reuse first, then safe incremental tool-loop continuation;
+8. only after A-F are classified, move to context/token accounting and advanced tools.
 
 ## Project-history note
 
