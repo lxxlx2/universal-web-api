@@ -14,7 +14,6 @@ Typical use:
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys
@@ -151,7 +150,7 @@ def _build_failure_recovery(root: Path) -> None:
         "from failure_recovery.parser import parse_port\n\n\n"
         "class ParserTests(unittest.TestCase):\n"
         "    def test_accepts_surrounding_whitespace(self):\n"
-        "        self.assertEqual(parse_port(\" 8199 \\"), 8199)\n\n"
+        "        self.assertEqual(parse_port(\" 8199 \"), 8199)\n\n"
         "    def test_rejects_out_of_range(self):\n"
         "        with self.assertRaises(ValueError):\n"
         "            parse_port(\"70000\")\n\n\n"
@@ -215,6 +214,7 @@ def _init_git(root: Path) -> None:
     _run(["git", "init", "-q"], cwd=root, check=True)
     _run(["git", "config", "user.name", "UWA Acceptance"], cwd=root, check=True)
     _run(["git", "config", "user.email", "uwa-acceptance@invalid.local"], cwd=root, check=True)
+    _run(["git", "config", "commit.gpgsign", "false"], cwd=root, check=True)
     _run(["git", "add", "."], cwd=root, check=True)
     _run(["git", "commit", "-q", "-m", "acceptance baseline"], cwd=root, check=True)
 
@@ -255,14 +255,26 @@ def _unit_test(root: Path, suite_dir: str) -> Tuple[bool, str]:
     return result.returncode == 0, result.stdout
 
 
+def _changed_paths(root: Path) -> List[str]:
+    result = _run(["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=root)
+    changed: List[str] = []
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        changed.append(path)
+    return changed
+
+
 def _check_git_diff(root: Path) -> Tuple[bool, str]:
     expected = root / "git_diff" / "config.py"
     text = expected.read_text(encoding="utf-8") if expected.exists() else ""
     values_ok = 'MODE = "prod"' in text and "TIMEOUT = 30" in text
 
     diff_check = _run(["git", "diff", "--check"], cwd=root)
-    names = _run(["git", "diff", "--name-only"], cwd=root)
-    changed = [line.strip() for line in names.stdout.splitlines() if line.strip()]
+    changed = _changed_paths(root)
     allowed = {
         "git_diff/config.py",
         "multi_file/math_ops.py",
@@ -325,7 +337,7 @@ def check(root: Path, scenario: str | None = None) -> int:
 def status(root: Path) -> None:
     _guard_root(root, allow_create=False)
     head = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root)
-    names = _run(["git", "status", "--short"], cwd=root)
+    names = _run(["git", "status", "--short", "--untracked-files=all"], cwd=root)
     print(f"ROOT={root.expanduser().resolve()}")
     print(f"BASELINE={head.stdout.strip()}")
     print("WORKTREE:")
