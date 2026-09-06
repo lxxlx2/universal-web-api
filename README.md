@@ -10,9 +10,78 @@
 
 Universal Web API 是一个运行在本机的 API 桥接与调试工具。它接管浏览器中已经登录的 AI 网页（ChatGPT、DeepSeek、Gemini、Claude 等），将网页对话转换为 OpenAI / Anthropic 兼容接口，供本地客户端、酒馆、脚本和工作流调用。
 
-它不是官方 API 的替代品，也不会创建或出售账号、额度。所有请求都会经过受控浏览器页面，网页端的登录态、限流、验证码和模型可用性仍由目标站点决定。
+它不会创建或出售账号、额度。所有请求都会经过受控浏览器页面，网页端的登录态、限流、验证码和模型可用性仍由目标站点决定。
 
 > ⚠️ **合规与安全**：仅使用自己有权使用的账号，并遵守目标站点服务条款。项目不提供绕过登录、验证码、付费墙或安全机制的功能。默认只建议绑定到 `127.0.0.1`，不要在没有认证和访问控制的情况下暴露到公网。
+
+## 本 fork 的定位：安全本地 Codex Desktop 网页桥接
+
+本 fork 基于原项目 [`lumingya/universal-web-api`](https://github.com/lumingya/universal-web-api)。感谢原作者 **lumingya** 以及所有上游贡献者完成浏览器自动化、站点适配、流式解析、路由、控制面板和 OpenAI / Anthropic 兼容层。没有这些基础工作，本分支的 Codex Desktop 实验无法开展。
+
+`security-hardening` 分支围绕一个更窄的目标继续改造：保留上游网页桥接能力，收紧本地安全边界，并研究让 **Codex Desktop 使用网页对话模型进行推理，同时继续由 Codex 客户端在自己的沙箱与授权策略下执行本地文件和命令工具**。
+
+目标链路：
+
+```text
+Codex Desktop
+    -> OpenAI Responses request
+    -> Universal Web API on 127.0.0.1
+    -> controlled browser tab
+    -> web chat model decides whether a client tool is needed
+    -> UWA converts the decision to Responses function_call
+    -> Codex executes the local tool under its sandbox/approval policy
+    -> function_call_output returns through UWA to the web model
+    -> repeat until the task is complete
+```
+
+网页模型本身不获得直接文件系统权限。`exec_command`、文件读写、测试等动作应继续由 Codex 客户端执行。UWA 只负责协议转换、网页交互和模型决策转译。
+
+### 当前 Codex Desktop 状态
+
+已实测：
+
+- hardened localhost 启动与独立受控浏览器 Profile
+- `/health`、`/v1/models` 和 Provider 状态
+- OpenAI Chat Completions
+- OpenAI Responses 非流式请求
+- Responses SSE streaming
+- Codex 0.153+ `client_version` 模型目录兼容
+- Codex CLI 自定义 provider 推理
+- Codex Desktop 加载 `uwa` 自定义 provider 并完成普通推理
+
+正在验证：
+
+- `exec_command` 等核心本地工具的完整多轮调用
+- 网页模型错误回复“无法访问本机文件”时的自动纠正
+- 本地文件读取、修改、测试和后续 `function_call_output` 循环
+
+待解决：
+
+- Responses continuation state 持久化。当前状态仍是进程内存数据，重启会丢失
+- 更准确的 token/context 估算和长上下文稳定性测试
+- ChatGPT Temporary Chat 类隔离方案，减少普通账号 Memory / 历史与 coding agent 相互影响
+- reasoning effort 到网页 UI 的真实映射
+- MCP、插件、namespace tools、多 Agent 等高级 Codex 能力的逐项兼容
+
+完整阶段记录见 [`docs/CODEX_WEB_BRIDGE_PROGRESS.md`](./docs/CODEX_WEB_BRIDGE_PROGRESS.md)。
+
+### 模型名称与 reasoning 说明
+
+Codex 中的 `chatgpt` 是浏览器路由 ID。对于 `chatgpt.com` 路由，**受控浏览器当前实际选中的网页模型才是实际推理模型的来源**。因此 `chatgpt` 本身不能证明具体使用了哪个 ChatGPT 网页模型。
+
+本分支目前只向 Codex 声明一个 `medium` / Web default reasoning 占位级别。Responses 请求里的 `reasoning.effort` 还没有稳定映射到 ChatGPT 网页“思考强度”控件，所以不会再把 `low/high/ultra` 显示成已经生效的能力。
+
+### 公开仓库安全提示
+
+这个 fork 是 public repository。提交代码前请阅读 [`SECURITY.md`](./SECURITY.md)。尤其不要提交：
+
+- `.env`、API Token、密码、Cookie 或任何登录凭证
+- `chrome_profile/` 或浏览器 Local Storage
+- 包含私有代码、聊天内容、账号信息的日志和截图
+- 本地请求历史、命令结果或未来的 Responses SQLite 状态库
+- 任何可以控制受控浏览器的 DevTools 会话信息
+
+默认保持 `127.0.0.1`、关闭 CORS、关闭 Debug、关闭 unsafe Python、关闭自动更新。DevTools `9222` 必须只留在本机。Codex 的本地执行权限也不应为了兼容测试而放宽到日常无提示全盘访问。
 
 ## 功能概览
 
@@ -32,13 +101,13 @@ Universal Web API 是一个运行在本机的 API 桥接与调试工具。它接
 | Gemini | `gemini.google.com` | 多模态交互测试 |
 | Claude | `claude.ai` | 页面交互与附件上传 |
 | Kimi | `www.kimi.com` | 长上下文文件粘贴 |
-| 通义千问 | `chat.qwen.ai` | 国产站点网页自动化 |
+| 通义千问 | `chat.qwen.ai` | 网页自动化适配 |
 | Grok | `grok.com` | 原生网页流解析 |
-| 豆包 | `www.doubao.com` | 最新页面结构适配 |
+| 豆包 | `www.doubao.com` | 页面结构适配 |
 | AI Studio | `aistudio.google.com` | 开发者吞吐测试 |
 | Arena AI | `arena.ai` | 盲测对比，受出口 IP 质量影响 |
 
-未收录站点可在控制面板使用“新增站点”流程，根据 DOM 生成并逐项验证规则；这不是绕过验证码或访问控制。
+未收录站点可在控制面板使用“新增站点”流程，根据 DOM 生成并逐项验证规则；这不会绕过验证码或访问控制。
 
 ### 架构简图
 
@@ -67,8 +136,8 @@ graph TD
 
 ### 启动
 
-1. 从 [Releases](https://github.com/lumingya/universal-web-api/releases) 下载并解压到本地目录。路径尽量使用英文、无空格目录，避免浏览器驱动和脚本的路径兼容问题。
-2. Windows 双击 `start.bat`；macOS/Linux 在项目根目录执行 `python3 start.py`。也可以直接运行 `python main.py`，但不会获得启动脚本的依赖检查、浏览器拉起和重启接管能力。
+1. 上游发布版本可从 [原项目 Releases](https://github.com/lumingya/universal-web-api/releases) 下载。使用本 fork 的 `security-hardening` 分支时建议从源码运行并先审阅 diff。
+2. Windows 可使用上游启动流程；macOS/Linux 在项目根目录执行 `python3 start.py`。直接运行 `python main.py` 不会获得 hardened launcher 的启动安全检查。
 3. 首次启动会校验/安装 `requirements.txt`，启动受控浏览器，并在普通浏览器打开控制面板：`http://127.0.0.1:8199/`。
 4. 在受控浏览器登录目标 AI 网站，停留在可输入消息的对话页面。控制面板和教程请用普通浏览器访问。
 5. 在客户端填写 Base URL `http://127.0.0.1:8199/v1`，模型名从 `GET /v1/models` 返回值中选择。
@@ -113,7 +182,7 @@ Invoke-RestMethod 'http://127.0.0.1:8199/v1/chat/completions' -Method Post -Cont
 
 ### OpenAI Responses（实验性）
 
-`POST /v1/responses` 接受 `model`、`input`、`instructions`、`tools`、`stream` 等字段，并将请求转换到同一套网页调度流程。需要与 Codex 或使用 Responses API 的客户端联调时再启用，遇到兼容性问题优先改用 Chat Completions。
+`POST /v1/responses` 接受 `model`、`input`、`instructions`、`tools`、`stream` 等字段，并将请求转换到同一套网页调度流程。Codex Desktop/CLI 兼容仍处于实验阶段。普通推理、Responses SSE 和模型目录已经完成实测；完整本地 coding tool loop 仍需通过真实工作区验收。
 
 ### Anthropic Messages
 
@@ -164,8 +233,10 @@ Invoke-RestMethod 'http://127.0.0.1:8199/v1/chat/completions' -Method Post -Cont
 | `PROXY_ENABLED` / `PROXY_ADDRESS` / `PROXY_BYPASS` | 按需 | HTTP/SOCKS5 代理及绕过列表。 |
 | `PROFILE_CLEAN_ENABLED` | `false` | 是否在启动时清理受控浏览器缓存；需要保留调试数据时保持关闭。 |
 | `SCHEDULED_RESTART_ENABLED` | `false` | 定时平滑重启服务。长请求较多时请合理设置排空超时。 |
+| `TOOL_CALLING_CLIENT_WORKSPACE_REPAIR` | `true` | 当网页模型错误声称无法访问本地工作区，而客户端已声明本地工具时，进行有限聚焦修复。不会执行命令或绕过 Codex 权限。 |
+| `TOOL_CALLING_PROMPT_PADDING_ENABLED` | `false` | hardened Codex 工作流默认关闭额外 few-shot/padding，减少网页 prompt 上下文开销。 |
 
-站点规则、提取器、解析器、图片预设等 JSON 配置也可在控制面板中编辑。修改前建议使用设置页的备份功能，并保留 `chrome_profile`、`config`、`.env` 和 `logs` 的副本。
+站点规则、提取器、解析器、图片预设等 JSON 配置也可在控制面板中编辑。修改前建议使用设置页的备份功能，并保留 `chrome_profile`、`config`、`.env` 和 `logs` 的本地副本。任何包含登录态或私有内容的副本都不要提交到公开仓库。
 
 ## 控制面板与教程
 
@@ -184,27 +255,34 @@ Invoke-RestMethod 'http://127.0.0.1:8199/v1/chat/completions' -Method Post -Cont
 
 ## 故障排查
 
-1. **打不开控制面板**：确认 `start.py` 进程仍在运行，检查 `APP_HOST`/`APP_PORT`，并访问 `/health`。端口被占用时改用其他端口后重启。
+1. **打不开控制面板**：确认 `start.py` 进程仍在运行，检查 `APP_HOST`/`APP_PORT`，并访问 `/health`。端口被占用时先确认是否已有 UWA 实例正在监听。
 2. **没有可用标签页**：确认受控浏览器已启动、已登录并停留在目标站点；检查 `/v1/provider/status` 的 `browser.connected` 和 `pool.idle`。
 3. **请求排队超时/429**：标签页都在忙或 `acquire_timeout` 太短。降低并发、增加标签页，或调整标签页池分配策略。
 4. **首包超时但页面有回复**：站点网络格式可能变化。先查看请求监控，再测试选择器；网络监听满足条件时会回退到 DOM 解析。
-5. **回复为空或立即 DONE**：更新浏览器内核，确认页面不是登录/验证码/错误页；检查选择器和 `stream` 配置，必要时关闭系统 Profile 复用。
+5. **回复为空或立即 DONE**：更新浏览器内核，确认页面没有停在登录、验证码或错误页；检查选择器和 `stream` 配置。
 6. **401/认证失败**：确认 `AUTH_ENABLED` 与 `AUTH_TOKEN` 成对设置，使用 `Authorization: Bearer ...` 或 `X-API-Key`；不要把 Dashboard 令牌当作 API 令牌。
 7. **附件/媒体失败**：检查文件大小、后缀和 `temp`/`download_images` 权限；音频转码需要安装 `ffmpeg`。
-8. **浏览器无法接管**：关闭占用 `BROWSER_PORT` 的 Chrome，或修改端口；Chrome 136+ 请使用项目独立 Profile。
+8. **浏览器无法接管**：关闭占用 `BROWSER_PORT` 的其他 Chrome，或修改端口；Chrome 136+ 请使用项目独立 Profile。
+9. **Codex 返回“无法访问本机文件”并给出手工命令**：确认当前分支包含 client workspace repair，客户端请求中确实暴露了 `exec_command` 等工具，并查看日志是否出现 `客户端工作区工具拒绝修复`。重复失败会主动报错，避免把未执行的命令当作成功结果。
 
-提交 Issue 前请附上操作系统、Python/浏览器版本、请求路径（隐藏令牌和隐私内容）、错误日志，以及 `/v1/provider/status` 的脱敏结果。不要上传 Cookie、完整浏览器 Profile、API 密钥或聊天原文。
+提交 Issue 前请附上操作系统、Python/浏览器版本、请求路径（隐藏令牌和隐私内容）、错误日志，以及 `/v1/provider/status` 的脱敏结果。不要上传 Cookie、完整浏览器 Profile、API 密钥、聊天原文或私有源码。
 
 ## 安全边界与数据处理
 
-- 本服务是单机调试工具，不提供多租户隔离、计费、审计或高可用保证，不应直接作为公网生产网关。
-- `APP_HOST=0.0.0.0` 会让 API 和管理接口监听所有网卡；至少启用两套强令牌、限制 `CORS_ORIGINS`、配置防火墙，并通过可信反向代理提供 TLS。
+- 本服务按单机调试和实验工作流设计，不提供多租户隔离、计费、审计或高可用保证，不应直接作为公网生产网关。
+- `APP_HOST=0.0.0.0` 会让 API 和管理接口监听所有网卡；hardened launcher 会要求显式远程授权和额外安全条件。远程场景仍应配置防火墙、强令牌和可信网络。
 - DevTools 端口（默认 `9222`）可控制整个受控浏览器，必须限制为回环地址，禁止端口转发和公网暴露。
 - 请求日志、媒体文件、临时附件和浏览器登录态可能包含敏感数据。按需关闭详细日志，定期清理 `logs`、`temp`、`download_images`，并保护 `chrome_profile`。
 - 代理、辅助 AI、自动更新和命令引擎可能产生额外网络或本地执行行为；只配置自己信任的地址和脚本。
+- Codex tool calling 的网页模型输出只应视为工具请求。真正本地执行继续受 Codex sandbox/approval 控制。不要为了兼容实验关闭这层边界。
+- Responses continuation 当前仍包含进程内敏感上下文。未来若增加 SQLite 持久化，数据库必须保持本地、受权限保护并继续 Git ignore。
+
+更完整的公开仓库安全策略见 [`SECURITY.md`](./SECURITY.md)。
 
 ## 反馈、许可证与免责声明
 
-问题可在 [Issues](https://github.com/lumingya/universal-web-api/issues) 提交，也可加入 QQ 群 **1073037753**。提交前请脱敏日志和账号信息。
+上游项目问题和通用功能建议请优先参考 [lumingya/universal-web-api](https://github.com/lumingya/universal-web-api) 及其 [Issues](https://github.com/lumingya/universal-web-api/issues)。本 fork 中与 hardened launcher、Codex Desktop、自定义 Responses provider 和安全边界相关的问题可在本仓库记录，提交前请脱敏日志和账号信息。
 
-本项目基于 [AGPL-3.0](./LICENSE) 开源。使用者应自行承担违反目标网站条款、账号受限、数据丢失或其他直接/间接损失的责任；维护者不提供任何可用性或账号安全保证。
+再次感谢 **lumingya** 和上游贡献者提供原始项目。本 fork 会尽量保持上游核心网页桥接逻辑可同步，把 Codex 兼容与安全改造隔离在可审查的代码和文档中。
+
+本项目继续遵循 [AGPL-3.0](./LICENSE)。使用者应自行评估目标网站服务条款、账号风险、数据隐私和实验性兼容性；维护者不提供可用性或账号安全保证。
