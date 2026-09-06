@@ -51,6 +51,16 @@ config/sites.local.json
 config/*.tmp
 config/marketplace_cache.json
 
+# Codex / Responses 本地运行状态可能含源码、工具输出或会话历史
+runtime_state/
+config/responses_state.sqlite
+config/responses_state.sqlite3
+config/responses_state.sqlite-shm
+config/responses_state.sqlite-wal
+config/responses_state.sqlite3-shm
+config/responses_state.sqlite3-wal
+.uwa/
+
 # 系统文件
 .DS_Store
 Thumbs.db
@@ -121,6 +131,8 @@ tests/*
 !tests/test_tab_route_group_api.py
 !tests/test_arena_direct_models.py
 !tests/test_tool_calling_repairs.py
+!tests/test_client_tool_policy.py
+!tests/test_codex_compat.py
 !tests/test_input_chunking.py
 !tests/test_grok_parser.py
 !tests/test_workflow_script_loader.py
