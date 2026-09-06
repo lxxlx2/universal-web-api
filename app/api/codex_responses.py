@@ -9,6 +9,9 @@ minimal Responses SSE sequence instead of translating the internal Chat
 Completions tool stream event-by-event. This mirrors the event shape used by the
 upstream Codex test harness and avoids leaking an intermediate browser refusal as
 an assistant final message when a valid function call was recovered internally.
+
+Codex continuation snapshots are also persisted privately under ~/.uwa by
+default. The public repository never receives those snapshots.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ import copy
 import ipaddress
 import json
 import time
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -27,6 +30,7 @@ from pydantic import BaseModel
 from app.api.chat import (
     ResponsesRequest,
     _build_responses_object,
+    _load_responses_state,
     _new_response_id,
     _responses_completion_status_from_chat_payload,
     _responses_error_payload,
@@ -43,6 +47,11 @@ from app.services.chatgpt_web_mode import (
     web_mode_enabled,
 )
 from app.services.codex_network_tuning import install_codex_chatgpt_network_tuning
+from app.services.codex_responses_state import (
+    continuity_status,
+    load_response_messages,
+    store_response_messages,
+)
 from app.services.codex_web_policy import (
     inspect_codex_web_mode_status,
     prepare_and_verify_codex_web_mode,
@@ -65,6 +74,145 @@ def _require_loopback(request: Request) -> None:
     host = request.client.host if request.client else ""
     if not _is_loopback(host):
         raise HTTPException(status_code=403, detail="Codex Web mode control is local-only")
+
+
+def _copy_responses_request(body: ResponsesRequest) -> ResponsesRequest:
+    if hasattr(body, "model_copy"):
+        return body.model_copy(deep=True)
+    return body.copy(deep=True)
+
+
+def _input_contains_replayable_history(source: Any) -> bool:
+    """Return True when the client already supplied more than a new-turn delta.
+
+    This is only a last-resort fallback when both in-memory and persisted
+    previous_response_id state are unavailable. A lone function_call_output is
+    not sufficient because its matching function call may be missing.
+    """
+
+    if not isinstance(source, list) or len(source) < 2:
+        return False
+    has_user = False
+    has_history = False
+    for item in source:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        item_type = str(item.get("type") or "").strip().lower()
+        if role == "user" or item_type == "message" and role == "user":
+            has_user = True
+        if role in {"assistant", "tool"} or item_type in {
+            "function_call",
+            "function_call_output",
+            "tool_result",
+        }:
+            has_history = True
+    return has_user and has_history
+
+
+def _strip_duplicate_instruction(
+    history: List[Dict[str, Any]],
+    instructions: Any,
+) -> List[Dict[str, Any]]:
+    expected = str(instructions or "").strip()
+    if not expected:
+        return list(history)
+    result = list(history)
+    while result:
+        first = result[0]
+        if not isinstance(first, dict):
+            break
+        if str(first.get("role") or "").strip().lower() != "system":
+            break
+        if str(first.get("content") or "").strip() != expected:
+            break
+        result.pop(0)
+    return result
+
+
+def _hydrate_codex_continuation(body: ResponsesRequest) -> ResponsesRequest:
+    """Recover a missing process-local previous_response_id from private SQLite.
+
+    Normal in-process continuation keeps using the existing chat.py memory store.
+    This fallback activates only after that state is absent/expired, which is the
+    case we need for UWA process restarts.
+    """
+
+    previous_id = str(body.previous_response_id or "").strip()
+    if not previous_id:
+        return body
+
+    try:
+        _load_responses_state(previous_id)
+        return body
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+
+    persisted = load_response_messages(previous_id)
+    if persisted is not None:
+        cloned = _copy_responses_request(body)
+        restored = _strip_duplicate_instruction(persisted, cloned.instructions)
+        source = cloned.input
+        combined: List[Any] = list(restored)
+        if isinstance(source, list):
+            combined.extend(source)
+        elif source not in (None, ""):
+            combined.append(source)
+        cloned.input = combined
+        cloned.previous_response_id = None
+        logger.info(
+            "[CODEX_CONTINUITY] restored previous_response_id from private local state: "
+            f"messages={len(restored)}"
+        )
+        return cloned
+
+    if _input_contains_replayable_history(body.input):
+        cloned = _copy_responses_request(body)
+        cloned.previous_response_id = None
+        logger.warning(
+            "[CODEX_CONTINUITY] previous_response_id missing, but client supplied "
+            "replayable history; continuing from client transcript"
+        )
+        return cloned
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"previous_response_id not found or expired: {previous_id}",
+    )
+
+
+def _assistant_message_from_payload(payload: Dict[str, Any]) -> Dict[str, Any] | None:
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return None
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        return None
+    result = dict(message)
+    result["role"] = "assistant"
+    return result
+
+
+def _persist_codex_history(
+    response_id: str,
+    request_messages: List[Dict[str, Any]],
+    payload: Dict[str, Any],
+    *,
+    enabled: bool,
+) -> None:
+    if not enabled:
+        return
+    assistant = _assistant_message_from_payload(payload)
+    if assistant is None:
+        return
+    history = list(request_messages or [])
+    history.append(assistant)
+    if not store_response_messages(response_id, history):
+        logger.warning(
+            "[CODEX_CONTINUITY] private persistence skipped; "
+            "continuation remains process-local for this response"
+        )
 
 
 def _sanitize_codex_tool_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -253,11 +401,18 @@ async def _stream_codex_minimal_responses(
         )
         sequence += 1
 
+    state_enabled = body.store is not False
     _store_responses_state(
         response_id,
         chat_body.messages,
         payload,
-        enabled=body.store is not False,
+        enabled=state_enabled,
+    )
+    _persist_codex_history(
+        response_id,
+        chat_body.messages,
+        payload,
+        enabled=state_enabled,
     )
 
     logger.info(
@@ -312,6 +467,13 @@ async def codex_web_mode_apply(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/v1/codex/continuity")
+async def codex_continuity_status(request: Request) -> Dict[str, object]:
+    """Return local-only continuation metadata without stored conversation content."""
+    _require_loopback(request)
+    return continuity_status()
+
+
 @router.post("/v1/responses")
 async def codex_aware_responses(
     request: Request,
@@ -320,6 +482,7 @@ async def codex_aware_responses(
 ):
     is_codex_web = str(body.model or "").strip().lower() == "chatgpt" and web_mode_enabled()
     if is_codex_web:
+        body = _hydrate_codex_continuation(body)
         install_codex_chatgpt_network_tuning()
         try:
             prepare_and_verify_codex_web_mode(body.reasoning)
