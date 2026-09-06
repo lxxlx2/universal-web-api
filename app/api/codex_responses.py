@@ -1,9 +1,9 @@
 """Codex-specific Responses preflight.
 
 This route is registered before the generic Responses route. For the logical
-``chatgpt`` browser route it applies the configured ChatGPT web model,
-reasoning level, and Temporary Chat preference, verifies them, then delegates
-to the existing Responses implementation.
+``chatgpt`` browser route it prepares a fresh ChatGPT composer, applies the
+configured web model/reasoning/Temporary Chat preference, verifies them, then
+delegates to the existing Responses implementation.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from app.services.chatgpt_web_mode import (
     temporary_chat_enabled,
     web_mode_enabled,
 )
+from app.services.chatgpt_web_prepare import prepare_chatgpt_fresh_composer
 
 
 router = APIRouter()
@@ -44,6 +45,13 @@ def _require_loopback(request: Request) -> None:
 
 class CodexWebModeApplyRequest(BaseModel):
     reasoning: str = "high"
+
+
+def _prepare_and_verify_web_mode(reasoning: Any) -> Dict[str, Any]:
+    preparation = prepare_chatgpt_fresh_composer()
+    state = ensure_codex_chatgpt_web_mode(reasoning)
+    state["composer_preparation"] = preparation
+    return state
 
 
 @router.get("/v1/codex/web-mode")
@@ -86,7 +94,7 @@ async def codex_web_mode_apply(
 ) -> Dict[str, Any]:
     _require_loopback(request)
     try:
-        return ensure_codex_chatgpt_web_mode(payload.reasoning)
+        return _prepare_and_verify_web_mode(payload.reasoning)
     except ChatGPTWebModeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -99,7 +107,7 @@ async def codex_aware_responses(
 ):
     if str(body.model or "").strip().lower() == "chatgpt" and web_mode_enabled():
         try:
-            ensure_codex_chatgpt_web_mode(body.reasoning)
+            _prepare_and_verify_web_mode(body.reasoning)
         except ChatGPTWebModeError as exc:
             raise HTTPException(
                 status_code=503,
