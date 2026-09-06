@@ -32,8 +32,8 @@ def test_codex_model_catalog_uses_models_wrapper_and_hides_hostname_aliases():
     assert len(result["models"]) == 1
     model = result["models"][0]
     assert model["slug"] == "chatgpt"
-    assert model["display_name"] == "ChatGPT Web"
-    assert "source of truth" in model["description"]
+    assert model["display_name"] == "GPT-5.6 Sol"
+    assert "selected Medium/High" in model["description"]
     assert model["shell_type"] == "shell_command"
     assert model["visibility"] == "list"
     assert model["supported_in_api"] is True
@@ -43,12 +43,16 @@ def test_codex_model_catalog_uses_models_wrapper_and_hides_hostname_aliases():
     instructions = model["model_messages"]["instructions_template"]
     assert "exec_command" in instructions
     assert "sandbox and approval policy" in instructions
-    assert model["default_reasoning_level"] == "medium"
+    assert model["default_reasoning_level"] == "high"
     assert model["supported_reasoning_levels"] == [
         {
             "effort": "medium",
-            "description": "Web default (reasoning effort is not mapped by UWA yet)",
-        }
+            "description": "GPT-5.6 Sol · Medium",
+        },
+        {
+            "effort": "high",
+            "description": "GPT-5.6 Sol · High",
+        },
     ]
 
 
