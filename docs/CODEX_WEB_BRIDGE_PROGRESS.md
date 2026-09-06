@@ -1,185 +1,247 @@
-# Codex Desktop Web Bridge Progress
+# Codex Desktop Web Bridge progress
 
-This document records the `security-hardening` fork's Codex Desktop integration work so progress is not lost between test sessions.
+Checkpoint: 2026-09-06
+Branch: `security-hardening`
 
-Checkpoint: **2026-09-06**
+This file records implementation history and current gaps. For a concise handoff, read `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md` first.
 
-## Upstream acknowledgement
-
-This fork is based on [`lumingya/universal-web-api`](https://github.com/lumingya/universal-web-api). Thanks to the original author and contributors for the browser automation, site adapters, streaming parsers, routing, dashboard, and OpenAI/Anthropic compatibility layers that make this experiment possible.
-
-The changes in this fork focus on a narrower idea: keep the browser bridge, harden the default local security boundary, and make Codex Desktop able to use a web chat model as the reasoning backend while Codex itself remains responsible for controlled local tool execution.
-
-## Target architecture
+## Current target
 
 ```text
 Codex Desktop
-    -> OpenAI Responses-compatible request
-    -> Universal Web API on 127.0.0.1
-    -> controlled ChatGPT browser tab
-    -> GPT-5.6 Sol / requested Medium or High reasoning
-    -> web model decides whether a local client tool is needed
-    -> UWA converts the web-model tool request into Responses function_call
-    -> Codex executes the tool under its own permission/sandbox policy
-    -> function_call_output returns through UWA to the web model
-    -> repeat until the task is complete
+-> Responses-compatible request
+-> UWA on localhost
+-> ChatGPT Web
+-> GPT-5.6 Sol / High
+-> web model chooses local client tools
+-> UWA emits function_call
+-> Codex executes locally
+-> function_call_output returns through UWA
+-> repeat until task completion
 ```
 
-The web page does not receive direct filesystem access. Local file reads, writes, shell commands, and tests must remain client-side Codex operations.
+The browser page never receives direct filesystem access. Local execution remains governed by Codex sandbox and approval rules.
 
-## Verified so far
+## Verified milestones
 
-- hardened localhost launcher and safe default configuration
-- browser takeover and persistent isolated browser profile
-- `/health`, `/v1/models`, and provider status
+### Bridge basics
+
+- hardened localhost launcher
+- isolated controlled Chromium profile
+- `/health` and model catalog
 - OpenAI Chat Completions compatibility
-- OpenAI Responses non-streaming compatibility
-- Responses SSE event flow through `response.completed`
-- Codex 0.153+ model catalog compatibility via `client_version`
-- Codex CLI inference through the custom provider
-- Codex Desktop loading the custom `uwa` provider
-- official/UWA configuration can be kept separate locally
-- Codex Desktop ordinary text inference reaches the ChatGPT browser and returns to Desktop
-- client-workspace refusal repair is implemented with bounded retries and fail-closed behavior
-- public-repository safety scan and hardened defaults are active
+- OpenAI Responses compatibility
+- Responses SSE streaming
+- Codex 0.153+ model catalog compatibility
+- Codex CLI custom provider inference
+- Codex Desktop custom `uwa` provider
+- ordinary Desktop text inference
 
-## Phase 2 changes implemented in this checkpoint
+### GPT-5.6 Sol / High path
 
-### Client workspace refusal repair
+Real macOS testing confirms the current Codex UI path is running with the intended `GPT-5.6 Sol` label and `High` reasoning state.
 
-Real Desktop testing exposed this failure:
+Temporary Chat is still attempted, but current ChatGPT DOM does not expose that state consistently enough for it to remain a blocking requirement. It is best-effort unless `UWA_CODEX_TEMPORARY_CHAT_STRICT=true` is explicitly enabled.
 
-> The web model was asked to inspect and fix a local `calc.py`, but answered that it could not access the local machine and returned shell commands for the user to run manually. No `exec_command` function call reached Codex.
+### Workspace-tool refusal repair
 
-UWA tool calling is a text protocol adapter. It describes client tools to the web model and parses XML/JSON tool-call output. A normal web chat model can still fall back to its usual "I cannot access your local files" behavior.
+Real failures showed that a normal web model can see declared client tools yet still answer with phrases equivalent to:
 
-The fork now includes `app/services/client_tool_policy.py` and integrates it into both synchronous and asynchronous tool-call round trips.
+- cannot access local files
+- local workspace is not mounted
+- `exec_command` is unavailable
+- user should run the shell command manually
 
-Behavior:
+The bridge now has bounded repair logic that treats these claims as invalid when client workspace tools are actually declared. The repair stays fail-closed and does not overwrite genuine tool results such as file-not-found or permission failures.
 
-1. Only activates when a declared client workspace tool such as `exec_command` is available.
-2. Only activates for an apparent local workspace/code request.
-3. Only activates before any genuine tool call/result has occurred.
-4. Detects a narrow set of English/Chinese local-access refusal patterns.
-5. Sends a compact focused repair explaining that the browser has no direct filesystem access while the declared client tool executes locally under Codex sandbox/approval controls.
-6. Requires a real tool call instead of asking the user to upload files or run commands manually.
-7. Uses bounded retries.
-8. Fails closed after repeated false refusals instead of returning an unexecuted manual command as a successful task result.
+### Minimal Codex Responses function-call stream
 
-### GPT-5.6 Sol web-mode lock
-
-The generic `chatgpt` route id is still used internally so existing routing remains compatible, but the Codex model catalog now presents the intended execution target as `GPT-5.6 Sol`.
-
-A new ChatGPT web-mode preflight runs before logical `chatgpt` Responses requests:
+A major compatibility fix replaced the generic event-by-event Chat Completions translation for tool-capable Codex turns with a conservative Responses SSE path:
 
 ```text
-Temporary Chat preference
--> GPT-5.6 Sol model selection
--> requested Medium/High reasoning selection
--> browser-side verification
--> forward Responses request only when verified in strict mode
+response.created
+response.output_item.done(function_call)
+response.completed
 ```
 
-Defaults:
+This matched the shape expected by Codex's client tool path and enabled real local execution.
 
-```env
-UWA_CODEX_WEB_MODE_ENABLED=true
-UWA_CODEX_WEB_MODE_STRICT=true
-UWA_CODEX_WEB_MODEL=GPT-5.6 Sol
-UWA_CODEX_REASONING_DEFAULT=high
-UWA_CODEX_TEMPORARY_CHAT=true
-```
+### Real single-file acceptance — PASS
 
-Codex metadata now exposes only the two web reasoning levels currently targeted by the bridge:
+A deliberately broken `calc.py` was successfully:
 
-- `medium` -> GPT-5.6 Sol / Medium
-- `high` -> GPT-5.6 Sol / High
+1. read through Codex local tooling;
+2. corrected by the model/tool loop;
+3. written on the local filesystem;
+4. tested with a real assertion;
+5. confirmed with `PASS`.
 
-Default metadata is `high`. `low` and `ultra` remain hidden until they are verified end-to-end on the current ChatGPT web UI.
+### Real multi-file Stage A — PASS
 
-The local-only diagnostic endpoints are:
+The generated acceptance workspace required changes in two implementation files while tests remained untouched.
+
+Codex Desktop successfully:
+
+1. inspected the multi-file package;
+2. corrected arithmetic implementation errors;
+3. corrected a formatting implementation error;
+4. ran the actual unittest suite;
+5. finished only after all three tests passed.
+
+The independent checker returned:
 
 ```text
-GET  /v1/codex/web-mode
-POST /v1/codex/web-mode/apply
+multi_file: PASS
+ACCEPTANCE_PASS
 ```
 
-Strict mode is intentionally fail-closed. If UWA cannot confirm the target model/mode, it returns a 503 compatibility error rather than silently sending the task through an unknown web configuration.
+This establishes that the bridge is no longer limited to the minimal `calc.py` case.
 
-This checkpoint still requires a real macOS/ChatGPT DOM acceptance test because model/reasoning selectors can change with the web UI.
-
-### Context overhead
-
-The hardened `.env.example` disables optional tool-calling prompt padding by default. Focused repair prompts remain available when a tool call needs correction.
-
-### Public repository safety
-
-- added [`SECURITY.md`](../SECURITY.md)
-- expanded `.gitignore` for future Responses state databases and local `.uwa` runtime state
-- progress docs and tests use synthetic examples only
-- no real Cookie, token, browser profile, local username, private filesystem path, or private project content should be committed
-
-## Known gaps
-
-### 1. Real Codex Desktop coding-agent acceptance test still pending
-
-The repair logic now has automated unit coverage. It still needs a real browser acceptance test:
+## Live acceptance matrix
 
 ```text
-clean local workspace
--> read calc.py with client tool
--> modify the deliberately wrong function
--> run a real test
--> receive function_call_output
--> continue the model/tool loop
--> report the verified result
+single-file calc.py                    PASS
+Stage A multi-file read/edit/test      PASS
+Stage B fail/diagnose/repair/rerun     pending
+Stage C Git-aware discipline           pending
+Stage D long process + write_stdin     pending
+Stage E same-thread context            pending
+Stage F Codex + UWA restart context    pending
 ```
 
-A pass here is required before treating the UWA path as ready for normal coding work.
+The canonical procedure is in `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md` and the fixture generator/checker is `tools/codex_desktop_acceptance.py`.
 
-### 2. Web-mode selector acceptance still pending
+## Continuation and memory
 
-The Sol/Medium/High/Temporary Chat preflight is implemented and unit-tested at the policy layer. The actual current ChatGPT DOM must be exercised on the user's controlled browser. If ChatGPT changes labels or menu structure, selectors should be adjusted rather than weakening strict verification.
+### Generic Responses state before this checkpoint
 
-### 3. Responses continuation state is process-local
+The generic Responses adapter stores `previous_response_id` history in Python memory:
 
-Current Responses continuation state is in memory, has a one-hour TTL, and disappears when UWA restarts. Long-running Codex threads can therefore lose `previous_response_id` continuity.
+```text
+max entries = 1024
+TTL         = 3600 seconds
+```
 
-Planned direction: optional local persistence with a private runtime database, explicit retention limits, restrictive file permissions, and Git ignore rules. Persistence can contain source code, tool output, and conversation history, so this change needs a dedicated privacy/security review before implementation.
+That process-local state disappears when UWA restarts.
 
-### 4. Token accounting is approximate/missing
+### Private Codex continuation store
 
-Web responses currently report zero token usage. Codex context indicators and compaction decisions should not be assumed to match the real web model context usage.
+The Codex-specific path now has a private SQLite fallback implemented in `app/services/codex_responses_state.py`.
 
-Planned direction: local approximate token accounting and conservative context metadata after empirical 32K/64K/96K/128K stability tests.
+Default location:
 
-### 5. Advanced Codex tools are not guaranteed
+```text
+~/.uwa/codex_responses.sqlite3
+```
 
-Core function tools such as `exec_command` are the first compatibility target. Namespace tools, MCP, plugins, hosted search, multi-agent features, and other Codex-specific capabilities may need separate adapters and tests.
+Default retention policy:
 
-## Security requirements for this public fork
+```text
+TTL                 7 days
+max entries         4096
+max record size     8 MiB
+parent mode         0700 where supported
+DB/WAL/SHM mode     0600 where supported
+```
 
-- never commit `.env`, tokens, API keys, cookies, browser profile data, chat transcripts, local logs, request history, or local runtime databases
-- keep API and DevTools bindings on loopback by default
-- never expose the DevTools port to LAN or the public internet
-- keep unsafe Python command execution disabled
-- keep automatic upstream self-update disabled in the hardened workflow
-- use an isolated browser profile, not a daily personal browser profile
-- local Codex tool execution must remain subject to Codex sandbox/approval controls
-- do not weaken local permission checks merely to make tool calling easier
-- redact screenshots and logs before posting them to this public repository
-- if a secret is ever committed, rotate/revoke it immediately and remove it from history when practical
+The store may contain prompts, source snippets and tool output. It must never be committed, uploaded or used as public debugging evidence.
 
-## Current milestone
+Normal in-process continuation still uses the existing memory store. The private DB is consulted only after the process-local `previous_response_id` is absent or expired. When private state is also missing, a sufficiently complete client replay can be used; delta-only tool turns still fail closed.
 
-Phase 1, local security hardening: complete for the tested macOS workflow.
+Local metadata endpoint:
 
-Phase 2, Codex Desktop text bridge: verified.
+```text
+GET /v1/codex/continuity
+```
 
-Phase 2, GPT-5.6 Sol / Medium-High web-mode enforcement: code implemented, awaiting live DOM acceptance.
+It returns counts/retention metadata only, not conversation content or the local database path.
 
-Phase 2, core coding-agent tool loop: code-side refusal repair implemented, awaiting real Desktop acceptance.
+### Project-level handoff
 
-Phase 3, continuity and memory isolation: pending dedicated design and security review.
+Long-term project status is intentionally stored in Git-tracked docs instead of relying on model/account memory:
 
-Phase 4, context accounting and advanced tool compatibility: pending.
+- `README.md`
+- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
+- `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md`
+- this progress file
+- Draft PR #1 timeline
+
+A fresh assistant or fresh Codex thread should reconstruct current state from those files plus `git status`, recent commits and relevant test results.
+
+## Current safety posture
+
+- API binds to `127.0.0.1` by default
+- CORS disabled
+- debug disabled
+- remote access disabled
+- unsafe Python command-engine capability disabled
+- automatic self-update disabled
+- DevTools remains local-only
+- local Codex sandbox/approval remains authoritative
+- `.env`, browser profile, logs, continuation DBs and runtime state are not committed
+- public CI includes high-confidence secret/runtime-state checks
+- live acceptance fixtures are synthetic and isolated from real projects
+
+## Current known gaps
+
+### 1. Stage B-C normal coding workflow depth
+
+The bridge has passed multi-file editing, but still needs explicit proof of:
+
+- observing a real failing test first;
+- using stderr/stdout to repair;
+- rerunning successfully;
+- maintaining clean Git diff discipline.
+
+### 2. Long-running process continuation
+
+`write_stdin` / persistent command sessions are not yet live-verified through the web bridge.
+
+### 3. Same-thread continuity
+
+Same-thread conversational continuity still needs the synthetic token test.
+
+### 4. Restart continuity
+
+The private continuation store is implemented and covered by automated tests, but a full live test must still:
+
+```text
+send context_1
+-> quit Codex Desktop
+-> restart UWA
+-> reopen same Codex thread
+-> send context_2 without repeating token
+-> verify local artifact
+```
+
+This is Stage F. Do not claim restart continuity is complete until it passes.
+
+### 5. Token and context accounting
+
+Web responses still do not provide trustworthy API token accounting. Context indicators should be treated as approximate until local estimation and larger-window stability tests are added.
+
+### 6. Advanced Codex tools
+
+Still pending independent acceptance:
+
+- MCP
+- namespace tools
+- plugins
+- hosted search
+- multi-agent
+- parallel tool calls
+- auxiliary model request behavior
+
+## Immediate next sequence
+
+1. wait for CI on private continuation changes;
+2. run Stage B;
+3. run Stage C;
+4. run Stage D;
+5. run Stage E;
+6. restart UWA + Codex and run Stage F;
+7. update this file, README, current-state doc and PR after every live result.
+
+## Repository-history note
+
+The repository retains its existing license and Git history. Current README and active design docs are written for this fork's Codex web-bridge architecture and acceptance process rather than reproducing the previous project's feature-tour documentation.
