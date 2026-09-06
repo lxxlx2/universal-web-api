@@ -76,7 +76,7 @@ def test_roundtrip_repairs_post_tool_mount_claim_into_next_exec(monkeypatch):
             (
                 '<adapter_calls><call name="exec_command">'
                 '<arguments encoding="json"><![CDATA['
-                '{"cmd":"python3 - <<\'PY\'\nfrom pathlib import Path\np=Path(\'calc.py\')\ns=p.read_text().replace(\'return a - b\', \'return a + b\')\np.write_text(s)\nPY\npython3 -c \"from calc import add; assert add(2, 3) == 5; print(\'PASS\')\"","workdir":"/tmp/project"}'
+                '{"cmd":"cat calc.py","workdir":"/tmp/project"}'
                 ']]></arguments></call></adapter_calls>'
             ),
         ]
