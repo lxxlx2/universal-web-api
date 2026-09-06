@@ -1,8 +1,8 @@
-# Security Policy for the hardened Codex web-bridge fork
+# Security Policy for UWA Codex Web Bridge
 
 This repository is public. Treat every committed file, issue, pull request, screenshot, workflow log, and artifact as public information.
 
-This fork is based on [`lumingya/universal-web-api`](https://github.com/lumingya/universal-web-api). Thanks to the original author and contributors. The additional security rules below cover this fork's local Codex Desktop browser-bridge workflow and do not replace the upstream project's own guidance.
+The repository retains its existing license and Git history. The rules below describe the current Codex Web Bridge security boundary.
 
 ## Intended trust boundary
 
@@ -11,16 +11,16 @@ The hardened workflow is designed for a single-user local machine:
 ```text
 Codex Desktop
   -> 127.0.0.1:8199
-  -> Universal Web API
+  -> UWA
   -> controlled Chromium profile
-  -> signed-in web AI page
+  -> signed-in ChatGPT Web
 ```
 
-Local coding tools such as shell commands and file operations must execute inside the Codex client permission model. The browser page and UWA must not be given direct unrestricted filesystem execution merely to make tool calling easier.
+Local coding tools such as shell commands and file operations execute inside the Codex client permission model. The browser page does not receive direct unrestricted filesystem execution.
 
 ## Safe defaults
 
-Keep these defaults unless you have a reviewed reason to change them:
+Keep these defaults unless there is a reviewed reason to change them:
 
 - `APP_HOST=127.0.0.1`
 - `APP_DEBUG=false`
@@ -47,16 +47,57 @@ Do not commit or upload:
 
 - `.env` files containing credentials or private endpoints
 - API keys, bearer tokens, passwords, cookies, session tokens, recovery codes, or OAuth material
-- `chrome_profile/` or any other browser profile directory
+- browser profile directories
 - browser local storage or exported cookies
 - raw Codex/UWA request logs containing source code or prompts
-- chat transcripts containing private material
+- private chat transcripts
 - local request history and command-result stores
 - runtime SQLite databases containing Responses state
 - screenshots that reveal tokens, account identifiers, private repository content, private chat content, or filesystem secrets
 - generated archives or workflow artifacts that contain any of the above
 
-The repository `.gitignore` intentionally excludes known local runtime and browser state. Ignore rules are only a guardrail. Review `git status` and the actual diff before every push.
+The repository `.gitignore` excludes known local runtime and browser state. Ignore rules are only a guardrail. Review `git status` and the actual diff before every push.
+
+## Private Codex continuation database
+
+The Codex route can persist `previous_response_id` snapshots locally so UWA process restarts do not automatically destroy short-term thread continuity.
+
+Default location:
+
+```text
+~/.uwa/codex_responses.sqlite3
+```
+
+It may contain:
+
+- prompts
+- source-code snippets
+- tool arguments
+- tool output
+- assistant messages
+
+Default policy:
+
+```text
+retention            7 days
+max entries          4096
+max record size      8 MiB
+parent permissions   0700 where supported
+DB/WAL/SHM mode      0600 where supported
+```
+
+The database is private runtime data. Never move it into the repository, attach it to an issue, upload it as a CI artifact, or use it as public debugging evidence.
+
+To remove persisted Codex continuation data, stop UWA first and delete the local database files:
+
+```bash
+codex-uwa-stop
+rm -f ~/.uwa/codex_responses.sqlite3 \
+      ~/.uwa/codex_responses.sqlite3-wal \
+      ~/.uwa/codex_responses.sqlite3-shm
+```
+
+This removes the SQLite fallback. Process-local in-memory state disappears when UWA is stopped.
 
 ## If a secret is exposed
 
@@ -73,7 +114,7 @@ Deleting the latest commit alone does not make an exposed secret safe.
 
 Use a dedicated Chromium profile for UWA. Avoid reusing a daily browser profile that contains unrelated accounts, extensions, saved passwords, or browsing data.
 
-A normal signed-in web AI conversation may use the site's account history, personalization, or memory features. Coding-agent traffic may also create visible chat history. A Temporary Chat style workflow is being investigated for stronger isolation. Until it is implemented and tested, users should assume normal account behavior can apply.
+Temporary Chat is requested by the bridge, but current ChatGPT DOM does not expose that state consistently enough to make it a hard dependency. Treat account-level personalization/memory as outside the project state model. Project correctness must come from Codex thread history, local runtime continuation, files, tests, Git, and tracked checkpoint docs.
 
 ## Codex local execution safety
 
@@ -83,22 +124,20 @@ For routine work, prefer a workspace-scoped sandbox and interactive approval for
 
 The UWA tool-repair layer only converts a model decision into a client tool request. It does not execute the command itself and must never bypass Codex permission checks.
 
-## Persistent conversation state
+## Project continuity safety
 
-Future Responses-state persistence may contain source code, prompts, tool outputs, and conversation history. If enabled later, it must:
+Long-term project progress must be reconstructable without private chat logs or the local continuation DB. Keep implementation decisions and verified milestones in tracked project files:
 
-- stay local by default
-- use a Git-ignored path
-- have bounded retention
-- use restrictive filesystem permissions where supported
-- avoid storing secrets unnecessarily
-- provide a clear deletion path
+- `README.md`
+- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
+- `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md`
+- `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
 
-Persistent state should be treated as sensitive local application data.
+These files must contain only public-safe technical state and synthetic examples.
 
 ## Updates and supply chain
 
-Automatic upstream self-update is disabled in the hardened workflow. Review upstream changes before merging or upgrading, especially changes that touch browser startup, command execution, updater logic, authentication, network binding, or profile handling.
+Automatic self-update is disabled in the hardened workflow. Review dependency and inherited-code changes before merging or upgrading, especially changes that touch browser startup, command execution, updater logic, authentication, network binding, or profile handling.
 
 Use trusted package indexes. Review dependency changes before installation when possible.
 
@@ -113,8 +152,8 @@ When reporting a problem, include only the minimum required information. Redact:
 - chat text unrelated to the bug
 - account email addresses and identifiers
 
-Prefer synthetic reproduction files such as a small `calc.py` over real project data.
+Prefer synthetic reproduction files and the generated acceptance workspace over real project data.
 
 ## Current project status
 
-Codex Desktop inference through the browser bridge is experimental. Core local coding tool round-trips are under active compatibility testing. See [`docs/CODEX_WEB_BRIDGE_PROGRESS.md`](./docs/CODEX_WEB_BRIDGE_PROGRESS.md) for the current milestone, verified capabilities, and known gaps.
+The core Codex Desktop read/edit/test tool loop has passed real macOS acceptance, including the Stage A multi-file scenario. Restart continuity and advanced tools remain under active validation. See `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md` for the current milestone and `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md` for the test matrix.
