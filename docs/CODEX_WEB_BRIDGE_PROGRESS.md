@@ -8,7 +8,7 @@ Checkpoint: **2026-09-06**
 
 This fork is based on [`lumingya/universal-web-api`](https://github.com/lumingya/universal-web-api). Thanks to the original author and contributors for the browser automation, site adapters, streaming parsers, routing, dashboard, and OpenAI/Anthropic compatibility layers that make this experiment possible.
 
-The changes in this fork focus on a narrower idea: keep the upstream browser bridge, harden the default local security boundary, and make Codex Desktop able to use a web chat model as the reasoning backend while Codex itself remains responsible for controlled local tool execution.
+The changes in this fork focus on a narrower idea: keep the browser bridge, harden the default local security boundary, and make Codex Desktop able to use a web chat model as the reasoning backend while Codex itself remains responsible for controlled local tool execution.
 
 ## Target architecture
 
@@ -16,8 +16,9 @@ The changes in this fork focus on a narrower idea: keep the upstream browser bri
 Codex Desktop
     -> OpenAI Responses-compatible request
     -> Universal Web API on 127.0.0.1
-    -> controlled browser tab
-    -> web chat model decides whether a local client tool is needed
+    -> controlled ChatGPT browser tab
+    -> GPT-5.6 Sol / requested Medium or High reasoning
+    -> web model decides whether a local client tool is needed
     -> UWA converts the web-model tool request into Responses function_call
     -> Codex executes the tool under its own permission/sandbox policy
     -> function_call_output returns through UWA to the web model
@@ -38,8 +39,9 @@ The web page does not receive direct filesystem access. Local file reads, writes
 - Codex CLI inference through the custom provider
 - Codex Desktop loading the custom `uwa` provider
 - official/UWA configuration can be kept separate locally
-- Codex catalog now labels the `chatgpt` route as a browser-selected web model instead of pretending it identifies a concrete model
-- unmapped `low/high/ultra` reasoning choices are no longer advertised by this fork
+- Codex Desktop ordinary text inference reaches the ChatGPT browser and returns to Desktop
+- client-workspace refusal repair is implemented with bounded retries and fail-closed behavior
+- public-repository safety scan and hardened defaults are active
 
 ## Phase 2 changes implemented in this checkpoint
 
@@ -64,21 +66,51 @@ Behavior:
 7. Uses bounded retries.
 8. Fails closed after repeated false refusals instead of returning an unexecuted manual command as a successful task result.
 
-Tests cover the observed refusal, a successful refusal-to-`exec_command` repair, retry exhaustion, and the important case where a real tool result has already confirmed a missing file. In the latter case the policy does not override the genuine failure.
+### GPT-5.6 Sol web-mode lock
 
-### Model metadata honesty
+The generic `chatgpt` route id is still used internally so existing routing remains compatible, but the Codex model catalog now presents the intended execution target as `GPT-5.6 Sol`.
 
-The `chatgpt` id means "route to the controlled ChatGPT browser tab". It does not prove which selectable ChatGPT web model is active. The controlled browser remains the source of truth.
+A new ChatGPT web-mode preflight runs before logical `chatgpt` Responses requests:
 
-Codex metadata now displays `ChatGPT Web (browser-selected model)` for that route and documents this limitation.
+```text
+Temporary Chat preference
+-> GPT-5.6 Sol model selection
+-> requested Medium/High reasoning selection
+-> browser-side verification
+-> forward Responses request only when verified in strict mode
+```
 
-### Reasoning metadata honesty
+Defaults:
 
-Codex can send `reasoning.effort`, but the current Responses-to-browser conversion does not map that field to ChatGPT web UI reasoning controls. The fork now advertises only a `medium` / Web default placeholder until a stable browser-side mapping exists.
+```env
+UWA_CODEX_WEB_MODE_ENABLED=true
+UWA_CODEX_WEB_MODE_STRICT=true
+UWA_CODEX_WEB_MODEL=GPT-5.6 Sol
+UWA_CODEX_REASONING_DEFAULT=high
+UWA_CODEX_TEMPORARY_CHAT=true
+```
+
+Codex metadata now exposes only the two web reasoning levels currently targeted by the bridge:
+
+- `medium` -> GPT-5.6 Sol / Medium
+- `high` -> GPT-5.6 Sol / High
+
+Default metadata is `high`. `low` and `ultra` remain hidden until they are verified end-to-end on the current ChatGPT web UI.
+
+The local-only diagnostic endpoints are:
+
+```text
+GET  /v1/codex/web-mode
+POST /v1/codex/web-mode/apply
+```
+
+Strict mode is intentionally fail-closed. If UWA cannot confirm the target model/mode, it returns a 503 compatibility error rather than silently sending the task through an unknown web configuration.
+
+This checkpoint still requires a real macOS/ChatGPT DOM acceptance test because model/reasoning selectors can change with the web UI.
 
 ### Context overhead
 
-The hardened `.env.example` disables optional tool-calling prompt padding by default. Focused repair prompts remain available when a tool call needs correction. Existing local `.env` files are not automatically rewritten, so a previously copied config may need manual adjustment.
+The hardened `.env.example` disables optional tool-calling prompt padding by default. Focused repair prompts remain available when a tool call needs correction.
 
 ### Public repository safety
 
@@ -105,23 +137,21 @@ clean local workspace
 
 A pass here is required before treating the UWA path as ready for normal coding work.
 
-### 2. Responses continuation state is process-local
+### 2. Web-mode selector acceptance still pending
+
+The Sol/Medium/High/Temporary Chat preflight is implemented and unit-tested at the policy layer. The actual current ChatGPT DOM must be exercised on the user's controlled browser. If ChatGPT changes labels or menu structure, selectors should be adjusted rather than weakening strict verification.
+
+### 3. Responses continuation state is process-local
 
 Current Responses continuation state is in memory, has a one-hour TTL, and disappears when UWA restarts. Long-running Codex threads can therefore lose `previous_response_id` continuity.
 
 Planned direction: optional local persistence with a private runtime database, explicit retention limits, restrictive file permissions, and Git ignore rules. Persistence can contain source code, tool output, and conversation history, so this change needs a dedicated privacy/security review before implementation.
 
-### 3. Token accounting is approximate/missing
+### 4. Token accounting is approximate/missing
 
 Web responses currently report zero token usage. Codex context indicators and compaction decisions should not be assumed to match the real web model context usage.
 
 Planned direction: local approximate token accounting and conservative context metadata after empirical 32K/64K/96K/128K stability tests.
-
-### 4. ChatGPT Memory isolation is not guaranteed
-
-A normal signed-in ChatGPT browser conversation may use account personalization and may create normal chat history. For coding-agent use, account memory and coding context should ideally be isolated.
-
-Planned direction: investigate a stable Temporary Chat workflow. This must be implemented only after current ChatGPT DOM behavior is inspected and tested because UI selectors can change. Until then, users should assume normal account behavior may apply.
 
 ### 5. Advanced Codex tools are not guaranteed
 
@@ -144,7 +174,11 @@ Core function tools such as `exec_command` are the first compatibility target. N
 
 Phase 1, local security hardening: complete for the tested macOS workflow.
 
-Phase 2, Codex Desktop core agent loop: code-side refusal repair implemented and awaiting real Desktop acceptance testing.
+Phase 2, Codex Desktop text bridge: verified.
+
+Phase 2, GPT-5.6 Sol / Medium-High web-mode enforcement: code implemented, awaiting live DOM acceptance.
+
+Phase 2, core coding-agent tool loop: code-side refusal repair implemented, awaiting real Desktop acceptance.
 
 Phase 3, continuity and memory isolation: pending dedicated design and security review.
 
