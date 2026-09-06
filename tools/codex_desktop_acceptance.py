@@ -3,12 +3,15 @@
 
 The harness creates an isolated workspace under the current user's home directory.
 It never touches an existing directory unless that directory contains this tool's
-marker file. The generated fixture is intentionally small and contains no secrets.
+marker file. Each scenario can be prepared independently so a stale or missing
+fixture is detected before a Codex Desktop live run begins.
 
 Typical use:
     python3 tools/codex_desktop_acceptance.py setup
-    python3 tools/codex_desktop_acceptance.py prompts
-    python3 tools/codex_desktop_acceptance.py check
+    python3 tools/codex_desktop_acceptance.py prepare --scenario failure_recovery
+    python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
+    python3 tools/codex_desktop_acceptance.py prompts --scenario failure_recovery
+    python3 tools/codex_desktop_acceptance.py check --scenario failure_recovery
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Callable, Dict, Iterable, List, Tuple
 
 
 DEFAULT_ROOT = Path.home() / "uwa-codex-acceptance"
@@ -26,28 +29,42 @@ MARKER = ".uwa_codex_acceptance"
 CONTEXT_TOKEN = "EMBER-7319"
 
 
+def _workspace_guard_prompt(scenario_dir: str) -> str:
+    return (
+        "第一步必须通过客户端 exec_command 在当前 Codex 工作区执行 "
+        f"pwd && test -f {MARKER} && test -d {scenario_dir}。"
+        "如果标记文件或目标目录不存在，立即停止并只回复 ACCEPTANCE_WORKSPACE_MISMATCH；"
+        "不要探测其他绝对路径，不要切换到另一个执行环境，也不要让用户自己运行命令。"
+    )
+
+
 PROMPTS: Dict[str, str] = {
     "multi_file": (
-        "先检查当前工作区的 multi_file。修复其中的实现，使 "
+        _workspace_guard_prompt("multi_file")
+        + "随后检查当前工作区的 multi_file。修复其中的实现，使 "
         "python3 -m unittest discover -s multi_file/tests -v 全部通过。"
         "必须实际读取文件、修改至少两个实现文件并实际运行测试。"
         "不要修改测试文件。完成后简要汇报修改和测试结果。"
     ),
     "failure_recovery": (
-        "处理 failure_recovery：先原样运行 "
-        "python3 -m unittest discover -s failure_recovery/tests -v 获取真实失败，"
-        "再根据失败定位并修复实现，最后重新运行同一测试直到通过。"
-        "不要修改测试。必须保留首次失败和最终成功这两个真实执行步骤。"
+        _workspace_guard_prompt("failure_recovery")
+        + "工作区校验成功后，先原样运行 "
+        "python3 -m unittest discover -s failure_recovery/tests -v 获取首次真实失败。"
+        "然后根据这个真实失败读取相关实现和测试，只修改实现。"
+        "最后原样重新运行同一测试命令直到通过。"
+        "不要修改测试。最终汇报必须同时引用首次失败和最终成功这两个真实执行步骤。"
     ),
     "git_diff": (
-        "处理 git_diff：按 git_diff/REQUIREMENTS.txt 修改实现并运行 "
+        _workspace_guard_prompt("git_diff")
+        + "工作区校验成功后，按 git_diff/REQUIREMENTS.txt 修改实现并运行 "
         "python3 -m unittest discover -s git_diff/tests -v。"
         "随后实际运行 git diff --check 和 git diff -- git_diff，确认只有预期实现文件变化。"
         "不要提交 git commit，也不要修改测试或 REQUIREMENTS.txt。"
     ),
     "interactive": (
-        "验证长命令和交互工具：从当前工作区启动 python3 interactive/worker.py。"
-        "它会输出 READY 后等待标准输入。不要终止它；使用客户端提供的持续进程/写入标准输入工具"
+        _workspace_guard_prompt("interactive")
+        + "工作区校验成功后，启动 python3 interactive/worker.py。"
+        "它会输出 READY 后等待标准输入。不要终止它；使用客户端提供的持续进程或写入标准输入工具"
         "向同一进程发送 GO 加换行，等待它退出并输出 INTERACTIVE_PASS。"
         "最后读取 interactive/result.txt 确认内容为 INTERACTIVE_PASS。"
     ),
@@ -195,12 +212,29 @@ def _build_context(root: Path) -> None:
     (root / "context").mkdir(parents=True, exist_ok=True)
 
 
+SCENARIO_BUILDERS: Dict[str, Callable[[Path], None]] = {
+    "multi_file": _build_multi_file,
+    "failure_recovery": _build_failure_recovery,
+    "git_diff": _build_git_diff,
+    "interactive": _build_interactive,
+    "context": _build_context,
+}
+
+
+def _normalize_scenario(scenario: str | None) -> str:
+    normalized = "context" if scenario in {"context_1", "context_2"} else str(scenario or "").strip()
+    if normalized not in SCENARIO_BUILDERS:
+        raise SystemExit(f"Unknown scenario: {scenario}")
+    return normalized
+
+
 def _write_prompt_file(root: Path) -> None:
     lines = [
         "# Codex Desktop live acceptance prompts",
         "",
         "Run each scenario from a fresh Codex thread unless the prompt explicitly says otherwise.",
         "The two context prompts MUST be sent in the same thread.",
+        "Before a live run, use prepare + preflight for the selected scenario.",
         "",
     ]
     for name, prompt in PROMPTS.items():
@@ -221,17 +255,38 @@ def _init_git(root: Path) -> None:
 
 def setup(root: Path) -> None:
     root = _reset_root(root)
-    _build_multi_file(root)
-    _build_failure_recovery(root)
-    _build_git_diff(root)
-    _build_interactive(root)
-    _build_context(root)
+    for builder in SCENARIO_BUILDERS.values():
+        builder(root)
     _write_prompt_file(root)
     _init_git(root)
     print(f"ACCEPTANCE_WORKSPACE={root}")
     print("SETUP_PASS")
     print(f"Open this folder as the Codex Desktop project: {root}")
     print(f"Prompts: {root / 'PROMPTS.md'}")
+
+
+def prepare(root: Path, scenario: str) -> None:
+    root = root.expanduser().resolve()
+    normalized = _normalize_scenario(scenario)
+    if not root.exists():
+        setup(root)
+        print(f"PREPARE_PASS scenario={normalized} created_workspace=true")
+        return
+
+    _guard_root(root, allow_create=False)
+    if not (root / ".git").is_dir():
+        raise SystemExit(f"Acceptance workspace is missing its local Git baseline: {root}")
+
+    target = root / normalized
+    if target.exists():
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    SCENARIO_BUILDERS[normalized](root)
+    _write_prompt_file(root)
+    print(f"ACCEPTANCE_WORKSPACE={root}")
+    print(f"PREPARE_PASS scenario={normalized} created_workspace=false")
 
 
 def show_prompts(root: Path, scenario: str | None = None) -> None:
@@ -253,6 +308,48 @@ def _unit_test(root: Path, suite_dir: str) -> Tuple[bool, str]:
         cwd=root,
     )
     return result.returncode == 0, result.stdout
+
+
+def preflight(root: Path, scenario: str) -> int:
+    root = root.expanduser().resolve()
+    normalized = _normalize_scenario(scenario)
+    _guard_root(root, allow_create=False)
+
+    if not (root / ".git").is_dir():
+        print("PREFLIGHT_FAIL missing_git_baseline")
+        return 1
+    if not (root / normalized).exists():
+        print(f"PREFLIGHT_FAIL missing_scenario={normalized}")
+        return 1
+
+    toplevel = _run(["git", "rev-parse", "--show-toplevel"], cwd=root)
+    if toplevel.returncode != 0 or Path(toplevel.stdout.strip()).resolve() != root:
+        print("PREFLIGHT_FAIL git_root_mismatch")
+        return 1
+
+    if normalized in {"multi_file", "failure_recovery", "git_diff"}:
+        is_green, output = _unit_test(root, normalized)
+        if is_green:
+            print(f"PREFLIGHT_FAIL scenario={normalized} expected_initial_red=true actual=green")
+            return 1
+        print(f"PREFLIGHT_EXPECTED_RED scenario={normalized}")
+        failure_line = next((line for line in output.splitlines() if "FAIL" in line or "ERROR" in line), "")
+        if failure_line:
+            print(f"PREFLIGHT_SAMPLE={failure_line[:240]}")
+    elif normalized == "interactive":
+        result_file = root / "interactive" / "result.txt"
+        if result_file.exists():
+            print("PREFLIGHT_FAIL interactive_result_already_exists")
+            return 1
+    elif normalized == "context":
+        result_file = root / "context" / "result.txt"
+        if result_file.exists():
+            print("PREFLIGHT_FAIL context_result_already_exists")
+            return 1
+
+    print(f"ROOT={root}")
+    print(f"PREFLIGHT_PASS scenario={normalized}")
+    return 0
 
 
 def _changed_paths(root: Path) -> List[str]:
@@ -315,9 +412,7 @@ def check(root: Path, scenario: str | None = None) -> int:
     }
     selected: Iterable[str]
     if scenario:
-        normalized = "context" if scenario in {"context_1", "context_2"} else scenario
-        if normalized not in checks:
-            raise SystemExit(f"Unknown check scenario: {scenario}")
+        normalized = _normalize_scenario(scenario)
         selected = [normalized]
     else:
         selected = checks.keys()
@@ -325,8 +420,8 @@ def check(root: Path, scenario: str | None = None) -> int:
     failed = 0
     for name in selected:
         ok, detail = checks[name]()
-        status = "PASS" if ok else "FAIL"
-        print(f"{name}: {status}")
+        status_text = "PASS" if ok else "FAIL"
+        print(f"{name}: {status_text}")
         if not ok:
             failed += 1
             print(detail.rstrip())
@@ -346,7 +441,10 @@ def status(root: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["setup", "prompts", "check", "status"])
+    parser.add_argument(
+        "command",
+        choices=["setup", "prepare", "preflight", "prompts", "check", "status"],
+    )
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--scenario", default=None)
     args = parser.parse_args()
@@ -354,6 +452,15 @@ def main() -> int:
     if args.command == "setup":
         setup(args.root)
         return 0
+    if args.command == "prepare":
+        if not args.scenario:
+            raise SystemExit("prepare requires --scenario")
+        prepare(args.root, args.scenario)
+        return 0
+    if args.command == "preflight":
+        if not args.scenario:
+            raise SystemExit("preflight requires --scenario")
+        return preflight(args.root, args.scenario)
     if args.command == "prompts":
         show_prompts(args.root, args.scenario)
         return 0
