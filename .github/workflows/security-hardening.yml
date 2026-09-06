@@ -44,9 +44,14 @@ jobs:
           app/services/client_tool_policy.py
           app/services/tool_calling.py
           app/services/chatgpt_web_mode.py
+          app/services/chatgpt_web_prepare.py
           app/api/codex_compat.py
           app/api/codex_responses.py
-      - run: python -m pytest -q tests/test_security_hardening.py
+      - run: >-
+          python -m pytest -q
+          tests/test_security_hardening.py
+          tests/test_chatgpt_web_mode.py
+          tests/test_chatgpt_web_prepare.py
 
   upstream-regression:
     runs-on: ubuntu-latest
