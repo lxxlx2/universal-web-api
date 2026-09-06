@@ -1,8 +1,9 @@
 """Codex-specific Responses preflight.
 
 For the logical ``chatgpt`` browser route, this layer prepares a fresh ChatGPT
-composer and verifies the web reasoning mode before delegating to the existing
-Responses implementation.
+composer, verifies the web reasoning mode, and applies ChatGPT-only network
+budgets suitable for High reasoning before delegating to the existing Responses
+implementation.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from app.services.chatgpt_web_mode import (
     inspect_chatgpt_web_mode_diagnostics,
     web_mode_enabled,
 )
+from app.services.codex_network_tuning import install_codex_chatgpt_network_tuning
 from app.services.codex_web_policy import (
     inspect_codex_web_mode_status,
     prepare_and_verify_codex_web_mode,
@@ -87,6 +89,10 @@ async def codex_aware_responses(
     authenticated: bool = Depends(verify_auth),
 ):
     if str(body.model or "").strip().lower() == "chatgpt" and web_mode_enabled():
+        # Install before the backing StreamingResponse starts iterating. The
+        # wrapper changes only NetworkMonitor configs whose parser id is
+        # ``chatgpt``; all other web providers keep their original budgets.
+        install_codex_chatgpt_network_tuning()
         try:
             prepare_and_verify_codex_web_mode(body.reasoning)
         except ChatGPTWebModeError as exc:
