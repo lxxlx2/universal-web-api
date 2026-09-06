@@ -7,8 +7,10 @@ the client under the client's own sandbox and approval policy.
 
 This module repairs a narrow class of contradictions where the web model claims
 that the local workspace or client execution tool is unavailable even though the
-client declared that tool. It never executes commands itself and it never bypasses
-client permission checks.
+client declared that tool. It also rejects an accidental root ``workdir`` override
+for client shell tools unless the user explicitly asked to execute from filesystem
+root. It never executes commands itself and it never bypasses client permission
+checks.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ _WORKSPACE_TOOL_PRIORITY = (
     "apply_patch",
     "write_stdin",
 )
+
+_EXEC_LIKE_TOOLS = {"exec_command", "shell_command", "local_shell"}
 
 _WORKSPACE_REQUEST_PATTERNS = (
     re.compile(r"\bworkspace\b", re.IGNORECASE),
@@ -75,6 +79,18 @@ _POST_TOOL_UNAVAILABLE_PATTERNS = (
     re.compile(r"(?:无法|不能).{0,40}(?:真实|实际).{0,30}(?:写入|修改|运行|测试).{0,100}(?:因为|由于).{0,80}(?:工具|exec_command).{0,50}(?:没有|未|不可用|未暴露)"),
     re.compile(r"(?:当前(?:这轮|这个)?(?:实际)?可调用的执行环境|当前(?:这个)?会话(?:实际)?可用的(?:执行环境|文件系统)|当前环境).{0,120}(?:没有|未).{0,30}(?:挂载|映射).{0,100}(?:本机|本地|工作区|目录|路径|/Users/|/home/)", re.IGNORECASE | re.DOTALL),
     re.compile(r"(?:没有|未).{0,30}(?:挂载|映射).{0,100}(?:本机|本地|工作区|/Users/|/home/).{0,120}(?:无法|不能).{0,50}(?:真实|实际).{0,30}(?:写入|修改|运行|测试)", re.IGNORECASE | re.DOTALL),
+)
+
+_ROOT_WORKDIR_EXPLICIT_PATTERNS = (
+    re.compile(r"\bworkdir\s*(?:=|:|to)?\s*['\"]?/['\"]?\b", re.IGNORECASE),
+    re.compile(r"\b(?:cwd|working\s+directory)\s*(?:=|:|to)?\s*['\"]?/['\"]?\b", re.IGNORECASE),
+    re.compile(r"\b(?:filesystem\s+root|root\s+directory)\b", re.IGNORECASE),
+    re.compile(r"(?:文件系统根目录|根目录).{0,20}(?:执行|运行|workdir|cwd|/)", re.IGNORECASE),
+)
+
+_ROOT_WORKDIR_TEXT_PATTERN = re.compile(
+    r"[\"']?workdir[\"']?\s*:\s*[\"']/[\"']",
+    re.IGNORECASE,
 )
 
 
@@ -175,6 +191,46 @@ def looks_like_post_tool_unavailable_claim(text: str) -> bool:
     return any(pattern.search(value) for pattern in _POST_TOOL_UNAVAILABLE_PATTERNS)
 
 
+def _decode_tool_arguments(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+    function_data = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+    raw = function_data.get("arguments")
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def user_explicitly_requested_root_workdir(messages: List[Dict[str, Any]]) -> bool:
+    text = _latest_user_text(messages).strip()
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in _ROOT_WORKDIR_EXPLICIT_PATTERNS)
+
+
+def has_suspicious_root_workdir_tool_call(
+    messages: List[Dict[str, Any]],
+    parsed: Dict[str, Any],
+) -> bool:
+    """Return True when an exec-like tool accidentally overrides client cwd with `/`."""
+
+    if user_explicitly_requested_root_workdir(messages):
+        return False
+    for tool_call in parsed.get("tool_calls") or []:
+        if not isinstance(tool_call, dict):
+            continue
+        if _tool_name(tool_call) not in _EXEC_LIKE_TOOLS:
+            continue
+        args = _decode_tool_arguments(tool_call)
+        if str(args.get("workdir") or "").strip() == "/":
+            return True
+    return False
+
+
 def should_repair_client_workspace_refusal(
     *,
     messages: List[Dict[str, Any]],
@@ -183,17 +239,19 @@ def should_repair_client_workspace_refusal(
     assistant_text: str,
     parsed: Dict[str, Any],
 ) -> bool:
-    """Repair false local-workspace/tool-availability claims without masking real failures."""
+    """Repair false local-workspace/tool-availability claims or unsafe cwd overrides."""
 
     if not _flag_enabled("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", True):
         return False
     if isinstance(tool_choice, str) and tool_choice.strip().lower() == "none":
         return False
-    if str(parsed.get("mode") or "").strip().lower() != "final":
-        return False
-    if parsed.get("tool_calls"):
-        return False
     if not has_client_workspace_tools(tools):
+        return False
+
+    if parsed.get("tool_calls"):
+        return has_suspicious_root_workdir_tool_call(messages, parsed)
+
+    if str(parsed.get("mode") or "").strip().lower() != "final":
         return False
 
     has_history = _has_tool_history(messages)
@@ -235,6 +293,7 @@ def build_client_workspace_repair_messages(
         rejected = rejected[:1397] + "..."
 
     has_prior_workspace_call = _has_workspace_tool_call_history(messages)
+    root_workdir_repair = bool(_ROOT_WORKDIR_TEXT_PATTERN.search(str(assistant_text or "")))
     prior_history_rule = (
         "A prior workspace client tool call/result is already present in the conversation. "
         "That proves the client tool is exposed and executable in this session. Continue using the declared "
@@ -254,6 +313,9 @@ def build_client_workspace_repair_messages(
         + f"The current request explicitly declares these workspace tool names: {declared_names}. "
         "This declaration is authoritative for tool availability in this request. "
         + f"For a local workspace task, call {preferred_name} before claiming that a path or file is unavailable. "
+        "For exec_command, shell_command, or local_shell, OMIT the workdir field unless the user explicitly asks to "
+        "change the working directory. The client's current turn cwd is authoritative. Never use '/' as a default, "
+        "fallback, guessed, or placeholder workdir. If the task wants the current workspace, omit workdir entirely. "
         "For inspection tasks, a minimal first command such as pwd plus a directory listing is appropriate; then "
         "read the requested file with the same client tool. After a successful read, continue with the requested "
         "edit and test instead of stopping at an explanation. Do not ask the user to upload a file and do not give "
@@ -267,7 +329,18 @@ def build_client_workspace_repair_messages(
     )
 
     repeated = attempt > 1
-    if has_prior_workspace_call:
+    if root_workdir_repair:
+        correction = (
+            "The previous client tool call incorrectly overrode the Codex turn working directory with workdir='/' "
+            "even though the user did not request filesystem root. Reissue the same intended client tool call without "
+            "the workdir field so Codex inherits the current turn cwd. Do not guess an absolute replacement path."
+        )
+        if repeated:
+            correction += (
+                " This is a repeated root-workdir error. The corrected tool call must omit workdir entirely."
+            )
+        action = f"Call {preferred_name} again now. Preserve the intended command and omit workdir. Return only the corrected tool-call output."
+    elif has_prior_workspace_call:
         correction = (
             "The previous reply contradicted the existing client tool history by claiming that the client execution "
             "tool or mounted local workspace was unavailable. Correct that contradiction now."
@@ -311,8 +384,10 @@ def build_client_workspace_repair_messages(
 __all__ = [
     "build_client_workspace_repair_messages",
     "has_client_workspace_tools",
+    "has_suspicious_root_workdir_tool_call",
     "looks_like_client_access_refusal",
     "looks_like_local_workspace_request",
     "looks_like_post_tool_unavailable_claim",
     "should_repair_client_workspace_refusal",
+    "user_explicitly_requested_root_workdir",
 ]
