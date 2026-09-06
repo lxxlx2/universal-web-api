@@ -117,6 +117,25 @@ The tool call was delivered to Codex and a real tool result came back on the nex
 
 This showed that the bridge's tool round-trip still worked, while the live acceptance setup did not guarantee the selected Codex project matched the synthetic fixture. The harness was therefore hardened with `prepare`, `preflight`, the marker check and `ACCEPTANCE_WORKSPACE_MISMATCH`.
 
+### Machine-auditable failure recovery
+
+Stage B now uses the same unittest command twice through an audited shell wrapper. Each invocation appends its real exit code to:
+
+```text
+failure_recovery/.run_history
+```
+
+The generated prompt contains the exact audited command. The checker requires all of the following:
+
+1. current tests are green;
+2. `.run_history` has at least two recorded runs;
+3. the first recorded exit code is non-zero;
+4. the last recorded exit code is zero;
+5. no non-integer evidence was injected;
+6. the only tracked change under `failure_recovery/` is `failure_recovery/parser.py`.
+
+This means a plausible final answer or a manually pre-fixed implementation cannot pass Stage B without evidence of a real failing run followed by a real successful rerun.
+
 For the rerun, execute:
 
 ```bash
@@ -125,7 +144,7 @@ python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
 python3 tools/codex_desktop_acceptance.py prompts --scenario failure_recovery
 ```
 
-The Codex prompt itself must execute the exact failing unittest command before editing. The external preflight only proves that the fixture exists and starts red; it does not count as the Stage B execution evidence.
+The external preflight only proves that the fixture exists and starts red; it does not write `.run_history` and does not count as the Stage B execution evidence.
 
 Pass command:
 
