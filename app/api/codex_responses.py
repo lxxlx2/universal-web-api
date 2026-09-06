@@ -46,6 +46,7 @@ from app.services.chatgpt_web_mode import (
     inspect_chatgpt_web_mode_diagnostics,
     web_mode_enabled,
 )
+from app.services.client_tool_policy import user_explicitly_requested_root_workdir
 from app.services.codex_network_tuning import install_codex_chatgpt_network_tuning
 from app.services.codex_responses_state import (
     continuity_status,
@@ -61,6 +62,7 @@ from app.services.codex_web_policy import (
 router = APIRouter()
 logger = get_logger("API.CODEX_RESPONSES")
 _CODEX_SSE_KEEPALIVE_SEC = 5.0
+_CODEX_EXEC_LIKE_TOOL_NAMES = {"exec_command", "shell_command", "local_shell"}
 
 
 def _is_loopback(host: str) -> bool:
@@ -241,6 +243,68 @@ def _sanitize_codex_tool_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return clean
 
 
+def _sanitize_codex_root_workdirs(
+    payload: Dict[str, Any],
+    request_messages: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Strip an accidental root workdir before any Codex Responses event is built.
+
+    The browser model can guess ``workdir='/'`` even when Codex already has the
+    correct native turn cwd.  Codex treats an absolute workdir as an override, so
+    that guess would discard the project binding.  Unless the user explicitly
+    requested filesystem root, remove only that exact override and let Codex use
+    its authoritative turn cwd.  Command bodies are never logged here.
+    """
+
+    clean = copy.deepcopy(payload if isinstance(payload, dict) else {})
+    if user_explicitly_requested_root_workdir(request_messages):
+        return clean
+
+    choices = clean.get("choices") if isinstance(clean.get("choices"), list) else []
+    stripped = 0
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message") if isinstance(choice.get("message"), dict) else None
+        if not isinstance(message, dict):
+            continue
+        tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+            function_data = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else None
+            if not isinstance(function_data, dict):
+                continue
+            tool_name = str(function_data.get("name") or "").strip()
+            if tool_name not in _CODEX_EXEC_LIKE_TOOL_NAMES:
+                continue
+            raw_arguments = function_data.get("arguments")
+            if isinstance(raw_arguments, dict):
+                arguments = dict(raw_arguments)
+            elif isinstance(raw_arguments, str):
+                try:
+                    decoded = json.loads(raw_arguments)
+                except Exception:
+                    continue
+                if not isinstance(decoded, dict):
+                    continue
+                arguments = decoded
+            else:
+                continue
+            if str(arguments.get("workdir") or "").strip() != "/":
+                continue
+            arguments.pop("workdir", None)
+            function_data["arguments"] = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
+            stripped += 1
+
+    if stripped:
+        logger.warning(
+            "[CODEX_RESPONSES] stripped accidental root workdir before Codex delivery: "
+            f"count={stripped}; command bodies not logged"
+        )
+    return clean
+
+
 def _codex_wire_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Return the conservative Responses item shape Codex itself uses in tests."""
 
@@ -355,7 +419,10 @@ async def _stream_codex_minimal_responses(
         )
         return
 
-    payload = _sanitize_codex_tool_payload(raw_payload)
+    payload = _sanitize_codex_root_workdirs(
+        _sanitize_codex_tool_payload(raw_payload),
+        chat_body.messages,
+    )
     if status_code >= 400 or "error" in payload:
         failed = _build_responses_object(
             body,
