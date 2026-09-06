@@ -6,7 +6,7 @@ This document tracks the real macOS acceptance of the hardened Codex Desktop -> 
 
 - minimal single-file `calc.py` read/edit/test loop: **PASS**
 - Stage A multi-file read/edit/test: **PASS** on 2026-09-06
-- Stage B failure recovery: **rerun required** after an invalid workspace-mismatch attempt
+- Stage B failure recovery: **rerun required** after a later repeated tool-availability contradiction
 - Stage C Git-aware change discipline: pending
 - Stage D long-running process + stdin continuation: pending
 - Stage E same-thread context continuity: pending
@@ -46,7 +46,7 @@ python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
 
 `prepare` preserves the other scenario directories. If the entire acceptance workspace is missing, it safely recreates the marked synthetic workspace. `preflight` verifies the marker, Git root and target scenario. For deliberately failing test scenarios it also proves the fixture starts red before Codex is asked to act.
 
-Then open the printed acceptance root as the Codex Desktop project. Each action-oriented live prompt now begins with a client-side workspace guard:
+Then open the printed acceptance root as the Codex Desktop project. Each action-oriented live prompt begins with a client-side workspace guard:
 
 ```text
 pwd
@@ -117,9 +117,37 @@ The tool call was delivered to Codex and a real tool result came back on the nex
 
 This showed that the bridge's tool round-trip still worked, while the live acceptance setup did not guarantee the selected Codex project matched the synthetic fixture. The harness was therefore hardened with `prepare`, `preflight`, the marker check and `ACCEPTANCE_WORKSPACE_MISMATCH`.
 
+### Attempt 2 classification
+
+The second Stage B attempt reached the correct synthetic project and executed several real `exec_command` rounds. The UWA log showed successive Responses turns with growing history and repeated minimal-stream delivery of `exec_command`, proving that the local client tool remained declared and executable throughout the run.
+
+The run then stopped when the web model returned this contradictory claim:
+
+```text
+当前实际可调用工具中没有名为 exec_command 的客户端工具
+```
+
+This is classified as a **bridge policy failure requiring rerun**, not a workspace mismatch. A prior real `exec_command` call and the current declared tool schema prove that the tool still exists.
+
+The policy fix now:
+
+1. recognizes Chinese/English wording that says the current callable tool list does not contain `exec_command` or another declared workspace tool;
+2. treats a post-tool availability contradiction as invalid even when the newest Codex user-shaped item is actually tool output and no longer resembles the original workspace request;
+3. tightens repeated repair so it must emit a tool call instead of discussing whether the tool exists;
+4. still fails closed when the bounded retry budget is exhausted;
+5. leaves genuine client errors such as missing files, permission failures and failing tests untouched.
+
+Regression coverage lives in:
+
+```text
+tests/test_client_tool_policy_repeated_refusal.py
+```
+
+CI run #105 passed all jobs after this fix.
+
 ### Machine-auditable failure recovery
 
-Stage B now uses the same unittest command twice through an audited shell wrapper. Each invocation appends its real exit code to:
+Stage B uses the same unittest command twice through an audited shell wrapper. Each invocation appends its real exit code to:
 
 ```text
 failure_recovery/.run_history
@@ -136,7 +164,7 @@ The generated prompt contains the exact audited command. The checker requires al
 
 This means a plausible final answer or a manually pre-fixed implementation cannot pass Stage B without evidence of a real failing run followed by a real successful rerun.
 
-For the rerun, execute:
+For the next rerun, execute:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py prepare --scenario failure_recovery
@@ -151,6 +179,14 @@ Pass command:
 ```bash
 python3 tools/codex_desktop_acceptance.py check --scenario failure_recovery
 ```
+
+## Web conversation churn observed during Stage B
+
+The current generic UWA workflow opens a fresh ChatGPT web conversation for normal reconstructed Responses turns. A multi-tool Codex task can therefore create several similar ChatGPT sidebar conversations. Internal repair rounds add additional browser calls.
+
+This was visible during Stage B and is now tracked as an efficiency/UX issue. It is not proof of duplicate Codex Desktop tasks.
+
+A global reuse switch is unsafe with the current payload format because outer turns resend reconstructed full history. Reusing the same web chat while also sending full history would duplicate context. Planned optimization is to reuse only bounded repair rounds first, then implement a mapped incremental tool-loop continuation with fresh-chat/full-history fallback on state loss.
 
 ## Stage C: Git-aware change discipline
 
@@ -233,4 +269,4 @@ If a scenario fails, capture the UWA log beginning at the relevant `[CHAT:ENTRY]
 
 If A-C pass, the bridge is suitable for guarded normal coding work in disposable or branched worktrees. If D also passes, long-running interactive developer commands are usable. If E passes, same-thread conversational continuity is usable. If F passes, closing/reopening Codex and restarting UWA can be treated as a supported continuation workflow.
 
-Separate future acceptance remains for large-context compaction, MCP/plugins, namespace tools, multi-agent behavior, and auxiliary Codex model requests.
+Separate future acceptance remains for large-context compaction, MCP/plugins, namespace tools, multi-agent behavior, auxiliary Codex model requests and ChatGPT web-session churn optimization.
