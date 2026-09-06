@@ -14,6 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  public-repo-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m py_compile tools/public_repo_safety_check.py
+      - run: python tools/public_repo_safety_check.py
+
   security-tests:
     strategy:
       matrix:
@@ -26,7 +36,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip pytest
-      - run: python -m py_compile start.py start_upstream.py security_guard.py
+      - run: >-
+          python -m py_compile
+          start.py
+          start_upstream.py
+          security_guard.py
+          app/services/client_tool_policy.py
+          app/services/tool_calling.py
+          app/api/codex_compat.py
       - run: python -m pytest -q tests/test_security_hardening.py
 
   upstream-regression:
