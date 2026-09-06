@@ -29,6 +29,8 @@ Codex Desktop
 - 单文件 `calc.py`：读取、修改、实际断言测试通过
 - Stage A 多文件：修改两个实现文件、未修改测试、3 个 unittest 全部通过，自动检查返回 `ACCEPTANCE_PASS`
 
+Stage B 首次尝试确认了 `exec_command` 与工具结果回传仍然正常，但当次 Codex 执行上下文没有看到合成验收工作区，因此该次被归类为 `INVALID` 并要求重跑。验收工具现已增加 scenario 级 `prepare`、`preflight` 和工作区 marker 检查。
+
 当前重点已经从“能不能工作”进入“长期稳定性、连续性和高级工具兼容”。
 
 ## 架构
@@ -88,7 +90,7 @@ GPT-5.6 Sol / High
 
 当前实机验收使用的是 `GPT-5.6 Sol / High`。
 
-Temporary Chat 仍会优先尝试开启，但当前 ChatGPT DOM 对 Temporary Chat 状态的可观察性不稳定，所以它暂时是 best-effort，而不是项目连续性的依赖条件。
+Temporary Chat 仍会优先尝试开启，但当前 ChatGPT DOM 对 Temporary Chat 状态的可观察性不稳定，所以它暂时是 best-effort，不作为项目连续性的依赖条件。
 
 ## 本地工具调用
 
@@ -147,7 +149,7 @@ response.completed
 
 Codex Desktop 会保留历史 thread，关闭应用不会改变本地项目文件或 Git 状态。需要延续同一个对话时，应重新打开同一个 thread。
 
-是否在完全关闭/重开 Desktop 后可以无损恢复同一 thread，正在 Stage F 做专门实机验收。
+完全关闭/重开 Desktop 后能否无损恢复同一 thread，正在 Stage F 做专门实机验收。
 
 ### 2. UWA 私有 Responses continuation
 
@@ -275,11 +277,20 @@ UWA_CODEX_RESPONSES_STATE_MAX_RECORD_BYTES=8388608
 
 ## 实机验收
 
-创建独立测试工作区：
+首次创建独立测试工作区：
 
 ```bash
 python3 tools/codex_desktop_acceptance.py setup
 ```
+
+每一阶段开始前，先重置并校验该 scenario：
+
+```bash
+python3 tools/codex_desktop_acceptance.py prepare --scenario failure_recovery
+python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
+```
+
+`prepare` 只重置目标 scenario，并保留其他 Stage 的本地结果。整个验收目录丢失时，它会安全重建带 marker 的合成工作区。`preflight` 会检查 marker、Git 根目录、目标目录和预期初始状态。
 
 查看验收 prompt：
 
@@ -298,7 +309,7 @@ python3 tools/codex_desktop_acceptance.py check
 ```text
 单文件 calc.py                  PASS
 Stage A 多文件读/改/测           PASS
-Stage B 失败 -> 修复 -> 重跑      pending
+Stage B 失败 -> 修复 -> 重跑      rerun after INVALID workspace attempt
 Stage C Git diff discipline      pending
 Stage D 长进程 + write_stdin      pending
 Stage E 同 thread 上下文          pending
