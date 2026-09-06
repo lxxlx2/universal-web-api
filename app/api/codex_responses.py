@@ -1,6 +1,6 @@
 """Codex-specific Responses preflight.
 
-This route is registered before the generic Responses route.  For the logical
+This route is registered before the generic Responses route. For the logical
 ``chatgpt`` browser route it applies the configured ChatGPT web model,
 reasoning level, and Temporary Chat preference, verifies them, then delegates
 to the existing Responses implementation.
@@ -19,6 +19,7 @@ from app.services.chatgpt_web_mode import (
     ChatGPTWebModeError,
     ensure_codex_chatgpt_web_mode,
     inspect_chatgpt_web_mode,
+    inspect_chatgpt_web_mode_diagnostics,
     normalize_reasoning_effort,
     temporary_chat_enabled,
     web_mode_enabled,
@@ -53,11 +54,7 @@ async def codex_web_mode_status(request: Request) -> Dict[str, Any]:
     try:
         state = inspect_chatgpt_web_mode()
         effort = normalize_reasoning_effort(state.get("target_reasoning_default"))
-        temp_ok = (
-            state.get("temporary_chat") is True
-            if temporary_chat_enabled()
-            else True
-        )
+        temp_ok = state.get("temporary_chat") is True if temporary_chat_enabled() else True
         state["verified"] = (
             str(state.get("model") or "").casefold() == str(state.get("target_model") or "").casefold()
             and state.get("reasoning") == effort
@@ -70,6 +67,16 @@ async def codex_web_mode_status(request: Request) -> Dict[str, Any]:
             "verified": False,
             "error": str(exc),
         }
+
+
+@router.get("/v1/codex/web-mode/diagnostics")
+async def codex_web_mode_diagnostics(request: Request) -> Dict[str, Any]:
+    """Return sanitized model/mode UI metadata for the local controlled tab only."""
+    _require_loopback(request)
+    try:
+        return inspect_chatgpt_web_mode_diagnostics()
+    except ChatGPTWebModeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/v1/codex/web-mode/apply")
@@ -90,8 +97,6 @@ async def codex_aware_responses(
     body: ResponsesRequest,
     authenticated: bool = Depends(verify_auth),
 ):
-    # ``chatgpt`` is the explicit logical route used by the Codex bridge.  Other
-    # Responses clients/models continue to use the generic implementation.
     if str(body.model or "").strip().lower() == "chatgpt" and web_mode_enabled():
         try:
             ensure_codex_chatgpt_web_mode(body.reasoning)
