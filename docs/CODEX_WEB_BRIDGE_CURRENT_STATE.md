@@ -39,11 +39,12 @@ Codex Desktop
   - tests untouched
   - three real unit tests passed
   - generated checker returned `multi_file: PASS` and `ACCEPTANCE_PASS`
+- Stage B attempt 1 still proved `exec_command` delivery and tool-result continuation; the attempt itself was invalid because the selected execution context could not see the synthetic acceptance workspace
 - localhost security defaults and public-repository safety scan
 
 ## Live acceptance still pending
 
-- Stage B: real failing test -> diagnose -> repair -> rerun
+- Stage B rerun after scenario `prepare` + `preflight`
 - Stage C: Git-aware change discipline
 - Stage D: long-running process + stdin continuation / `write_stdin`
 - Stage E: same-thread conversational continuity
@@ -51,6 +52,27 @@ Codex Desktop
 - larger context windows and compaction
 - MCP / namespace tools / plugins / multi-agent
 - auxiliary Codex model request optimization
+
+## Acceptance workspace discipline
+
+Live acceptance uses a synthetic local repository. A stale Codex project selection can make a valid client `exec_command` execute in the wrong workspace even while the UWA bridge itself is functioning.
+
+The harness now has two scenario-scoped gates:
+
+```bash
+python3 tools/codex_desktop_acceptance.py prepare --scenario <name>
+python3 tools/codex_desktop_acceptance.py preflight --scenario <name>
+```
+
+`prepare` recreates only the selected scenario and preserves other scenario results. If the marked acceptance workspace is completely missing, it recreates the full synthetic fixture safely. `preflight` verifies the marker, local Git root, target scenario and expected initial red/clean state.
+
+Action prompts also require a client-side marker check. When the active Codex workdir is wrong, the expected result is:
+
+```text
+ACCEPTANCE_WORKSPACE_MISMATCH
+```
+
+The model must stop there instead of probing unrelated absolute paths or switching to some other execution environment.
 
 ## Continuity model
 
@@ -101,11 +123,11 @@ Long-term project progress belongs in Git, not in model memory.
 
 Canonical tracked files:
 
-- `README.md` — current design, supported path, security defaults and roadmap
-- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md` — concise handoff and exact current status
-- `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md` — acceptance matrix and verified stages
-- `docs/CODEX_WEB_BRIDGE_PROGRESS.md` — implementation history and known gaps
-- Draft PR #1 — chronological live-test checkpoints
+- `README.md` - current design, supported path, security defaults and roadmap
+- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md` - concise handoff and exact current status
+- `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md` - acceptance matrix and verified stages
+- `docs/CODEX_WEB_BRIDGE_PROGRESS.md` - implementation history and known gaps
+- Draft PR #1 - chronological live-test checkpoints
 
 If a ChatGPT/Codex conversation hits a context limit or a new thread is opened, read these files plus the current Git diff/status before continuing.
 
@@ -143,13 +165,12 @@ ChatGPT account memory is not used as a project source of truth. Temporary Chat 
 
 ## Immediate next work
 
-1. complete CI for the private continuation store;
-2. live-test Stage B;
-3. live-test Stage C;
-4. live-test Stage D;
-5. live-test Stage E;
-6. explicitly run Stage F with a full Codex + UWA restart;
-7. only after A-F are classified, move to context/token accounting and advanced tools.
+1. rerun Stage B with `prepare` + `preflight` and the hardened workspace guard;
+2. live-test Stage C;
+3. live-test Stage D;
+4. live-test Stage E;
+5. explicitly run Stage F with a full Codex + UWA restart;
+6. only after A-F are classified, move to context/token accounting and advanced tools.
 
 ## Project-history note
 
