@@ -10,6 +10,7 @@ from fastapi import APIRouter
 
 # 导入子路由
 from app.api.codex_compat import router as codex_compat_router
+from app.api.codex_responses import router as codex_responses_router
 from app.api.chat import router as chat_router
 from app.api.anthropic_routes import router as anthropic_router
 from app.api.config_routes import router as config_router
@@ -22,9 +23,11 @@ from app.api.provider import router as provider_router
 # 创建主路由器
 router = APIRouter()
 
-# Codex 0.153+ 会请求 /v1/models?client_version=... 并期待 Codex 专用目录格式。
-# 必须先注册兼容路由；无 client_version 时该路由会委托给原 OpenAI 模型列表。
+# Codex 兼容路由必须先于通用 Chat/Responses 路由注册：
+# - /v1/models?client_version=... 使用 Codex 专用模型目录
+# - /v1/responses 在 chatgpt 路由上先执行网页模型/推理档位校验
 router.include_router(codex_compat_router)
+router.include_router(codex_responses_router)
 
 # 聚合所有子路由
 router.include_router(chat_router)
