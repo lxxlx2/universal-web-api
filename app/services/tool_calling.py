@@ -12,6 +12,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from app.services.client_tool_policy import (
+    build_client_workspace_repair_messages,
+    should_repair_client_workspace_refusal,
+)
 from app.services.tool_calling_common import (
     AsyncToolRoundExecutor,
     ToolRoundExecutor,
@@ -51,6 +55,43 @@ from app.services.tool_calling_validation_retry import (
 
 def _copy_message_list_shallow(messages: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     return [dict(msg) if isinstance(msg, dict) else msg for msg in (messages or [])]
+
+
+def _maybe_build_client_workspace_repair(
+    *,
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]],
+    tool_choice: Any,
+    assistant_text: str,
+    parsed: Dict[str, Any],
+    attempt: int,
+    total_attempts: int,
+) -> Optional[List[Dict[str, str]]]:
+    if not should_repair_client_workspace_refusal(
+        messages=messages,
+        tools=tools,
+        tool_choice=tool_choice,
+        assistant_text=assistant_text,
+        parsed=parsed,
+    ):
+        return None
+    if attempt >= total_attempts:
+        logger.warning(
+            "[tool_calling] 客户端工作区工具拒绝修复次数已耗尽，拒绝把错误的本地访问声明作为最终答案 "
+            f"轮次={attempt}/{total_attempts}"
+        )
+        raise RuntimeError("tool_call_validation_exhausted: client_workspace_tool_refusal")
+    logger.warning(
+        "[tool_calling] 检测到网页模型错误声称无法访问本地工作区；客户端工具可用，准备聚焦修复 "
+        f"轮次={attempt}/{total_attempts}"
+    )
+    return build_client_workspace_repair_messages(
+        messages=messages,
+        tools=tools,
+        assistant_text=assistant_text,
+        attempt=attempt,
+        total_attempts=total_attempts,
+    )
 
 
 def complete_tool_calling_roundtrip(
@@ -94,6 +135,19 @@ def complete_tool_calling_roundtrip(
         )
         errors = inspection.get("errors") or []
         if not errors:
+            client_repair = _maybe_build_client_workspace_repair(
+                messages=conversation,
+                tools=tools,
+                tool_choice=tool_choice,
+                assistant_text=assistant_text,
+                parsed=parsed,
+                attempt=attempt,
+                total_attempts=total_attempts,
+            )
+            if client_repair is not None:
+                last_summary = "client_workspace_tool_refusal"
+                pending_retry_messages = client_repair
+                continue
             if attempt > 1:
                 logger.warning(
                     "[tool_calling] 函数调用候选已在内部修复后通过校验 "
@@ -211,6 +265,19 @@ async def complete_tool_calling_roundtrip_async(
         )
         errors = inspection.get("errors") or []
         if not errors:
+            client_repair = _maybe_build_client_workspace_repair(
+                messages=conversation,
+                tools=tools,
+                tool_choice=tool_choice,
+                assistant_text=assistant_text,
+                parsed=parsed,
+                attempt=attempt,
+                total_attempts=total_attempts,
+            )
+            if client_repair is not None:
+                last_summary = "client_workspace_tool_refusal"
+                pending_retry_messages = client_repair
+                continue
             if attempt > 1:
                 logger.warning(
                     "[tool_calling] 函数调用候选已在内部修复后通过校验 "
