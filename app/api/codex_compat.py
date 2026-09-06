@@ -21,14 +21,17 @@ from app.api.chat import list_models as list_openai_models
 router = APIRouter()
 
 
-# UWA does not yet map Responses ``reasoning.effort`` to the reasoning controls
-# of the browser page. Advertising low/high/ultra would make the Codex UI imply
-# a capability that is not actually enforced. Keep a single honest placeholder
-# until a stable browser-side mapping is implemented and tested.
+# The ChatGPT Web preflight now maps Codex medium/high to the corresponding
+# browser reasoning controls.  Low/ultra remain hidden until they are verified
+# end-to-end on the web UI.
 _REASONING_LEVELS = [
     {
         "effort": "medium",
-        "description": "Web default (reasoning effort is not mapped by UWA yet)",
+        "description": "GPT-5.6 Sol · Medium",
+    },
+    {
+        "effort": "high",
+        "description": "GPT-5.6 Sol · High",
     },
 ]
 
@@ -71,27 +74,25 @@ def _to_codex_model(entry: Dict[str, Any], priority: int) -> Dict[str, Any]:
     owner = str(entry.get("owned_by") or "universal-web-api").strip()
 
     if model_id.lower() == "chatgpt" and owner.lower() in {"chatgpt.com", "www.chatgpt.com"}:
-        display_name = "ChatGPT Web"
+        display_name = "GPT-5.6 Sol"
         description = (
-            "Universal Web API route to the controlled ChatGPT browser tab. "
-            "The model selected in the controlled browser is the source of truth; "
-            "this route id does not identify a specific ChatGPT web model."
+            "UWA controlled ChatGPT Web route. Before each Codex Responses request, "
+            "the bridge applies and verifies GPT-5.6 Sol plus the selected Medium/High "
+            "reasoning level; strict mode fails instead of silently using an unknown mode."
         )
     else:
         display_name = raw_display_name
         description = f"Universal Web API browser route ({owner})"
 
-    # Conservative local-browser limits. The bridge has already handled large
-    # prompts successfully; a finite limit lets Codex compact before browser
-    # requests become unnecessarily large or fragile. Increase only after
-    # empirical stability tests for the specific web model/browser workflow.
+    # Conservative local-browser limits. Increase only after empirical stability
+    # tests for the specific web model/browser workflow.
     context_window = 64_000
 
     return {
         "slug": model_id,
         "display_name": display_name,
         "description": description,
-        "default_reasoning_level": "medium",
+        "default_reasoning_level": "high",
         "supported_reasoning_levels": _REASONING_LEVELS,
         # ``shell_command`` is an accepted alias for Codex UnifiedExec. Local
         # execution still happens inside Codex, never inside this web bridge.
