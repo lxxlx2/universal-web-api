@@ -57,6 +57,13 @@ def ensure_safe_defaults() -> None:
         "PIP_MIRROR_URL": "https://pypi.org/simple",
         "UWAPI_ALLOW_REMOTE": "false",
         "UWAPI_ALLOW_UPSTREAM_AUTO_UPDATE": "false",
+        # Codex browser-bridge defaults. The refusal repair changes only the
+        # model/tool protocol decision; actual execution remains client-side.
+        "TOOL_CALLING_CLIENT_WORKSPACE_REPAIR": "true",
+        # Extra few-shot/padding consumes browser context and is unnecessary for
+        # the hardened Codex path unless a user explicitly opts back in.
+        "TOOL_CALLING_PROMPT_PADDING_ENABLED": "false",
+        "TOOL_CALLING_PROMPT_PADDING_OBFUSCATE": "false",
     }
     for key, value in defaults.items():
         os.environ.setdefault(key, value)
