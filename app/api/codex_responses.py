@@ -20,6 +20,7 @@ from app.services.chatgpt_web_mode import (
     ensure_codex_chatgpt_web_mode,
     inspect_chatgpt_web_mode,
     normalize_reasoning_effort,
+    temporary_chat_enabled,
     web_mode_enabled,
 )
 
@@ -52,10 +53,15 @@ async def codex_web_mode_status(request: Request) -> Dict[str, Any]:
     try:
         state = inspect_chatgpt_web_mode()
         effort = normalize_reasoning_effort(state.get("target_reasoning_default"))
+        temp_ok = (
+            state.get("temporary_chat") is True
+            if temporary_chat_enabled()
+            else True
+        )
         state["verified"] = (
             str(state.get("model") or "").casefold() == str(state.get("target_model") or "").casefold()
             and state.get("reasoning") == effort
-            and state.get("temporary_chat") is True
+            and temp_ok
         )
         return state
     except ChatGPTWebModeError as exc:
