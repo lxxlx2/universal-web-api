@@ -21,22 +21,25 @@ from app.api.chat import list_models as list_openai_models
 router = APIRouter()
 
 
+# UWA does not yet map Responses ``reasoning.effort`` to the reasoning controls
+# of the browser page. Advertising low/high/ultra would make the Codex UI imply
+# a capability that is not actually enforced. Keep a single honest placeholder
+# until a stable browser-side mapping is implemented and tested.
 _REASONING_LEVELS = [
-    {"effort": "low", "description": "Low"},
-    {"effort": "medium", "description": "Medium"},
-    {"effort": "high", "description": "High"},
-    {"effort": "ultra", "description": "Ultra"},
+    {
+        "effort": "medium",
+        "description": "Web default (reasoning effort is not mapped by UWA yet)",
+    },
 ]
 
 # Keep the browser-bridge system prompt compact. Codex still sends tool schemas
 # and workspace context separately, so a concise instruction template avoids
 # wasting a large portion of each webpage request on generic agent boilerplate.
-_CODEX_INSTRUCTIONS = """You are a coding agent working in the user's local workspace.
-Use the tools supplied by the client to inspect files, run commands, edit code, and verify results.
-Prefer inspecting the real workspace over guessing. Make only changes needed for the user's request.
-When you modify code, run the most relevant available checks. Never claim a file, command, or test
-was changed or executed unless the corresponding tool result confirms it. Keep progress concise and
-finish with the concrete result plus any unresolved issue that matters.
+_CODEX_INSTRUCTIONS = """You are the reasoning model for a coding client working in the user's local workspace.
+The browser page itself has no direct filesystem access. Declared client tools such as exec_command run on the user's machine under the client's sandbox and approval policy.
+For local workspace tasks, inspect the real workspace with the declared client tools. Do not ask the user to upload local files or run commands manually when an appropriate client tool is available.
+Use tool results as the source of truth. Never claim a file, command, edit, or test was completed unless a tool result confirms it.
+Make only changes needed for the user's request, run the most relevant checks after code changes, keep progress concise, and finish with the verified result plus any unresolved issue that matters.
 """.strip()
 
 
@@ -64,20 +67,34 @@ def _canonical_model_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, An
 
 def _to_codex_model(entry: Dict[str, Any], priority: int) -> Dict[str, Any]:
     model_id = str(entry.get("id") or "chatgpt").strip() or "chatgpt"
-    display_name = str(entry.get("display_name") or model_id).strip() or model_id
+    raw_display_name = str(entry.get("display_name") or model_id).strip() or model_id
     owner = str(entry.get("owned_by") or "universal-web-api").strip()
+
+    if model_id.lower() == "chatgpt" and owner.lower() in {"chatgpt.com", "www.chatgpt.com"}:
+        display_name = "ChatGPT Web (browser-selected model)"
+        description = (
+            "Universal Web API route to the controlled ChatGPT browser tab. "
+            "The model selected in the controlled browser is the source of truth; "
+            "this route id does not identify a specific ChatGPT web model."
+        )
+    else:
+        display_name = raw_display_name
+        description = f"Universal Web API browser route ({owner})"
 
     # Conservative local-browser limits. The bridge has already handled large
     # prompts successfully; a finite limit lets Codex compact before browser
-    # requests become unnecessarily large or fragile.
+    # requests become unnecessarily large or fragile. Increase only after
+    # empirical stability tests for the specific web model/browser workflow.
     context_window = 64_000
 
     return {
         "slug": model_id,
         "display_name": display_name,
-        "description": f"Universal Web API browser route ({owner})",
+        "description": description,
         "default_reasoning_level": "medium",
         "supported_reasoning_levels": _REASONING_LEVELS,
+        # ``shell_command`` is an accepted alias for Codex UnifiedExec. Local
+        # execution still happens inside Codex, never inside this web bridge.
         "shell_type": "shell_command",
         "visibility": "list",
         "supported_in_api": True,
