@@ -1,6 +1,6 @@
 """ChatGPT web-mode control for the Codex browser bridge.
 
-This module keeps the browser-side execution target explicit.  Codex continues
+This module keeps the browser-side execution target explicit. Codex continues
 using the logical ``chatgpt`` route id, while UWA verifies the controlled
 ChatGPT tab is configured for the expected web model and reasoning level before
 forwarding a Responses request.
@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from app.core import get_browser
@@ -117,7 +117,7 @@ const visible = (el) => {
 };
 const norm = (value) => String(value || '').replace(/\s+/g, ' ').trim();
 const low = (value) => norm(value).toLowerCase();
-const nodes = Array.from(document.querySelectorAll('button,[role="button"],[role="option"],[role="menuitem"],[aria-checked],[data-state]'));
+const nodes = Array.from(document.querySelectorAll('button,[role="button"],[role="option"],[role="menuitem"],[role="menuitemradio"],[aria-checked],[data-state]'));
 const rows = nodes.map((el) => ({
   el,
   visible: visible(el),
@@ -204,6 +204,14 @@ return {
 """
 
 
+_ESCAPE_JS = r"""
+const eventInit = {key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true};
+(document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', eventInit));
+document.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+return true;
+"""
+
+
 def _run_js(tab: Any, script: str, *args: Any) -> Any:
     try:
         return tab.run_js(script, *args)
@@ -250,11 +258,9 @@ def _ensure_model(tab: Any, desired_model: str) -> None:
     if str(state.get("model") or "").casefold() == desired_model.casefold():
         return
 
-    # Open the model picker.  The current model name is usually the visible
-    # button label; aria/data-testid fallbacks keep this resilient to UI text changes.
     opened = _click(
         tab,
-        starts_with_texts=["gpt-" , "gpt "],
+        starts_with_texts=["gpt-", "gpt "],
         aria_contains=["model", "模型"],
         testid_contains=["model"],
     ).get("clicked")
@@ -271,18 +277,23 @@ def _ensure_model(tab: Any, desired_model: str) -> None:
         time.sleep(0.35)
 
 
-def _ensure_reasoning(tab: Any, effort: str) -> None:
+def _open_reasoning_menu(tab: Any) -> bool:
+    return bool(
+        _click(
+            tab,
+            contains_texts=["思考强度", "reasoning", "thinking"],
+            aria_contains=["思考强度", "reasoning", "thinking"],
+            testid_contains=["reasoning", "thinking"],
+        ).get("clicked")
+    )
+
+
+def _ensure_reasoning(tab: Any, effort: str) -> bool:
     state = inspect_chatgpt_web_mode(tab)
     if state.get("reasoning") == effort:
-        return
+        return True
 
-    opened = _click(
-        tab,
-        contains_texts=["思考强度", "reasoning", "thinking"],
-        aria_contains=["思考强度", "reasoning", "thinking"],
-        testid_contains=["reasoning", "thinking"],
-    ).get("clicked")
-    if opened:
+    if _open_reasoning_menu(tab):
         time.sleep(0.2)
 
     label = "高" if effort == "high" else "中"
@@ -292,16 +303,37 @@ def _ensure_reasoning(tab: Any, effort: str) -> None:
         exact_texts=[label, english],
         roles=["option", "menuitem", "menuitemradio", "button"],
     ).get("clicked")
-    if selected:
-        time.sleep(0.3)
+    if not selected:
+        _run_js(tab, _ESCAPE_JS)
+        return False
+
+    time.sleep(0.3)
+
+    # The compact composer button may keep the generic label "思考强度" even
+    # after a choice is selected. Re-open the menu and inspect its selected
+    # option so strict mode verifies the actual menu state instead of guessing.
+    if _open_reasoning_menu(tab):
+        time.sleep(0.2)
+        probe = inspect_chatgpt_web_mode(tab)
+        verified = probe.get("reasoning") == effort
+        _run_js(tab, _ESCAPE_JS)
+        time.sleep(0.1)
+        return verified
+
+    return False
 
 
-def _verification_errors(state: Dict[str, Any], effort: str) -> list[str]:
+def _verification_errors(
+    state: Dict[str, Any],
+    effort: str,
+    *,
+    reasoning_verified: bool = False,
+) -> list[str]:
     errors: list[str] = []
     desired_model = target_web_model()
     if str(state.get("model") or "").casefold() != desired_model.casefold():
         errors.append(f"model expected={desired_model!r} actual={state.get('model')!r}")
-    if state.get("reasoning") != effort:
+    if state.get("reasoning") != effort and not reasoning_verified:
         errors.append(f"reasoning expected={effort!r} actual={state.get('reasoning')!r}")
     if temporary_chat_enabled() and state.get("temporary_chat") is not True:
         errors.append(f"temporary_chat expected=True actual={state.get('temporary_chat')!r}")
@@ -323,13 +355,21 @@ def ensure_codex_chatgpt_web_mode(reasoning: Any = None) -> Dict[str, Any]:
     tab = _find_chatgpt_tab()
 
     # Temporary Chat is enabled first because entering it can recreate parts of
-    # the composer UI.  Model and reasoning are then applied to the final state.
+    # the composer UI. Model and reasoning are then applied to the final state.
     _ensure_temporary_chat(tab)
     _ensure_model(tab, target_web_model())
-    _ensure_reasoning(tab, effort)
+    reasoning_verified = _ensure_reasoning(tab, effort)
 
     state = inspect_chatgpt_web_mode(tab)
-    errors = _verification_errors(state, effort)
+    if reasoning_verified and state.get("reasoning") is None:
+        state["reasoning"] = effort
+        state["reasoning_verification"] = "selected-menu-state"
+
+    errors = _verification_errors(
+        state,
+        effort,
+        reasoning_verified=reasoning_verified,
+    )
     verified = not errors
     state.update({"enabled": True, "verified": verified, "requested_reasoning": effort})
 
