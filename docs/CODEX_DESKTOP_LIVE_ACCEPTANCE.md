@@ -6,7 +6,7 @@ This document tracks the real macOS acceptance of the hardened Codex Desktop -> 
 
 - minimal single-file `calc.py` read/edit/test loop: **PASS**
 - Stage A multi-file read/edit/test: **PASS** on 2026-09-06
-- Stage B failure recovery: pending
+- Stage B failure recovery: **rerun required** after an invalid workspace-mismatch attempt
 - Stage C Git-aware change discipline: pending
 - Stage D long-running process + stdin continuation: pending
 - Stage E same-thread context continuity: pending
@@ -29,15 +29,32 @@ Use only the generated acceptance workspace for these scenarios. Do not point ex
 
 The bridge remains subject to Codex Desktop sandbox/approval controls. Browser-side ChatGPT does not receive direct filesystem access; local execution remains client-side.
 
-## Setup
+## Setup and scenario preflight
 
-From the `security-hardening` checkout:
+Create the acceptance workspace once:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py setup
 ```
 
-Then open the printed acceptance workspace as a Codex Desktop project.
+Before every live stage, reset only that synthetic scenario and verify it locally:
+
+```bash
+python3 tools/codex_desktop_acceptance.py prepare --scenario failure_recovery
+python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
+```
+
+`prepare` preserves the other scenario directories. If the entire acceptance workspace is missing, it safely recreates the marked synthetic workspace. `preflight` verifies the marker, Git root and target scenario. For deliberately failing test scenarios it also proves the fixture starts red before Codex is asked to act.
+
+Then open the printed acceptance root as the Codex Desktop project. Each action-oriented live prompt now begins with a client-side workspace guard:
+
+```text
+pwd
++ marker exists
++ target scenario directory exists
+```
+
+If that guard fails, the model must return `ACCEPTANCE_WORKSPACE_MISMATCH` and must not probe unrelated absolute paths or switch to a different execution environment.
 
 Show all prompts:
 
@@ -63,7 +80,7 @@ Check all scenarios:
 python3 tools/codex_desktop_acceptance.py check
 ```
 
-## Stage A: multi-file read/edit/test — PASS
+## Stage A: multi-file read/edit/test - PASS
 
 Goal: prove that the single-file `calc.py` success generalizes to several implementation files and several tool rounds.
 
@@ -86,7 +103,29 @@ python3 tools/codex_desktop_acceptance.py check --scenario multi_file
 
 Goal: prove the agent can observe an actual failing command, use returned stderr/stdout as context, change the implementation, and rerun the same command successfully.
 
-The prompt explicitly requires the first test command to fail before editing. This distinguishes genuine failure recovery from a model that simply guesses the intended patch.
+### Attempt 1 classification
+
+The first Stage B attempt on 2026-09-06 is **invalid**, not a bridge failure and not a Stage B pass/fail result.
+
+Evidence from the UWA log:
+
+```text
+[CODEX_RESPONSES] ... tool_names=['exec_command']
+```
+
+The tool call was delivered to Codex and a real tool result came back on the next Responses turn. That result reported that the intended synthetic acceptance workspace was unavailable in the active execution context. The web model then correctly refused to claim a repair or successful test.
+
+This showed that the bridge's tool round-trip still worked, while the live acceptance setup did not guarantee the selected Codex project matched the synthetic fixture. The harness was therefore hardened with `prepare`, `preflight`, the marker check and `ACCEPTANCE_WORKSPACE_MISMATCH`.
+
+For the rerun, execute:
+
+```bash
+python3 tools/codex_desktop_acceptance.py prepare --scenario failure_recovery
+python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
+python3 tools/codex_desktop_acceptance.py prompts --scenario failure_recovery
+```
+
+The Codex prompt itself must execute the exact failing unittest command before editing. The external preflight only proves that the fixture exists and starts red; it does not count as the Stage B execution evidence.
 
 Pass command:
 
@@ -145,7 +184,7 @@ Goal: verify the actual user workflow that matters for long projects.
 
 Procedure:
 
-1. run a fresh `setup` so `context/result.txt` does not exist;
+1. prepare a fresh context scenario so `context/result.txt` does not exist;
 2. open a fresh Codex Desktop thread in the acceptance project;
 3. send the `context_1` prompt and wait for `CONTEXT_READY`;
 4. fully quit Codex Desktop;
@@ -167,10 +206,12 @@ This stage exercises both Codex Desktop's own persisted thread history and UWA's
 
 A scenario is `PASS` only when the generated local artifact/test confirms the action. A plausible assistant message is not evidence of success.
 
+A run with the wrong or missing acceptance workspace is `INVALID` and must be rerun after `prepare` + `preflight`; it does not count against the bridge implementation.
+
 If a scenario fails, capture the UWA log beginning at the relevant `[CHAT:ENTRY]`, `[CODEX_CONTINUITY]`, or `[CODEX_RESPONSES]` line through the terminal event. Do not publish logs containing private source code, account data, cookies, tokens, or real conversation identifiers.
 
 ## After these stages
 
-If A-C pass, the bridge is suitable for guarded normal coding work in disposable/branched worktrees. If D also passes, long-running interactive developer commands are usable. If E passes, same-thread conversational continuity is usable. If F passes, closing/reopening Codex and restarting UWA can be treated as a supported continuation workflow.
+If A-C pass, the bridge is suitable for guarded normal coding work in disposable or branched worktrees. If D also passes, long-running interactive developer commands are usable. If E passes, same-thread conversational continuity is usable. If F passes, closing/reopening Codex and restarting UWA can be treated as a supported continuation workflow.
 
 Separate future acceptance remains for large-context compaction, MCP/plugins, namespace tools, multi-agent behavior, and auxiliary Codex model requests.
