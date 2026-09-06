@@ -27,6 +27,32 @@ EXEC_TOOLS = [
 ]
 
 
+def _successful_read_history():
+    return [
+        {"role": "user", "content": "检查 calc.py，修复 add 函数并运行最小测试。"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_read",
+                    "type": "function",
+                    "function": {
+                        "name": "exec_command",
+                        "arguments": '{"cmd":"pwd && cat calc.py"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_read",
+            "name": "exec_command",
+            "content": "Process exited with code 0\nFinal output:\ndef add(a, b):\n    return a - b\n",
+        },
+    ]
+
+
 def test_detects_false_local_workspace_refusal_before_any_tool_result(monkeypatch):
     monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
     messages = [
@@ -61,6 +87,24 @@ def test_detects_chatgpt_claim_that_codex_workspace_is_not_mounted(monkeypatch):
     refusal = (
         "当前这个会话实际可用的文件系统里没有挂载本机工作区，因此我无法真实读取或修改其中的 "
         "calc.py，也不能声称测试已经运行成功。需要由能够访问该本机工作区的执行工具完成这两步。"
+    )
+    parsed = {"mode": "final", "content": refusal, "tool_calls": []}
+
+    assert should_repair_client_workspace_refusal(
+        messages=messages,
+        tools=EXEC_TOOLS,
+        tool_choice="auto",
+        assistant_text=refusal,
+        parsed=parsed,
+    ) is True
+
+
+def test_repairs_false_tool_unavailable_claim_after_successful_client_call(monkeypatch):
+    monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
+    messages = _successful_read_history()
+    refusal = (
+        "已确认 calc.py 当前执行的是减法。但当前这个会话实际没有暴露你贴出的 exec_command 本地执行工具，"
+        "我无法在工作区上真实写入并运行测试，因此不能声称已经修复。"
     )
     parsed = {"mode": "final", "content": refusal, "tool_calls": []}
 
@@ -133,6 +177,20 @@ def test_repair_prompt_explains_client_side_execution_without_bypassing_permissi
     assert "Do not invent tool results" in system
 
 
+def test_post_tool_repair_prompt_states_prior_call_proves_tool_is_exposed():
+    repair = build_client_workspace_repair_messages(
+        messages=_successful_read_history(),
+        tools=EXEC_TOOLS,
+        assistant_text="当前会话没有暴露 exec_command。",
+        attempt=1,
+        total_attempts=3,
+    )
+
+    assert "prior workspace client tool call/result" in repair[0]["content"]
+    assert "proves the client tool is exposed" in repair[0]["content"]
+    assert "Continue the task by calling exec_command again" in repair[1]["content"]
+
+
 def test_roundtrip_repairs_refusal_into_exec_command(monkeypatch):
     monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
     monkeypatch.setenv("TOOL_CALLING_INTERNAL_RETRY_MAX", "2")
@@ -189,6 +247,33 @@ def test_roundtrip_repairs_mounted_workspace_deflection(monkeypatch):
 
     result = complete_tool_calling_roundtrip(
         messages=[{"role": "user", "content": "检查 calc.py，修复它并运行测试。"}],
+        tools=EXEC_TOOLS,
+        tool_choice="auto",
+        parallel_tool_calls=False,
+        round_executor=lambda _messages: next(replies),
+    )
+
+    assert result["mode"] == "tool_calls"
+    assert result["tool_calls"][0]["function"]["name"] == "exec_command"
+
+
+def test_roundtrip_repairs_post_tool_unavailable_claim_into_next_exec(monkeypatch):
+    monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
+    monkeypatch.setenv("TOOL_CALLING_INTERNAL_RETRY_MAX", "2")
+    replies = iter(
+        [
+            "已确认 calc.py 是减法，但当前这个会话实际没有暴露 exec_command 本地执行工具，无法真实写入并测试。",
+            (
+                '<adapter_calls><call name="exec_command">'
+                '<arguments encoding="json"><![CDATA['
+                '{"cmd":"python3 - <<\'PY\'\nfrom pathlib import Path\np=Path(\'calc.py\')\ns=p.read_text().replace(\'return a - b\', \'return a + b\')\np.write_text(s)\nPY\npython3 -c \"from calc import add; assert add(2,3)==5; print(\'PASS\')\""}'
+                ']]></arguments></call></adapter_calls>'
+            ),
+        ]
+    )
+
+    result = complete_tool_calling_roundtrip(
+        messages=_successful_read_history(),
         tools=EXEC_TOOLS,
         tool_choice="auto",
         parallel_tool_calls=False,
