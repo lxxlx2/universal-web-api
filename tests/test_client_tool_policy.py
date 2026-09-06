@@ -50,6 +50,29 @@ def test_detects_false_local_workspace_refusal_before_any_tool_result(monkeypatc
     ) is True
 
 
+def test_detects_chatgpt_claim_that_codex_workspace_is_not_mounted(monkeypatch):
+    monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
+    messages = [
+        {
+            "role": "user",
+            "content": "检查当前工作区的 calc.py，修复 add 函数，然后实际运行一个最小测试。",
+        }
+    ]
+    refusal = (
+        "当前这个会话实际可用的文件系统里没有挂载本机工作区，因此我无法真实读取或修改其中的 "
+        "calc.py，也不能声称测试已经运行成功。需要由能够访问该本机工作区的执行工具完成这两步。"
+    )
+    parsed = {"mode": "final", "content": refusal, "tool_calls": []}
+
+    assert should_repair_client_workspace_refusal(
+        messages=messages,
+        tools=EXEC_TOOLS,
+        tool_choice="auto",
+        assistant_text=refusal,
+        parsed=parsed,
+    ) is True
+
+
 def test_does_not_override_a_genuine_failure_after_tool_history(monkeypatch):
     monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
     messages = [
@@ -105,6 +128,8 @@ def test_repair_prompt_explains_client_side_execution_without_bypassing_permissi
     assert "exec_command" in system
     assert "client tools DO execute on the user's machine" in system
     assert "sandbox and approval policy" in system
+    assert "Browser-visible filesystem state is not authoritative" in system
+    assert "Only report a missing path" in system
     assert "Do not invent tool results" in system
 
 
@@ -145,6 +170,33 @@ def test_roundtrip_repairs_refusal_into_exec_command(monkeypatch):
     assert result["tool_calls"][0]["function"]["name"] == "exec_command"
     assert len(seen_messages) == 2
     assert "Client Workspace Repair" in seen_messages[1][1]["content"]
+
+
+def test_roundtrip_repairs_mounted_workspace_deflection(monkeypatch):
+    monkeypatch.setenv("TOOL_CALLING_CLIENT_WORKSPACE_REPAIR", "true")
+    monkeypatch.setenv("TOOL_CALLING_INTERNAL_RETRY_MAX", "2")
+    replies = iter(
+        [
+            "当前这个会话实际可用的文件系统里没有挂载工作区，因此我无法真实读取或修改 calc.py。",
+            (
+                '<adapter_calls><call name="exec_command">'
+                '<arguments encoding="json"><![CDATA['
+                '{"cmd":"pwd && ls -la && cat calc.py"}'
+                ']]></arguments></call></adapter_calls>'
+            ),
+        ]
+    )
+
+    result = complete_tool_calling_roundtrip(
+        messages=[{"role": "user", "content": "检查 calc.py，修复它并运行测试。"}],
+        tools=EXEC_TOOLS,
+        tool_choice="auto",
+        parallel_tool_calls=False,
+        round_executor=lambda _messages: next(replies),
+    )
+
+    assert result["mode"] == "tool_calls"
+    assert result["tool_calls"][0]["function"]["name"] == "exec_command"
 
 
 def test_roundtrip_fails_closed_after_repeated_false_refusals(monkeypatch):
