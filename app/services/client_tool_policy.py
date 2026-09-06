@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 _WORKSPACE_TOOL_PRIORITY = (
@@ -39,13 +39,20 @@ _WORKSPACE_REQUEST_PATTERNS = (
 _REFUSAL_PATTERNS = (
     re.compile(r"\b(?:i\s+)?(?:can(?:not|'t)|do\s+not|don't)\s+(?:directly\s+)?(?:access|see|read|modify|edit)\b.{0,100}\b(?:local|machine|computer|filesystem|file|workspace|directory)\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"\bno\s+access\s+to\b.{0,100}\b(?:local|machine|filesystem|file|workspace)\b", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\b(?:not|isn't|is not)\s+(?:mounted|mapped)\b.{0,100}\b(?:workspace|directory|path|filesystem|file)\b", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\b(?:workspace|directory|path|filesystem|file)\b.{0,100}\b(?:not|isn't|is not)\s+(?:mounted|mapped|available|accessible)\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"\b(?:please|you\s+need\s+to)\s+upload\b.{0,80}\b(?:file|project|repo)\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"\b(?:run|execute)\s+(?:these|the\s+following)\s+commands?\s+(?:yourself|locally|on\s+your\s+machine)\b", re.IGNORECASE),
     re.compile(r"(?:无法|不能|没法|访问不到).{0,30}(?:本机|本地|工作区|目录|文件)"),
     re.compile(r"(?:当前这个会话环境|当前会话环境).{0,40}(?:访问不到|无法访问|不能访问)"),
+    re.compile(r"(?:当前(?:这个)?会话|当前环境|会话环境).{0,100}(?:文件系统|filesystem).{0,100}(?:没有|未|无法).{0,25}(?:挂载|映射|访问|看到|包含)", re.IGNORECASE | re.DOTALL),
+    re.compile(r"(?:没有|未).{0,25}(?:挂载|映射).{0,100}(?:/Users/|/home/|工作区|目录|文件|workspace)", re.IGNORECASE | re.DOTALL),
     re.compile(r"(?:没有发现|未发现).{0,30}(?:已上传|上传的).{0,20}(?:文件|代码)"),
     re.compile(r"(?:请|需要你).{0,20}上传.{0,20}(?:文件|项目|代码)"),
     re.compile(r"你可以直接在.{0,30}(?:本地|工作区).{0,20}执行"),
+    re.compile(r"(?:需要|必须).{0,50}(?:能够|可以).{0,25}访问.{0,35}(?:本机|本地|工作区).{0,35}(?:执行工具|工具)"),
+    re.compile(r"(?:无法|不能).{0,30}(?:真实|真正|实际).{0,20}(?:读取|修改|测试|访问|运行)"),
+    re.compile(r"(?:因此|所以).{0,35}(?:无法|不能).{0,50}(?:读取|修改|测试|运行|访问)"),
 )
 
 
@@ -170,15 +177,19 @@ def build_client_workspace_repair_messages(
         rejected = rejected[:1397] + "..."
 
     system = (
-        "You are connected to a local coding client through declared function tools. "
+        "You are the reasoning backend for a local coding client. The declared client tools are real. "
         "The web page itself has no filesystem access, but the client tools DO execute on the user's machine "
-        "under the client's sandbox and approval policy. Never claim that local files are unavailable merely "
-        "because this web page cannot see them. For a local workspace task, inspect the real workspace by calling "
-        f"a declared client tool, preferably {preferred_name}. Do not ask the user to upload a file and do not give "
-        "commands for the user to run manually when the declared client tool can perform the action. "
+        "under the client's sandbox and approval policy. Browser-visible filesystem state is not authoritative. "
+        "Never infer that a local workspace is unmounted, unavailable, or missing merely because the web page "
+        "cannot see it. The authoritative way to inspect the workspace is to call a declared client tool. "
+        f"For a local workspace task, call {preferred_name} before claiming that a path or file is unavailable. "
+        "For inspection tasks, a minimal first command such as pwd plus a directory listing is appropriate; then "
+        "read the requested file with the same client tool. Do not ask the user to upload a file and do not give "
+        "commands for the user to run manually when a declared client tool can perform the action. "
+        "Only report a missing path, permission error, or failed test after an actual client tool result says so. "
         "Return exactly one complete <adapter_calls> root when calling tools. Put the tool name in the call name "
         "attribute and put one JSON object inside <arguments encoding=\"json\"><![CDATA[...]]></arguments>. "
-        "Do not use markdown fences. Do not invent tool results.\n\n"
+        "Use only fields permitted by the declared tool schema. Do not use markdown fences. Do not invent tool results.\n\n"
         "AVAILABLE CLIENT WORKSPACE TOOLS:\n"
         f"{tool_defs}"
     )
@@ -186,13 +197,13 @@ def build_client_workspace_repair_messages(
     user = (
         "[Client Workspace Repair]\n"
         f"Attempt: {attempt}/{total_attempts}\n"
-        "The previous reply incorrectly treated the browser's lack of direct filesystem access as if the client "
-        "had no tools. Correct that behavior now.\n\n"
+        "The previous reply incorrectly treated the browser's lack of direct filesystem visibility as evidence "
+        "that the local coding client had no mounted workspace. Correct that behavior now.\n\n"
         "Original user request:\n"
         f"{user_request}\n\n"
         "Rejected reply:\n"
         f"{rejected}\n\n"
-        "Use the client tool now. Return only the corrected tool-call output."
+        f"Call {preferred_name} now to inspect the actual client workspace. Return only the corrected tool-call output."
     )
 
     return [
