@@ -71,7 +71,7 @@ def _to_codex_model(entry: Dict[str, Any], priority: int) -> Dict[str, Any]:
     owner = str(entry.get("owned_by") or "universal-web-api").strip()
 
     if model_id.lower() == "chatgpt" and owner.lower() in {"chatgpt.com", "www.chatgpt.com"}:
-        display_name = "ChatGPT Web (browser-selected model)"
+        display_name = "ChatGPT Web"
         description = (
             "Universal Web API route to the controlled ChatGPT browser tab. "
             "The model selected in the controlled browser is the source of truth; "
