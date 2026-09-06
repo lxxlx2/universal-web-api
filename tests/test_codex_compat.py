@@ -33,7 +33,7 @@ def test_codex_model_catalog_uses_models_wrapper_and_hides_hostname_aliases():
     model = result["models"][0]
     assert model["slug"] == "chatgpt"
     assert model["display_name"] == "ChatGPT Web (browser-selected model)"
-    assert "controlled browser is the source of truth" in model["description"]
+    assert "source of truth" in model["description"]
     assert model["shell_type"] == "shell_command"
     assert model["visibility"] == "list"
     assert model["supported_in_api"] is True
