@@ -2,7 +2,24 @@
 
 This document tracks the real macOS acceptance of the hardened Codex Desktop -> UWA -> ChatGPT Web bridge.
 
-The small `calc.py` acceptance has passed live: the browser-backed model produced a client tool call, Codex Desktop executed it on the local workspace, the tool result returned through Responses, the file was changed, and the local assertion passed. The remaining work is to determine how well that loop generalizes to normal coding-agent workflows.
+## Current live results
+
+- minimal single-file `calc.py` read/edit/test loop: **PASS**
+- Stage A multi-file read/edit/test: **PASS** on 2026-09-06
+- Stage B failure recovery: pending
+- Stage C Git-aware change discipline: pending
+- Stage D long-running process + stdin continuation: pending
+- Stage E same-thread context continuity: pending
+- Stage F Codex/UWA restart continuity: pending
+
+Stage A is considered passed only because the generated checker returned:
+
+```text
+multi_file: PASS
+ACCEPTANCE_PASS
+```
+
+The assistant's final prose is not used as proof.
 
 ## Safety boundary
 
@@ -46,17 +63,18 @@ Check all scenarios:
 python3 tools/codex_desktop_acceptance.py check
 ```
 
-## Stage A: multi-file read/edit/test
+## Stage A: multi-file read/edit/test — PASS
 
 Goal: prove that the single-file `calc.py` success generalizes to several implementation files and several tool rounds.
 
-Expected behavior:
+Verified behavior:
 
-1. inspect `multi_file/`;
-2. modify at least two implementation files;
-3. do not modify tests;
-4. run the real unittest suite;
-5. finish only after the suite is green.
+1. inspected `multi_file/`;
+2. modified two implementation files;
+3. left tests unchanged;
+4. ran the real unittest suite;
+5. all three tests passed;
+6. the generated checker returned `ACCEPTANCE_PASS`.
 
 Pass command:
 
@@ -66,7 +84,7 @@ python3 tools/codex_desktop_acceptance.py check --scenario multi_file
 
 ## Stage B: failure -> diagnose -> repair -> rerun
 
-Goal: prove the agent can observe an actual failing command, use the returned stderr/stdout as context, change the implementation, and rerun the same command successfully.
+Goal: prove the agent can observe an actual failing command, use returned stderr/stdout as context, change the implementation, and rerun the same command successfully.
 
 The prompt explicitly requires the first test command to fail before editing. This distinguishes genuine failure recovery from a model that simply guesses the intended patch.
 
@@ -111,7 +129,7 @@ python3 tools/codex_desktop_acceptance.py check --scenario interactive
 
 ## Stage E: same-thread context continuity
 
-Goal: verify that a second Codex turn can rely on a fact supplied in the first turn even though UWA creates fresh browser conversations internally and reconstructs context from the Responses/Codex history.
+Goal: verify that a second Codex turn can rely on a fact supplied in the first turn even though UWA creates fresh browser conversations internally and reconstructs context from Responses/Codex history.
 
 Send `context_1`, wait for `CONTEXT_READY`, then send `context_2` in the same Codex Desktop thread. The first prompt forbids writing the token to disk, so the second turn cannot recover it from the fixture.
 
@@ -121,14 +139,38 @@ Pass command:
 python3 tools/codex_desktop_acceptance.py check --scenario context
 ```
 
+## Stage F: close/reopen Codex + restart UWA continuity
+
+Goal: verify the actual user workflow that matters for long projects.
+
+Procedure:
+
+1. run a fresh `setup` so `context/result.txt` does not exist;
+2. open a fresh Codex Desktop thread in the acceptance project;
+3. send the `context_1` prompt and wait for `CONTEXT_READY`;
+4. fully quit Codex Desktop;
+5. stop and restart UWA;
+6. reopen Codex Desktop;
+7. reopen the SAME Codex thread from Desktop history;
+8. send `context_2` without repeating the token;
+9. run the context checker.
+
+Pass command:
+
+```bash
+python3 tools/codex_desktop_acceptance.py check --scenario context
+```
+
+This stage exercises both Codex Desktop's own persisted thread history and UWA's private Responses continuation store. It must pass before restart continuity is considered reliable.
+
 ## Result classification
 
 A scenario is `PASS` only when the generated local artifact/test confirms the action. A plausible assistant message is not evidence of success.
 
-If a scenario fails, capture the UWA log beginning at the relevant `[CHAT:ENTRY]` or `[CODEX_RESPONSES]` line through the terminal event. Do not publish logs containing private source code, account data, cookies, tokens, or real conversation identifiers.
+If a scenario fails, capture the UWA log beginning at the relevant `[CHAT:ENTRY]`, `[CODEX_CONTINUITY]`, or `[CODEX_RESPONSES]` line through the terminal event. Do not publish logs containing private source code, account data, cookies, tokens, or real conversation identifiers.
 
 ## After these stages
 
-If A-C pass, the bridge is suitable for guarded normal coding work in disposable/branched worktrees. If D also passes, long-running interactive developer commands are usable. If E passes, same-thread conversational continuity is usable for normal multi-turn tasks.
+If A-C pass, the bridge is suitable for guarded normal coding work in disposable/branched worktrees. If D also passes, long-running interactive developer commands are usable. If E passes, same-thread conversational continuity is usable. If F passes, closing/reopening Codex and restarting UWA can be treated as a supported continuation workflow.
 
-Separate future acceptance remains for persistent Responses state across UWA restarts, large-context compaction, MCP/plugins, namespace tools, multi-agent behavior, and auxiliary Codex model requests.
+Separate future acceptance remains for large-context compaction, MCP/plugins, namespace tools, multi-agent behavior, and auxiliary Codex model requests.
