@@ -47,9 +47,10 @@ jobs:
           app/services/chatgpt_web_mode.py
           app/services/chatgpt_web_prepare.py
           app/services/codex_web_policy.py
+          app/services/codex_responses_state.py
           app/api/codex_compat.py
           app/api/codex_responses.py
-      - run: python -m pytest -q tests/test_security_hardening.py
+      - run: python -m pytest -q tests/test_security_hardening.py tests/test_codex_responses_state.py
 
   upstream-regression:
     runs-on: ubuntu-latest
@@ -60,11 +61,10 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt pytest
-      # Several upstream tests depend on runtime/local files intentionally
-      # excluded by the upstream .gitignore. Exclude only those fixture-bound
-      # suites/cases so CI exercises every reproducible tracked regression,
-      # including Codex web-mode policy tests.
-      - name: Run reproducible upstream regression tests
+      # Some inherited tests depend on runtime/local files intentionally excluded
+      # from the public repository. Exclude only those fixture-bound suites/cases
+      # so CI exercises every reproducible tracked regression.
+      - name: Run reproducible regression tests
         run: >-
           python -m pytest -q
           --ignore=tests/test_arena_auto_battle_command.py
