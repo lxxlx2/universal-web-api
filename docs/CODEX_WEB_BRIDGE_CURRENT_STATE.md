@@ -24,6 +24,8 @@ Responses tool round trip                  PASS
 required-tool enforcement                  PASS
 call-id / web-session continuation         PASS
 P1.1 Responses compact live                PASS
+versioned UWA lifecycle CI                 PASS: #269
+versioned UWA lifecycle live               CURRENT
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
@@ -55,49 +57,46 @@ MARKER_PRESERVED=YES
 TASK_PRESERVED=YES
 ```
 
-P1.1 is therefore closed as PASS. The stale-runtime incident is not a second compact-handler defect; it is a separate UWA process-lifecycle defect that must be hardened before restart-heavy P1.2/P1.3 testing.
+P1.1 is therefore closed as PASS.
 
-## Current lifecycle blocker
+## Current gate: versioned UWA lifecycle live validation
 
-Live shell resolution on the macOS acceptance machine has now proven that the normal lifecycle commands are not shell functions or aliases and are not currently tracked by this repository:
+The real `~/bin/codex-uwa` / `~/bin/codex-uwa-stop` scripts were inspected. Two defects were confirmed:
 
-```text
-codex-uwa-stop -> /Users/jerson/bin/codex-uwa-stop
-codex-uwa      -> /Users/jerson/bin/codex-uwa
-shell function -> none
-shell alias    -> none
-related shell config matches -> none
-```
+1. `codex-uwa-stop` sends TERM and sleeps, then prints success without proving TCP 8199 is actually empty or escalating when needed.
+2. `codex-uwa` reuses any process whose `/health` is already healthy. After `git pull`, this can keep serving stale loaded bytecode.
 
-Repository search found no canonical source/install definition for these two commands. The lifecycle control path is therefore currently an unversioned local script surface. This explains why a stale listener bug can survive without CI or repository-level regression coverage.
+The lifecycle logic has now been moved into Git:
 
-The next repair is to inspect the two local scripts, migrate their authoritative implementation into the repository, add ownership-aware listener termination plus fresh-PID/health verification and tests, then make `~/bin/codex-uwa*` thin wrappers or symlinks to the tracked implementation.
+- `tools/codex_uwa_lifecycle.py` owns listener discovery, cwd ownership checks, TERM -> wait -> KILL escalation, port-empty proof, fresh start, listener replacement proof and health verification.
+- `tools/install_codex_uwa_commands.py` installs thin `~/bin/codex-uwa*` wrappers so lifecycle behavior always comes from the current checkout.
+- `codex-uwa` now automatically disables Codex Memories before entering UWA mode.
+- restart always means a real replacement, never "healthy therefore reuse".
+- regression coverage lives in `tests/test_codex_uwa_lifecycle.py` and `tests/test_install_codex_uwa_commands.py`.
+- Security hardening CI #269 completed with `success`.
+
+The only remaining lifecycle gate is a real macOS install + `codex-uwa-stop` + `codex-uwa` run proving the new wrapper replaces the current listener and returns healthy.
 
 Current status:
 
 ```text
 P1.1 compact endpoint implementation        PASS
-P1.1 route-level regressions                PASS
-P1.1 repair CI                              PASS
 P1.1 fresh-listener macOS direct probe      PASS: HTTP 200
-UWA stop/start listener lifecycle           CURRENT: local scripts identified
-lifecycle implementation tracked in Git     FAIL / missing
-P1.2 large-context compaction/recovery      NEXT after lifecycle hardening
+versioned lifecycle implementation          PASS
+versioned lifecycle regression / CI         PASS: #269
+versioned lifecycle macOS live              CURRENT
+P1.2 large-context compaction/recovery      NEXT
 P1.3 lost-affinity/restart fallback         pending
 Desktop UI D1-D5                            pending / mandatory before main
 ```
 
-Detailed records:
-
-- `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
-- `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
-- `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
-
 ## Official-account escape hatch: automated
 
-`python3 tools/codex_provider_switch.py official` is now designed as a one-command macOS switch. It automatically quits ChatGPT Desktop/Codex, stops the verified UWA TCP 8199 listener only when its cwd matches this checkout, restores the saved Codex Memories settings, removes only top-level provider/model/reasoning pins, preserves authentication and the `[model_providers.uwa]` definition, then reopens ChatGPT Desktop. No model or reasoning level is hard-coded.
+`python3 tools/codex_provider_switch.py official` is a one-command macOS switch. It automatically quits ChatGPT Desktop/Codex, stops the verified UWA TCP 8199 listener only when its cwd matches this checkout, restores the saved Codex Memories settings, removes only top-level provider/model/reasoning pins, preserves authentication and the `[model_providers.uwa]` definition, then reopens ChatGPT Desktop. No model or reasoning level is hard-coded.
 
-The script fails closed if it cannot prove the listener belongs to this repository or cannot reopen a supported Desktop application. Manual quit/reopen is fallback only, not the normal documented workflow.
+## Remaining Git-external state
+
+The old `~/bin` lifecycle logic is being replaced by thin repository wrappers in the current gate. One transitional helper remains: `~/.uwa/config_switch.py uwa` still supplies the exact UWA provider configuration contract. After lifecycle live validation, that contract will be inspected and migrated into Git so normal mode switching no longer depends on private drift-prone code.
 
 ## Continuity layers
 
@@ -109,7 +108,8 @@ The script fails closed if it cannot prove the listener belongs to this reposito
 ## Production-hardening order
 
 ```text
-P1 migrate/harden real UWA stop/start lifecycle into tracked code
+P1 validate versioned UWA stop/start lifecycle on macOS
+P1 migrate remaining ~/.uwa/config_switch.py UWA contract into Git
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 Desktop UI live acceptance D1-D5
