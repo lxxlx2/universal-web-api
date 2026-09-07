@@ -43,30 +43,27 @@ macOS 已验证：
 - Stage C Git diff discipline：PASS
 - Stage D long process + `write_stdin`：PASS
 - Stage E same-thread context：PASS
+- Stage F restart continuity：IN PROGRESS，pre-restart turn 1 PASS
 - Responses `function_call -> function_call_output`：PASS
 - required-tool 真 function call：PASS
 - duplicate required-tool suppression：PASS
 - `call_id -> response_id -> ChatGPT conversation` continuation：PASS
 - 单次工具执行 + 单网页会话：PASS
 
-Stage E 最终实测中，两轮 Codex thread id 完全一致。第二轮没有再次提供 `EMBER-7319`，Codex 仍从同一 thread 上下文恢复令牌，真实调用本地 `exec_command`，创建并读取 `context/result.txt`，最终返回 `CONTEXT_PASS`。独立 checker 返回：
+Stage E 最终实测中，两轮 Codex thread id 完全一致。第二轮没有再次提供 `EMBER-7319`，Codex 仍从同一 thread 上下文恢复令牌，真实调用本地 `exec_command`，创建并读取 `context/result.txt`，最终返回 `CONTEXT_PASS`。独立 checker 返回 `context: PASS` 和 `ACCEPTANCE_PASS`。
 
-```text
-context: PASS
-ACCEPTANCE_PASS
-```
+Stage F 已进入实机执行。重启前基线已经确认：fresh context fixture 和 preflight 均通过，新 Codex thread 第一轮返回 `CONTEXT_READY`，且 `context/result.txt` 保持不存在，因此 token 仍只存在于对话上下文。下一步将停止并重启 UWA，清除进程内 web affinity，然后通过 `codex exec resume` 恢复同一 thread，且第二轮不会再次提供 token。
 
-Stage E 首次第二轮曾出现网页模型虚假声称当前执行环境不存在本地 workspace 路径。策略层已增加窄范围 refusal repair 并完成回归覆盖，最终 live rerun 已确认修复有效。详细记录见：
+详细记录：
 
-`docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
-
-当前下一项正式验收：**Stage F Codex + UWA restart continuity**。
+- `docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
+- `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
 
 ## 连续性设计
 
 项目目前有四层连续性：
 
-1. Codex Desktop thread history。
+1. Codex Desktop / CLI thread history。
 2. UWA private Responses continuation，默认保存在 `~/.uwa/codex_responses.sqlite3`。
 3. V2 进程内 web-session / call-id affinity。
 4. Git tracked checkpoint，作为跨对话、跨协作者的长期事实来源。
@@ -82,7 +79,9 @@ Stage B failure recovery               PASS
 Stage C Git diff discipline            PASS
 Stage D long process + write_stdin     PASS
 Stage E same-thread context            PASS
-Stage F Codex + UWA restart            NEXT
+Stage F Codex + UWA restart            IN PROGRESS
+  turn 1 pre-restart baseline          PASS
+  UWA restart                          NEXT
 真实 exec_command cwd                  PASS
 V2 metadata wire trace                 PASS
 V2 required-tool 真 function_call       PASS
@@ -92,7 +91,7 @@ workspace marker/scenario probe        PASS
 
 ## 协作与进度同步规则
 
-Git 是项目长期事实来源。每个 live acceptance stage、重要故障定位、关键设计改变和修复结果，在进入下一阶段前必须同步到当前开发分支。
+Git 是项目长期事实来源。每个 live acceptance stage、重要故障定位、关键设计改变、关键中间检查点和修复结果，在进入下一步前都要及时同步到当前开发分支。
 
 每次至少检查并更新：
 
@@ -164,7 +163,7 @@ curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
 
 ## 安全边界
 
-默认 API 仅绑定 `127.0.0.1`。本地执行仍受 Codex sandbox 与 approval 控制。运行时日志、浏览器会话状态、Responses SQLite、wire trace 和私有源码均不得提交到 public repository。
+默认 API 仅绑定 `127.0.0.1`。本地执行仍受 Codex sandbox 与 approval 控制。运行时日志、浏览器会话状态、Responses SQLite、wire trace、真实 thread identifier 和私有源码均不得提交到 public repository。
 
 ## 设计参考
 
