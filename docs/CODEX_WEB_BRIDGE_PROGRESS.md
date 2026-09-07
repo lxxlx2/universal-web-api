@@ -53,7 +53,7 @@ HTTP/1.1 404 Not Found
 
 P1.0 therefore closed with the endpoint confirmed absent.
 
-P1.1 implementation added `app/api/codex_compact.py` plus `tests/test_codex_responses_compact.py`. GitHub Actions Security hardening run #220 at implementation/test head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed with `success`.
+P1.1 implementation added `app/api/codex_compact.py` plus `tests/test_codex_responses_compact.py`. GitHub Actions Security hardening run #220 at the original implementation/test head completed with `success`.
 
 The first post-implementation macOS live probe then produced:
 
@@ -67,7 +67,7 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-The local traceback has now closed the diagnostic uncertainty:
+The local traceback closed the diagnostic uncertainty:
 
 ```text
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
@@ -81,6 +81,8 @@ The narrow repair is now on the active branch:
 - route-level success regression uses an `info(message)` logger;
 - route-level backing-error regression uses a `warning(message)` logger;
 - compact protocol behavior itself is unchanged.
+
+Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
 
 Detailed records:
 
@@ -102,16 +104,16 @@ pre-repair compact regression + CI         PASS
 post-implementation compact runtime probe  FAIL: HTTP 500
 compact traceback root cause               CONFIRMED: SecureLogger signature
 SecureLogger repair + route regressions    DONE
-repair CI                                  NEXT
-post-repair macOS direct compact rerun      blocked on CI
-large-context compaction stress            BLOCKED
+repair CI                                  PASS: #239
+post-repair macOS direct compact rerun      NEXT
+large-context compaction stress            BLOCKED until live compact PASS
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
 
 ## Production-hardening roadmap
 
 ```text
-P1.1 repair CI + direct compact live rerun
+P1.1 post-repair direct compact live rerun
 P1.2 large-context compaction / stress / recovery
 P1.3 lost-affinity / restart fallback deeper validation
 Desktop D1-D5 actual UI acceptance
