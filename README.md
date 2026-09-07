@@ -67,22 +67,32 @@ ACCEPTANCE_PASS
 
 ## P1 large-context 当前入口
 
-P1 开始前检查了当前 Codex 的 compaction transport contract。上游 Codex 在 remote compaction 时会调用：
+上游 Codex 在 remote compaction 时会调用：
 
 ```text
 POST /v1/responses/compact
 ```
 
-本机 runtime probe 已确认当前 UWA 实际行为：OpenAPI 中没有该 route，直接 POST 返回 `404 Not Found`。因此 P1.0 已完成，P1.1 进入 compact endpoint 实现和回归阶段。
+首次本机 runtime probe 已确认旧版本 UWA 的实际行为：OpenAPI 没有该 route，直接 POST 返回 `404 Not Found`。
+
+P1.1 现在已经完成 compact endpoint 实现和回归覆盖：
+
+```text
+app/api/codex_compact.py
+tests/test_codex_responses_compact.py
+```
+
+实现保持 compaction 期间不调用客户端工具，不额外固定模型或 reasoning，通过现有 ChatGPT Web 路径生成可继续任务的 replacement-history assistant summary，并以 `{"output": [...]}` 返回。GitHub Actions Security hardening #220 已对实现/测试 head `5cccbcf4...` 验证为 `success`。
 
 当前顺序：
 
 ```text
-P1.0 本机 /v1/responses/compact runtime probe       DONE: 404 confirmed
-P1.1 compact endpoint 实现 + regression + CI        IN PROGRESS
+P1.0 首次 /v1/responses/compact runtime probe       DONE: 404 confirmed
+P1.1 compact endpoint 实现 + regression + CI        PASS
+P1.1 post-implementation 本机 direct compact probe  NEXT
 P1.2 synthetic large-context compaction / recovery   pending
 P1.3 lost-affinity / restart fallback 深化验证       pending
-Desktop live gate                                    required before real-project/final merge
+Desktop live gate D1-D5                              required before real-project/final merge
 P1.4 真实项目长任务 pilot                            pending
 P2   并发请求 / queue / controlled-tab 稳定性
 P3   MCP / plugin namespace 与 multi-agent / tool fan-out
