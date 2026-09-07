@@ -132,14 +132,14 @@ P1.1 macOS fresh-listener direct compact             PASS: HTTP 200
 P1.1 versioned lifecycle implementation + CI         PASS
 P1.1 versioned lifecycle macOS live validation       PASS
 P1.1 migrate ~/.uwa/config_switch.py UWA contract    CURRENT
-P1.2 synthetic large-context compaction / recovery   next
-P1.3 lost-affinity / restart fallback 深化验证       pending
+P1.2 native Codex large-context compaction/recovery  next
+P1.3 affinity/restart + identity fencing + uncertain-effect recovery
 Desktop live gate D1-D5                              required before real-project/final merge
 P1.4 真实项目长任务 pilot                            pending
-P2   并发请求 / queue / controlled-tab 稳定性
-P3   MCP / plugin namespace 与 multi-agent / tool fan-out
-P4   Responses SSE slimming 与 ChatGPT Web transcript hygiene
-P5   final regression / operator docs / release checklist
+P2   per-continuation serialization / queue planes / controlled-tab stale-result hardening
+P3   MCP/plugin namespace + capability fidelity + multi-agent/tool fan-out
+P4   Responses SSE slimming + bounded trace/transcript hygiene
+P5   runtime/build identity + compatibility preflight + final regression/release checklist
 ```
 
 详细记录：
@@ -150,6 +150,7 @@ P5   final regression / operator docs / release checklist
 - `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
 - `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
+- `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`
 
 ## 连续性设计
 
@@ -159,6 +160,8 @@ P5   final regression / operator docs / release checklist
 2. UWA private Responses persistence：`~/.uwa/codex_responses.sqlite3`。
 3. 进程内 ChatGPT web-session / call-id affinity。
 4. Git tracked checkpoint，作为跨对话、跨协作者的长期项目事实来源。
+
+WebCodex 研究进一步强化了一个约束：Codex thread、Responses `response_id`、tool `call_id`、ChatGPT Web conversation、UWA 进程、受控 tab 和 Codex 本地执行状态是不同身份域。后续 P1.3 会把“请求丢失不等于执行丢失”“不确定 effect 不允许盲重试”“旧进程/tab generation 不得向新 continuation 提交结果”加入正式验收。
 
 ## 协作规则
 
@@ -299,6 +302,7 @@ codex-uwa
 - [`lininn/codex-proxy`](https://github.com/lininn/codex-proxy)：参考独立 Responses compatibility boundary、请求/响应/SSE translator 分层设计。
 - [`mehdic/codex-proxy`](https://github.com/mehdic/codex-proxy)：参考 sticky session、TTL/LRU、同一逻辑会话串行化和 SSE keepalive 等设计。
 - [`openai/codex`](https://github.com/openai/codex) 及其 Responses proxy 相关实现：参考 Codex Responses 协议边界、诊断 trace、correlation、redaction 和本地调试隔离方式。
+- [`yyjeqhc/webcodex`](https://github.com/yyjeqhc/webcodex)：参考 request-loss 与 execution-loss 分离、uncertain-effect recovery、稳定身份与进程 generation 分离、bounded observation、MCP/schema/capability discipline、并发与恢复验收设计；V2 不复制其 Runner，而继续由官方 Codex 负责本地执行。
 
 这些项目用于设计研究和协议理解，不表示其作者对本项目的认可或背书。除非具体提交另有说明，V2 当前代码按本仓库设计独立实现，没有直接复制上述参考项目的源文件。详细来源、许可证、借鉴点和 copying policy 见 `docs/REFERENCES_AND_ATTRIBUTION.md`。
 
