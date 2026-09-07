@@ -45,7 +45,7 @@ ACCEPTANCE_PASS
 
 Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-## Current P1 gate: compact logger repair
+## Current P1 gate: post-repair compact live rerun
 
 Upstream Codex remote compaction uses:
 
@@ -55,7 +55,7 @@ POST /v1/responses/compact
 
 The initial code/runtime gap was confirmed by `COMPACT_ROUTE_REGISTERED=NO` and HTTP 404. P1.1 then added the route and helper regressions, with pre-live CI #220 passing.
 
-The first post-implementation macOS probe reached the route but returned HTTP 500. The traceback now proves the compact backing request and assistant replacement output had already succeeded; the failure occurred only on the final success log:
+The first post-implementation macOS probe reached the route but returned HTTP 500. The traceback proved the compact backing request and assistant replacement output had already succeeded; the failure occurred only on the final success log:
 
 ```text
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
@@ -63,12 +63,14 @@ TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
 
 `app/api/codex_compact.py` used stdlib logging interpolation arguments against UWA's one-argument `SecureLogger`. The same incompatible style was also present on the backing-error `logger.warning()` branch.
 
-The narrow repair is complete in code and regression coverage:
+The narrow repair is now on the active branch:
 
-- success and warning logs are now single preformatted messages;
+- success and warning logs use single preformatted messages;
 - route-level success coverage uses a logger whose `info()` accepts one argument;
 - route-level backing-failure coverage uses a logger whose `warning()` accepts one argument;
 - no compaction protocol semantics were otherwise changed.
+
+Security hardening CI #239 for the repair code commit `7c6d7ff` completed with `success`. The next gate is the same macOS direct compact probe after pulling and restarting UWA.
 
 Current status:
 
@@ -79,9 +81,9 @@ assistant replacement output generation     PASS
 first post-implementation live request      FAIL: HTTP 500
 traceback root cause                        CONFIRMED
 SecureLogger repair + route regressions     DONE
-repair CI                                   NEXT
-post-repair macOS direct compact rerun       blocked on CI
-P1.2 large-context                          BLOCKED
+repair CI                                   PASS: #239
+post-repair macOS direct compact rerun       NEXT
+P1.2 large-context                          BLOCKED until live compact PASS
 Desktop UI D1-D5                            pending / mandatory before main
 ```
 
