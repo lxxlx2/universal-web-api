@@ -4,7 +4,7 @@
 
 This record captures macOS live acceptance of `POST /v1/responses/compact` on `codex-web-bridge-v2`.
 
-Stage A-F and the aggregate checker remain PASS. The failures recorded here are isolated to P1.1 compact protocol hardening.
+Stage A-F and the aggregate checker remain PASS. The failures recorded here were isolated to P1.1 compact protocol hardening and process-lifecycle freshness.
 
 ## First post-implementation live failure
 
@@ -42,51 +42,24 @@ UWA's `SecureLogger.info()` accepts one message argument, unlike the stdlib logg
 
 The narrow repair on `codex-web-bridge-v2` changed compact success/error logging to single preformatted message arguments and added route-level success/error regressions using a one-argument logger. Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
 
-The repaired source line is now:
+The repaired source line is:
 
 ```python
 logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
 ```
 
-## Post-repair live rerun: FAIL
+## Post-repair rerun exposed stale runtime
 
-The operator pulled through branch head `b3f37ac`, verified the repaired source line locally, restarted UWA, confirmed service health and route registration, and reran the exact same direct compact probe.
+The operator pulled the repaired branch, verified the corrected source line, ran the normal stop/start workflow, confirmed service health and route registration, and reran the exact same direct compact probe. The request still returned HTTP 500.
 
-Observed non-sensitive evidence:
+A fresh traceback again showed the old multi-argument-call exception while the displayed source already contained the one-argument f-string call. That contradiction suggested stale loaded bytecode rather than a second compact-protocol defect.
 
-```text
-HEAD=b3f37ac
-COMPACT_ROUTE_REGISTERED=YES
-COMPACT_HTTP_CODE=500
-JSON_PARSE=PASS
-OUTPUT_IS_LIST=NO
-OUTPUT_COUNT=0
-MARKER_PRESERVED=NO
-TASK_PRESERVED=NO
-```
-
-## Fresh post-repair traceback
-
-The fresh traceback again reports the same old multi-argument-call exception:
+The actual TCP 8199 listener and a fresh venv import were then inspected:
 
 ```text
-File ".../app/api/codex_compact.py", line 179, in codex_responses_compact
-    logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
-TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
-```
-
-The displayed source contains one explicit argument while the exception reports two explicit arguments passed to the bound method. This suggested stale loaded bytecode rather than a second compact-protocol defect.
-
-## Listener freshness check: stale runtime CONFIRMED
-
-The operator then inspected the actual TCP 8199 listener and a fresh venv import.
-
-Observed evidence:
-
-```text
-LISTENER_PID=19974
-listener start time = 2026-09-07 18:00:52 local
-listener cwd = /Users/jerson/universal-web-api
+old listener pid = 19974
+old listener start time = 2026-09-07 18:00:52 local
+old listener cwd = /Users/jerson/universal-web-api
 fresh module file = /Users/jerson/universal-web-api/app/api/codex_compact.py
 fresh bound logger.info signature = (msg: str)
 fresh SecureLogger.info signature = (self, msg: str)
@@ -94,50 +67,70 @@ fresh imported source = one-argument f-string logger.info(...)
 fresh Python bytecode = CALL 1 for logger.info
 ```
 
-The listener started before the logger repair was pulled/deployed, while the fresh interpreter sees the repaired one-argument call and one-argument bytecode. Therefore the HTTP 500 rerun was served by an old long-lived UWA process that had retained the pre-repair `codex_responses_compact` function object.
+The listener predated the repair while a fresh interpreter saw the repaired bytecode. Therefore the failed rerun was served by a stale long-lived UWA process. The normal `codex-uwa-stop` / `codex-uwa` workflow had reported a restart without actually replacing the TCP 8199 listener.
 
-This closes the earlier uncertainty: the post-repair 500 is not evidence of a second compact-protocol code defect. The current blocker is UWA process lifecycle/restart correctness: `codex-uwa-stop` / `codex-uwa` reported a restart but did not replace the actual process listening on TCP 8199.
+## Verified fresh-listener rerun: PASS
 
-Do not make another compact handler change before replacing the listener with a verified fresh PID.
+The operator then terminated the exact process listening on TCP 8199 after verifying its cwd, confirmed the port was empty, started UWA again, and verified a different listener PID before rerunning the unchanged compact probe.
 
-## Current classification
-
-```text
-route registration                         PASS
-first live 500 root cause                  CONFIRMED: SecureLogger signature
-first SecureLogger repair                  DONE
-first repair route regressions             DONE
-repair CI                                   PASS: #239
-post-repair direct compact request          FAIL: HTTP 500
-post-repair traceback                       SAME OLD SIGNATURE ERROR
-fresh source/import                         PASS: repaired code visible
-fresh bytecode                              PASS: logger.info CALL 1
-actual 8199 listener freshness              FAIL: listener predates repair
-stale UWA runtime                           CONFIRMED
-current blocker                             process lifecycle / real restart
-P1.1 overall                                NOT PASS until fresh listener + live probe
-P1.2 large-context stress                   BLOCKED until P1.1 PASS
-```
-
-## Immediate next action
-
-1. terminate the exact process currently listening on TCP 8199 after verifying its cwd is this repository;
-2. verify TCP 8199 has no listener;
-3. start UWA again from the updated checkout;
-4. require a new listener PID and start time after the repair;
-5. rerun the unchanged compact probe;
-6. if the compact probe passes, separately harden/fix `codex-uwa-stop` so future restarts cannot silently leave a stale listener.
-
-The live acceptance criteria remain:
+Observed evidence:
 
 ```text
-COMPACT_ROUTE_REGISTERED=YES
+PORT_8199_EMPTY=YES
+OLD_PID=19974
+NEW_PID=57575
+LISTENER_REPLACED=YES
+NEW_CWD=/Users/jerson/universal-web-api
+service health = healthy
 COMPACT_HTTP_CODE=200
 JSON_PARSE=PASS
 OUTPUT_IS_LIST=YES
-OUTPUT_COUNT>=1
+OUTPUT_COUNT=1
+OUTPUT_0_TYPE=message ROLE=assistant
 MARKER_PRESERVED=YES
 TASK_PRESERVED=YES
 ```
+
+The returned compact summary preserved both synthetic durable facts:
+
+```text
+Project marker: ALPHA-42.
+Current task: verifying the Responses compact protocol.
+```
+
+This proves that the repaired compact implementation works in the real macOS runtime once the actual listener is fresh.
+
+## Final P1.1 classification
+
+```text
+route registration                         PASS
+compact endpoint implementation             PASS
+first live 500 root cause                  CONFIRMED: SecureLogger signature
+SecureLogger repair                         PASS
+route-level regression coverage             PASS
+repair CI                                   PASS: #239
+stale-runtime diagnosis                     CONFIRMED
+fresh listener replacement                  PASS
+post-replacement service health             PASS
+direct compact HTTP                         PASS: 200
+assistant output structure                  PASS
+marker preservation                         PASS
+task preservation                           PASS
+P1.1 compact protocol overall               PASS
+```
+
+P1.1 is therefore closed.
+
+## Remaining lifecycle defect
+
+The compact protocol is no longer blocked. A separate operator/runtime defect remains: the normal `codex-uwa-stop` / `codex-uwa` workflow can report success while leaving the real TCP 8199 listener alive. That defect must be repaired before restart-heavy P1.2/P1.3 acceptance so stale processes cannot invalidate future results.
+
+Next sequence:
+
+1. inspect the actual shell/function definitions behind `codex-uwa-stop` and `codex-uwa`;
+2. harden stop/start so the real TCP 8199 listener is verified terminated/replaced;
+3. add an automated lifecycle regression where practical;
+4. run P1.2 synthetic large-context compaction/recovery;
+5. continue P1.3 lost-affinity/restart fallback and the mandatory Desktop D1-D5 live gate.
 
 No account data, cookies, browser identifiers, thread identifiers, private source, full logs, or Responses SQLite contents are recorded here.
