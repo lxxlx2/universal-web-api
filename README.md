@@ -41,6 +41,7 @@ A-F aggregate checker                  PASS
 Responses tool round trip              PASS
 required-tool enforcement              PASS
 call-id / web-session continuation     PASS
+P1.1 Responses compact live            PASS
 Codex Desktop UI live gate             REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -73,36 +74,34 @@ ACCEPTANCE_PASS
 POST /v1/responses/compact
 ```
 
-首次本机 runtime probe 已确认旧版本 UWA 的实际行为：OpenAPI 没有该 route，直接 POST 返回 `404 Not Found`。
+P1.0 首次实机检查确认旧版本 UWA 没有该 route，直接 POST 返回 `404 Not Found`。P1.1 随后实现 compact endpoint，并补充 route-level regression。
 
-P1.1 已实现 compact endpoint 并加入回归覆盖。第一次 post-implementation macOS probe 证明 route 已注册，但返回 HTTP 500。首个 traceback 锁定 `SecureLogger.info()` 单参数签名不兼容；该问题与潜在的 `logger.warning()` 同类问题均已通过单参数预格式化日志修复，并补充 route-level regression。修复代码 commit `7c6d7ff` 的 Security hardening CI #239 已 `success`。
+第一次 post-implementation macOS probe 暴露了 `SecureLogger.info()` 调用签名问题；修复后 CI #239 PASS。随后又发现普通 `codex-uwa-stop` / `codex-uwa` 流程没有真正替换 TCP 8199 上的旧 listener，导致请求继续命中修复前加载的旧 bytecode。
 
-随后在本机拉取到 `b3f37ac`，确认修复源码已部署，重启 UWA、确认健康和 route 注册后，完全相同的 direct compact probe 仍返回：
+在验证 listener cwd 后强制清空 8199、启动新的 UWA PID，再运行完全相同的 compact probe，最终实机结果为：
 
 ```text
-COMPACT_ROUTE_REGISTERED=YES
-COMPACT_HTTP_CODE=500
+PORT_8199_EMPTY=YES
+LISTENER_REPLACED=YES
+COMPACT_HTTP_CODE=200
 JSON_PARSE=PASS
-OUTPUT_IS_LIST=NO
-OUTPUT_COUNT=0
-MARKER_PRESERVED=NO
-TASK_PRESERVED=NO
+OUTPUT_IS_LIST=YES
+OUTPUT_COUNT=1
+OUTPUT_0_TYPE=message ROLE=assistant
+MARKER_PRESERVED=YES
+TASK_PRESERVED=YES
 ```
 
-因此 P1.1 仍未通过。首个 logger 缺陷已修复并部署，但当前还有第二个未处理 runtime 路径。第二个根因必须以新的 post-repair traceback 为准，在确认前不做猜测。P1.2 large-context 继续 blocked。
+因此 P1.1 compact protocol 已正式 PASS。当前先修复 UWA stop/start 生命周期，确保后续 P1.2/P1.3 重启型测试不会再被 stale process 污染，然后进入 large-context compaction / recovery。
 
 当前顺序：
 
 ```text
-P1.0 首次 /v1/responses/compact runtime probe       DONE: 404 confirmed
-P1.1 compact endpoint 实现                           DONE
-P1.1 首次 post-implementation live probe             FAIL: HTTP 500
-P1.1 首个 traceback root cause                       CONFIRMED: SecureLogger signature
-P1.1 首个 repair + route regressions                 DONE
-P1.1 首个 repair CI                                  PASS: #239
-P1.1 post-repair macOS live rerun                    FAIL: HTTP 500
-P1.1 第二个 traceback / root cause                   CURRENT / UNKNOWN
-P1.2 synthetic large-context compaction / recovery   blocked on live compact acceptance
+P1.0 /v1/responses/compact runtime gap               DONE: 404 confirmed
+P1.1 compact endpoint + regressions                  PASS
+P1.1 macOS fresh-listener direct compact             PASS: HTTP 200
+P1.1 UWA stop/start lifecycle hardening              CURRENT
+P1.2 synthetic large-context compaction / recovery   next
 P1.3 lost-affinity / restart fallback 深化验证       pending
 Desktop live gate D1-D5                              required before real-project/final merge
 P1.4 真实项目长任务 pilot                            pending
@@ -166,27 +165,38 @@ codex-uwa-stop
 codex-uwa
 ```
 
-## 切回官方 Codex Desktop / ChatGPT 账号模式
+## 一键切回官方 Codex Desktop / ChatGPT 账号模式
 
-这个操作的目标只是恢复 Codex 的正常官方账号模式。**不固定模型，不固定 reasoning，不限制 Astra 或其他模型。** 完成后在 Codex Desktop 的模型选择器里正常选择当前账号/工作区可用的任意模型即可。
+这个操作只恢复 Codex 的正常官方账号模式。**不固定模型，不固定 reasoning，不限制 Astra 或其他模型，也不修改登录凭据。** 切换完成后可以直接使用账号默认模型，或在 Codex Desktop 的模型选择器中选择当前账号/工作区可用的任意模型。
 
-先停止 UWA，并移除 `~/.codex/config.toml` 顶层由 UWA 使用的 provider/model/reasoning 固定项：
+正常使用只需要一条命令：
 
 ```bash
 cd ~/universal-web-api
-codex-uwa-stop
 python3 tools/codex_provider_switch.py official
-python3 tools/codex_uwa_memory_guard.py restore
 ```
 
-`codex_provider_switch.py official` 会先备份当前 `~/.codex/config.toml`，然后只清理顶层 `model_provider`、`model`、`model_reasoning_effort` 固定项；它保留 `[model_providers.uwa]` 定义，也不会修改登录凭据。
+`official` 默认自动完成以下动作，无需手工退出或重新打开 Desktop：
 
-随后：
+1. 自动退出正在运行的 ChatGPT Desktop / Codex；
+2. 检查 TCP `8199` 的真实 listener，只在 listener cwd 与当前 UWA 仓库一致时自动停止它，避免误杀其他进程；
+3. 自动恢复进入 UWA 模式前保存的 Codex Memories 设置；
+4. 备份 `~/.codex/config.toml`，并只清理顶层 `model_provider`、`model`、`model_reasoning_effort` 固定项；
+5. 保留 `[model_providers.uwa]` 定义和现有账号认证状态；
+6. 自动重新打开 ChatGPT Desktop；若未安装 ChatGPT.app，则尝试打开独立 Codex.app。
 
-1. 完全退出 ChatGPT Desktop / Codex。
-2. 重新打开 Desktop。
-3. 如果客户端提示登录，使用自己的 ChatGPT 账号登录。
-4. 在 Codex 中正常选择 Astra 或任何当前账号可用模型。
+成功时会输出类似：
+
+```text
+OFFICIAL_MODE_CHANGED=YES
+UWA_LISTENER_STOPPED=<pid-or-NONE>
+DESKTOP_APPS_STOPPED=ChatGPT
+DESKTOP_REOPENED=ChatGPT
+AUTH=UNCHANGED
+MODEL_SELECTION=ACCOUNT_DEFAULT_UI
+```
+
+如果脚本无法确认 8199 listener 属于当前仓库，它会直接失败并拒绝杀进程；如果系统无法找到 ChatGPT/Codex Desktop，也会明确返回错误，而不是假装切换成功。
 
 查看当前是否仍存在顶层固定项：
 
@@ -195,7 +205,14 @@ cd ~/universal-web-api
 python3 tools/codex_provider_switch.py status
 ```
 
-再次切回 UWA 时无需删除官方账号：
+用于 CI、调试或特殊场景时，可以显式关闭部分自动化：
+
+```bash
+python3 tools/codex_provider_switch.py official --no-desktop-restart
+python3 tools/codex_provider_switch.py official --no-stop-uwa
+```
+
+再次切回 UWA 时无需删除或退出官方账号：
 
 ```bash
 cd ~/universal-web-api
