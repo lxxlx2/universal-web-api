@@ -43,6 +43,7 @@ jobs:
           security_guard.py
           tools/codex_desktop_acceptance.py
           tools/codex_large_context_acceptance.py
+          tools/codex_large_context_live.py
           app/services/client_tool_policy.py
           app/services/tool_calling.py
           app/services/chatgpt_web_mode.py
