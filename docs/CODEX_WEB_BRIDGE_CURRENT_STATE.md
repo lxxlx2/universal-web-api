@@ -19,6 +19,7 @@ versioned UWA lifecycle CI/live            PASS
 versioned UWA provider switch CI/live      PASS
 P1.2 stream compatibility CI #313          PASS
 P1.2 non-zero usage macOS smoke            PASS
+P1.2 rollout TokenCount persistence        PASS
 P1.2 second full large-context run         FAIL / runner threshold defect identified
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
@@ -63,12 +64,11 @@ Read-only live inspection proved:
 installed Codex                  0.153.4
 cached chatgpt context window    64000
 live UWA context window          64000
-cached truncation limit          57600
-live UWA truncation limit        57600
-model_context_window override    none
-model_auto_compact override      none
+catalog auto-compact field       null
 persisted TokenCount events      9
 persisted model context window   60800
+model_context_window override    none
+model_auto_compact override      none
 ```
 
 The actual rollout preserved token usage across resume. Safe `last_tokens` values progressed:
@@ -86,10 +86,11 @@ The installed release was checked against upstream tag `rust-v0.153.4`, commit `
 Confirmed facts:
 
 1. `context_window_token_status()` uses active-context usage derived from `last_token_usage.total_tokens` plus any items added after the last model-generated item; it does not use lifetime cumulative `total_token_usage.total_tokens` as the active context size.
-2. The hard effective context limit is `64000 * 95% = 60800`.
-3. Round 7 therefore ended at about `55,632`, still below the hard limit.
-4. `run_turn()` executes pre-turn compaction before context updates and before the new user message are recorded. The exact release source contains a TODO noting that pending incoming items are not yet estimated for this decision.
-5. The old runner then injected another 20KB filler after that pre-turn check, allowing round 8 to jump across the window boundary before a later turn could observe an already-over-limit previous context.
+2. `ModelInfo::auto_compact_token_limit()` derives `90%` of the resolved context window when the explicit field is absent, so the native auto-compact threshold is `57,600`.
+3. The separate hard effective full-context cap is `64,000 * 95% = 60,800`.
+4. Round 7 therefore ended at about `55,632`, only 1,968 tokens below auto-compact and still below the hard cap.
+5. `run_turn()` executes pre-turn compaction before context updates and before the new user message are recorded. The exact release source contains a TODO noting that pending incoming items are not yet estimated for this decision.
+6. The old runner then injected another 20KB filler after that pre-turn check, allowing round 8 to jump across the 57,600 trigger and toward the hard context boundary before a later turn could observe an already-over-limit previous context.
 
 Therefore attempt 2 is now classified primarily as an acceptance-runner threshold-crossing defect. It is not evidence that Codex failed to run a pre-turn compact after observing an already-over-limit active context.
 
@@ -97,7 +98,7 @@ A separate provider-capability fact remains: the UWA custom provider is `RemoteC
 
 ### Next live gate
 
-Do not change provider identity yet. First rerun with a much smaller filler step near the effective window so one successful response can finish slightly above 60,800. The following turn must be tiny, allowing Codex's next pre-turn check to observe the over-limit persisted state and exercise auto-compaction deterministically.
+Do not change provider identity yet. Use coarse filler until active context is near 57,600, then switch to ~2KB fine filler so one successful response finishes only slightly above 57,600. The following turn must be tiny, allowing Codex's next pre-turn check to observe the over-limit persisted state and exercise auto-compaction deterministically.
 
 This probe will distinguish:
 
