@@ -67,6 +67,22 @@ VERSIONED_LIFECYCLE_PASS
 
 The stale-listener blocker is closed. Detailed record: `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`.
 
+## WebCodex architecture review
+
+`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 reference. The conclusion is to preserve the current V2 architecture: official Codex remains the local executor; WebCodex's Server/Runner execution layer is not copied.
+
+High-value reliability lessons have been incorporated into later acceptance design:
+
+- request loss versus execution loss;
+- explicit uncertain-effect reconciliation before retry;
+- stable task/correlation identity separated from process/browser generation;
+- correlation/observation identifiers never becoming authority or retry permission;
+- fail-closed capability compatibility;
+- bounded, secret-free recovery diagnostics;
+- concurrency planes kept distinct.
+
+Detailed audit: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
+
 ## Current gate: migrate remaining provider switch helper
 
 One transitional Git-external helper remains:
@@ -88,7 +104,7 @@ versioned lifecycle regression / CI        PASS
 versioned lifecycle macOS live             PASS
 UWA provider switch contract in repository CURRENT
 P1.2 large-context compaction/recovery     NEXT
-P1.3 lost-affinity/restart fallback        pending
+P1.3 affinity/restart/uncertain-effect      pending / expanded by WebCodex review
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
 
@@ -96,17 +112,14 @@ Desktop UI live gate D1-D5                 pending / mandatory before main
 
 ```text
 P1.1 migrate ~/.uwa/config_switch.py UWA contract into Git
-P1.2 large-context compaction / stress / recovery
-P1.3 lost-affinity / restart fallback deeper validation
+P1.2 native Codex large-context compaction / stress / recovery
+P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
-P2 concurrent request / queue / controlled-tab hardening
-P3 advanced MCP/plugin namespace coverage
-P3 multi-agent/tool fan-out coverage
-P4 successful Responses SSE payload slimming
-P4 ChatGPT Web transcript hygiene
-P5 final acceptance regression
-P5 operator docs / release checklist
+P2 per-continuation serialization / queue planes / controlled-tab stale-result hardening
+P3 MCP/plugin namespace + capability fidelity + multi-agent/tool fan-out
+P4 successful Responses SSE slimming + bounded trace/transcript hygiene
+P5 runtime/build identity + compatibility preflight + final regression/release checklist
 ```
 
 ## Recording discipline
