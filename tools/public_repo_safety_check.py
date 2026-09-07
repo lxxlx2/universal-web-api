@@ -20,15 +20,13 @@ FORBIDDEN_TRACKED_PATHS = (
     re.compile(r"^\.env(?:\.|$)", re.IGNORECASE),
     re.compile(r"^chrome_profile(?:/|$)", re.IGNORECASE),
     re.compile(r"^\.uwa(?:/|$)", re.IGNORECASE),
+    re.compile(r"(?:^|/)(?:codex[-_]?wire|wire[-_]?trace|responses[-_]?dump)(?:/|$)", re.IGNORECASE),
     re.compile(r"^runtime_state(?:/|$)", re.IGNORECASE),
     re.compile(r"(?:^|/)cookies?(?:[._-].*)?\.json$", re.IGNORECASE),
     re.compile(r"\.(?:sqlite|sqlite3)(?:-shm|-wal)?$", re.IGNORECASE),
     re.compile(r"\.log$", re.IGNORECASE),
 )
 
-# Distinctive, high-confidence credential formats. Generic words such as
-# "token" or "password" are deliberately not treated as findings because this
-# repository contains documentation and placeholders for those settings.
 SECRET_PATTERNS = (
     ("OpenAI-style secret key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     ("GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
