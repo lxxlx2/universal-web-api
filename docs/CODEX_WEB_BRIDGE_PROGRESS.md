@@ -23,6 +23,7 @@ required-tool repair                        PASS
 duplicate required-tool suppression         PASS
 call-id continuation affinity               PASS
 single-tool / single-web-conversation gate  PASS
+P1.1 Responses compact direct live           PASS
 ```
 
 Evidence note: the final Stage E/F runs were audited primarily through `codex exec` / `codex exec resume`. They close the protocol/CLI continuity gate but do not close actual ChatGPT Desktop UI acceptance. A mandatory Desktop D1-D5 gate is tracked in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
@@ -31,56 +32,55 @@ Evidence note: the final Stage E/F runs were audited primarily through `codex ex
 
 The repaired full checker in the existing workspace passed every scenario plus `ACCEPTANCE_PASS`.
 
-## P1 compact protocol
+## P1 compact protocol: CLOSED PASS
 
 P1.0 confirmed `/v1/responses/compact` was initially absent. P1.1 implemented the route.
 
 The first live HTTP 500 was traced to stdlib-style multi-argument logging against UWA's one-argument `SecureLogger`. The narrow repair changed success/error logging to single preformatted messages and added route-level one-argument logger regressions. Security hardening CI #239 for repair code commit `7c6d7ff` passed.
 
-The operator then pulled through `b3f37ac`, verified the repaired source line, restarted UWA, confirmed health and route registration, and reran the unchanged direct probe. It still returned HTTP 500.
+The apparent post-repair recurrence was ultimately proven to be stale runtime state: the real TCP 8199 listener predated the repair even though the checkout and fresh interpreter contained the corrected bytecode.
 
-The fresh traceback again says:
+After terminating the verified repository listener, proving TCP 8199 empty, starting a different UWA PID and rerunning the unchanged probe, the real macOS runtime returned:
 
 ```text
-logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
-TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
+PORT_8199_EMPTY=YES
+LISTENER_REPLACED=YES
+COMPACT_HTTP_CODE=200
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=YES
+OUTPUT_COUNT=1
+OUTPUT_0_TYPE=message ROLE=assistant
+MARKER_PRESERVED=YES
+TASK_PRESERVED=YES
 ```
 
-That exception signature cannot be produced by the one-explicit-argument source shown on the preceding traceback line if both describe the same loaded bytecode. The strongest current hypothesis is therefore that TCP 8199 is still served by a process/function object that loaded the pre-repair code, while traceback line rendering reads the updated source file from disk.
-
-This remains a hypothesis until listener process identity and a fresh interpreter import are inspected. No second compact code repair should be attempted before that check.
+P1.1 is therefore PASS.
 
 Detailed records:
 
 - `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
 - `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
 
-## Official Codex Desktop recovery
+## Official Codex Desktop recovery: automated
 
-`tools/codex_provider_switch.py official` backs up `~/.codex/config.toml`, removes only top-level provider/model/reasoning pins, keeps the UWA provider definition, and leaves authentication untouched. After Desktop restarts, the signed-in account/workspace controls model availability; the restore path intentionally does not pin Astra, GPT-5.6 Sol, reasoning effort, or any other model setting.
+`tools/codex_provider_switch.py official` now performs the normal macOS official-account switch as one automated operation: quit Desktop, stop only the verified repository UWA listener, restore saved Memories settings, remove top-level provider/model/reasoning pins, preserve authentication/UWA provider definition, and reopen Desktop. The normal workflow no longer requires manual quit/reopen.
 
 ## Current gate
 
 ```text
 Stage A-F protocol/CLI acceptance          PASS
 aggregate A-F checker                      PASS
-compact endpoint implementation            DONE
-first compact runtime probe                FAIL: HTTP 500
-first root cause                           CONFIRMED: SecureLogger signature
-first repair + route regressions           DONE
-first repair CI                            PASS: #239
-post-repair compact runtime probe          FAIL: HTTP 500
-fresh traceback                            SAME OLD SIGNATURE ERROR
-stale listener/loaded-bytecode hypothesis  STRONG / UNCONFIRMED
-listener PID + start time + fresh import   NEXT
-large-context compaction stress            BLOCKED until live compact PASS
+P1.1 compact endpoint + live protocol      PASS
+UWA real listener stop/start lifecycle     CURRENT
+P1.2 large-context compaction/recovery     NEXT
+P1.3 lost-affinity/restart fallback        pending
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
 
 ## Production-hardening roadmap
 
 ```text
-P1.1 prove fresh listener process, then rerun direct compact acceptance
+P1.1 harden real UWA stop/start listener lifecycle
 P1.2 large-context compaction / stress / recovery
 P1.3 lost-affinity / restart fallback deeper validation
 Desktop D1-D5 actual UI acceptance
