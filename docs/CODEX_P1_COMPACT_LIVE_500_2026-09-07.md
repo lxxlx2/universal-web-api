@@ -22,33 +22,64 @@ TASK_PRESERVED=NO
 
 The harmless probe requested compaction of synthetic history containing marker `ALPHA-42` and a compact-protocol task description.
 
-No account data, cookies, browser identifiers, thread identifiers, private source, full logs, or Responses SQLite contents are recorded here.
+## Traceback root cause
+
+The local UWA traceback identifies the exact failure at the final success-log line in `app/api/codex_compact.py`:
+
+```text
+TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
+```
+
+The route had already completed the backing ChatGPT Web request, sanitized the payload and produced a non-empty assistant `output`. The request then failed only while recording the success log:
+
+```python
+logger.info("[CODEX_COMPACT] compacted history into %s assistant item(s)", len(output))
+```
+
+UWA's `SecureLogger.info()` accepts one message argument, unlike the stdlib logging interpolation signature. The exception converted an otherwise successful compact call into HTTP 500.
+
+Code inspection also found the same incompatible style on the backing-error branch:
+
+```python
+logger.warning("Codex compact backing request failed: %s", exc)
+```
+
+That path had not triggered in the live probe, but it would likewise raise instead of returning the intended structured 502.
 
 ## Classification
 
 ```text
 route registration                         PASS
-implementation unit/regression tests        PASS
-GitHub Actions Security hardening #220      PASS
+backing compact execution                   PASS in observed live path
+assistant replacement output generation     PASS in observed live path
+success logging                             FAIL: incompatible SecureLogger call
+implementation unit/regression tests        insufficient before repair
+GitHub Actions Security hardening #220      PASS on pre-repair tests
 direct macOS compact request                FAIL: HTTP 500
-P1.1 overall                                NOT PASS
+P1.1 overall                                NOT PASS until live rerun
 P1.2 large-context stress                   BLOCKED
 ```
 
-The live `500` means the implementation currently has an unhandled runtime path that unit-level helper tests did not exercise.
+## Repair
 
-## Immediate diagnostic boundary
+The narrow repair is:
 
-Inspection of `app/api/codex_compact.py` shows that backing web-mode preparation and `_run_chat_completion_final()` are inside an exception boundary that converts exceptions to structured `502` responses. A raw `500` therefore points more strongly to an exception before that boundary or after the backing request, such as request adaptation, payload sanitization, output conversion, or another route-level path.
+1. replace stdlib-style multi-argument logger calls with single preformatted messages;
+2. cover the full compact route success path using a logger whose `info()` accepts exactly one argument;
+3. cover the backing-failure route with a logger whose `warning()` accepts exactly one argument;
+4. run CI;
+5. rerun the same macOS direct compact probe without changing acceptance criteria.
 
-This is a hypothesis until the local UWA traceback is inspected.
+The post-repair live gate still requires:
 
-## Next action
+```text
+COMPACT_ROUTE_REGISTERED=YES
+COMPACT_HTTP_CODE=200
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=YES
+OUTPUT_COUNT>=1
+MARKER_PRESERVED=YES
+TASK_PRESERVED=YES
+```
 
-1. preserve this failure in Git before repair;
-2. extract only the relevant local traceback around the compact request;
-3. identify the exact failing line;
-4. add a route-level regression reproducing the live shape;
-5. implement the narrow repair;
-6. require CI green;
-7. rerun the same direct macOS probe without changing its acceptance criteria.
+No account data, cookies, browser identifiers, thread identifiers, private source, full logs, or Responses SQLite contents are recorded here.

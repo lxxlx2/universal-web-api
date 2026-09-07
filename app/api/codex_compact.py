@@ -135,7 +135,7 @@ async def codex_responses_compact(
             authenticated=authenticated,
         )
     except Exception as exc:
-        logger.warning("Codex compact backing request failed: %s", exc)
+        logger.warning(f"Codex compact backing request failed: {exc}")
         return JSONResponse(
             status_code=502,
             content={
@@ -176,5 +176,5 @@ async def codex_responses_compact(
             },
         )
 
-    logger.info("[CODEX_COMPACT] compacted history into %s assistant item(s)", len(output))
+    logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
     return {"output": output}
