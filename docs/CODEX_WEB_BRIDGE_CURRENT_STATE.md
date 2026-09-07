@@ -15,6 +15,7 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 - Codex native turn cwd inheritance: PASS
 - single-file read/edit/test: PASS
 - Stage A multi-file read/edit/test: PASS (`ACCEPTANCE_PASS`)
+- Stage B failure recovery: PASS (`ACCEPTANCE_PASS`)
 - Responses `function_call -> function_call_output`: PASS
 - V2 metadata wire trace: PASS
 - V2 strict required-tool repair can produce a real `exec_command`: PASS
@@ -24,32 +25,24 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 
 ## Latest live acceptance
 
-The workspace probe executed exactly once:
+Stage B `failure_recovery` completed the full audited red-to-green loop in `/Users/jerson/uwa-codex-acceptance`.
+
+Observed sequence:
 
 ```text
-/bin/zsh -lc 'pwd && printf "MARKER=" && test -f .uwa_codex_acceptance && echo YES || echo NO && printf "SCENARIO=" && test -d failure_recovery && echo YES || echo NO' in /Users/jerson/uwa-codex-acceptance
+workspace guard: PASS
+initial audited test run: FAIL, exit 1
+failure_recovery/.run_history first entry: 1
+Codex read parser.py and test_parser.py
+only failure_recovery/parser.py was edited
+same audited command rerun: PASS, exit 0
+failure_recovery/.run_history last entry: 0
+independent harness checker: ACCEPTANCE_PASS
 ```
 
-Real output:
+The implementation change normalized surrounding whitespace before digit/range validation. Tests were not modified.
 
-```text
-/Users/jerson/uwa-codex-acceptance
-MARKER=YES
-SCENARIO=YES
-```
-
-The turn then completed normally. There was no second execution of the command and no new ChatGPT Web conversation for the tool-result continuation.
-
-The preceding minimal `pwd` acceptance also proved the full call-id fallback path:
-
-```text
-remembered function call ids for same-web-conversation tool-result continuation
-required client tool already has a matching function_call_output; suppressing duplicate enforcement
-reusing ChatGPT conversation from function_call_output call_id
-trimmed reconstructed Responses history to function_call_output delta for web-session reuse
-```
-
-The final browser continuation completed with `web_session_reused=True`, `browser_input=delta`, and no second function call.
+The shell text-replay seen immediately after this run was not a Codex/UWA process loop. The operator command had assigned the Stage B text to zsh's special `PROMPT` variable. `ps` showed no live `codex exec`; `exec zsh -l` restored the shell. Future operator commands use names such as `ACCEPTANCE_PROMPT` and must not assign zsh special variables such as `PROMPT`, `PS1` or `PATH`.
 
 ## V2 continuation design now verified
 
@@ -81,45 +74,44 @@ Runtime hardening now:
 
 ## Current live gate
 
-Stage B `failure_recovery` is now IN PROGRESS.
+Stage C `git_diff` is NEXT.
 
-The harness first resets only the synthetic `failure_recovery` fixture, verifies that its tests are initially red and that `.run_history` does not exist, then sends the canonical Stage B prompt to a fresh Codex turn.
-
-Required Stage B evidence:
+Required Stage C evidence:
 
 ```text
 workspace guard succeeds
-initial audited test run fails for real
-first non-zero exit code is appended to failure_recovery/.run_history
-Codex reads the failure and edits only failure_recovery/parser.py
-same audited test command is rerun until green
-last exit code in .run_history is 0
+initial git_diff tests are red
+Codex reads git_diff/REQUIREMENTS.txt
+only git_diff/config.py is modified for this scenario
+tests pass
+git diff --check passes
+git diff -- git_diff shows only the intended implementation change
 independent checker passes
 ```
 
-The harness also rejects unexpected tracked changes under `failure_recovery`; only `failure_recovery/parser.py` may be modified. `.run_history` is allowed as the audit artifact and must not be deleted or rewritten.
+The acceptance workspace intentionally keeps prior Stage A/B implementation evidence. Before Stage C, operator-only noise such as `PROMPTS.md` drift and `__pycache__` directories must be cleaned because the Stage C checker treats them as unexpected paths.
 
 ## Acceptance order
 
 ```text
-Stage B failure recovery             IN PROGRESS
-Stage C Git diff discipline          pending
-Stage D long process + write_stdin   pending
-Stage E same-thread context          pending
-Stage F Codex + UWA restart          pending
+Stage A multi-file read/edit/test        PASS
+Stage B failure recovery                 PASS
+Stage C Git diff discipline              NEXT
+Stage D long process + write_stdin       pending
+Stage E same-thread context              pending
+Stage F Codex + UWA restart              pending
 ```
 
 After those, run long-context and advanced-tool coverage before treating V2 as production-ready.
 
 ## Remaining engineering work
 
-Beyond the Stage B-F acceptance matrix, remaining planned work includes:
+Beyond the Stage C-F acceptance matrix, remaining planned work includes:
 
 - successful Responses SSE payload slimming; successful Codex responses can still be large because the full advertised tool set is reflected in terminal payloads;
 - ChatGPT Web transcript hygiene so internal adapter/repair prompts are less noisy in the visible conversation;
 - session/queue hardening for concurrent Codex requests and controlled-tab contention;
 - long-context stress and recovery;
-- `write_stdin` and long-running shell processes;
 - MCP/plugin/tool namespace coverage;
 - multi-agent/tool fan-out coverage;
 - restart and lost-affinity fallback validation;
