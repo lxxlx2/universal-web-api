@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTED / CI PASS / LIVE VALIDATION PENDING.
+IMPLEMENTED / CI PASS / LIVE SMOKE CURRENT.
 
 This checkpoint follows the first real macOS P1.2 large-context run, which completed the seed and seven filler continuations before round 8 failed with:
 
@@ -64,6 +64,8 @@ Added:
 
 - `app/services/codex_stream_compat.py`
 - `tests/test_codex_stream_compat.py`
+- `tools/codex_large_context_live.py`
+- `tests/test_codex_large_context_live.py`
 
 `app/api/routes.py` installs the compatibility layer after existing V2 runtime hardening so it wraps the final Codex streaming path.
 
@@ -75,11 +77,12 @@ Regression coverage verifies:
 2. zero/missing usage is replaced with positive conservative accounting;
 3. continuation usage grows through `previous_response_id`;
 4. real non-zero usage is never overwritten;
-5. unrelated non-terminal Responses events are unchanged.
+5. unrelated non-terminal Responses events are unchanged;
+6. a non-zero Codex turn preserves its already-written private JSONL observation so the outer live runner can still harvest that turn's UWA log delta before classifying the failure.
 
 ## CI
 
-Implementation head:
+Stream compatibility implementation head:
 
 ```text
 f23a475a67df56514a660e935165c35a3dcd9e43
@@ -94,21 +97,38 @@ status completed
 conclusion success
 ```
 
-This covers the macOS/Ubuntu security matrix, reproducible upstream regression suite and public-repository-safety gate.
+Failed-turn evidence wrapper head:
 
-## Remaining acceptance instrumentation gap
+```text
+0c14742fbd3b4b6655a17f18e457f3c3caefcd7c
+```
 
-The P1.2 runner currently raises immediately when a Codex turn exits non-zero. The outer loop therefore does not harvest the UWA log delta for that failed turn. This must be repaired before the next full P1.2 run so a failure cannot hide compact lifecycle evidence from the same round.
+Security hardening workflow:
 
-## Next gate
+```text
+run #313
+id 34154114366
+status completed
+conclusion success
+```
+
+Both runs cover the macOS/Ubuntu security matrix, reproducible upstream regression suite and public-repository-safety gate.
+
+## Acceptance instrumentation gap: CLOSED IN CODE / CI
+
+The original P1.2 runner raised immediately when a Codex turn exited non-zero, so the outer loop could not harvest the UWA log delta for that failed turn. `tools/codex_large_context_live.py` now preserves the already-written private JSONL observation and lets the unchanged outer protocol scan that turn's UWA log delta before the ACK/contract check fails.
+
+This changes evidence harvesting only; it does not weaken or alter P1.2 PASS criteria.
+
+## Current live gate
 
 Do not immediately repeat the full 24-round stress run.
 
 Required order:
 
-1. repair failed-turn log harvesting in the P1.2 acceptance path;
-2. restart UWA so the new stream compatibility code is actually loaded;
-3. run a small live smoke proving a normal Codex completion now reports non-zero usage;
-4. only then rerun the full native compact/recovery acceptance.
+1. restart UWA so the new stream compatibility code is actually loaded;
+2. run a small live Codex smoke proving a normal completion now reports non-zero usage;
+3. if that smoke passes, rerun the full native compact/recovery acceptance with the failed-turn evidence wrapper;
+4. require explicit current-run `/v1/responses/compact` success before claiming compaction PASS.
 
 P1.2 remains open until real macOS evidence proves both stream survival and native `/v1/responses/compact` behavior.
