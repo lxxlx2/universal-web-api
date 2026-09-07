@@ -62,17 +62,28 @@ def test_specific_tool_choice_is_always_treated_as_required():
     assert required_declared_tool(body) == "exec_command"
 
 
-def test_retry_forces_declared_tool_without_mutating_original():
+def test_retry_forces_declared_tool_as_incremental_chained_turn_without_mutating_original():
     body = _body("必须使用 exec_command 执行 pwd。")
     body.instructions = "original instructions"
-    retry = _clone_for_required_tool_retry(body, "exec_command", attempt=2)
+    retry = _clone_for_required_tool_retry(
+        body,
+        "exec_command",
+        attempt=2,
+        previous_response_id="resp_attempt_one",
+    )
 
     assert body.tool_choice is None
     assert body.instructions == "original instructions"
+    assert body.previous_response_id is None
+
+    assert retry.previous_response_id == "resp_attempt_one"
+    assert retry.instructions is None
     assert retry.tool_choice == {"type": "function", "name": "exec_command"}
-    assert "original instructions" in retry.instructions
-    assert "plain-text answer" in retry.instructions
-    assert "omit `workdir`" in retry.instructions
+    assert isinstance(retry.input, list) and len(retry.input) == 1
+    repair_text = retry.input[0]["content"]
+    assert "exec_command" in repair_text
+    assert "Do not simulate command output" in repair_text
+    assert "omit `workdir`" in repair_text
 
 
 def test_required_tool_exhaustion_returns_structured_responses_failure():
