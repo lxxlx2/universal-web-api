@@ -57,6 +57,22 @@ TASK_PRESERVED=YES
 
 P1.1 is therefore closed as PASS. The stale-runtime incident is not a second compact-handler defect; it is a separate UWA process-lifecycle defect that must be hardened before restart-heavy P1.2/P1.3 testing.
 
+## Current lifecycle blocker
+
+Live shell resolution on the macOS acceptance machine has now proven that the normal lifecycle commands are not shell functions or aliases and are not currently tracked by this repository:
+
+```text
+codex-uwa-stop -> /Users/jerson/bin/codex-uwa-stop
+codex-uwa      -> /Users/jerson/bin/codex-uwa
+shell function -> none
+shell alias    -> none
+related shell config matches -> none
+```
+
+Repository search found no canonical source/install definition for these two commands. The lifecycle control path is therefore currently an unversioned local script surface. This explains why a stale listener bug can survive without CI or repository-level regression coverage.
+
+The next repair is to inspect the two local scripts, migrate their authoritative implementation into the repository, add ownership-aware listener termination plus fresh-PID/health verification and tests, then make `~/bin/codex-uwa*` thin wrappers or symlinks to the tracked implementation.
+
 Current status:
 
 ```text
@@ -64,7 +80,8 @@ P1.1 compact endpoint implementation        PASS
 P1.1 route-level regressions                PASS
 P1.1 repair CI                              PASS
 P1.1 fresh-listener macOS direct probe      PASS: HTTP 200
-UWA stop/start listener lifecycle           CURRENT
+UWA stop/start listener lifecycle           CURRENT: local scripts identified
+lifecycle implementation tracked in Git     FAIL / missing
 P1.2 large-context compaction/recovery      NEXT after lifecycle hardening
 P1.3 lost-affinity/restart fallback         pending
 Desktop UI D1-D5                            pending / mandatory before main
@@ -92,7 +109,7 @@ The script fails closed if it cannot prove the listener belongs to this reposito
 ## Production-hardening order
 
 ```text
-P1 harden real UWA stop/start listener lifecycle
+P1 migrate/harden real UWA stop/start lifecycle into tracked code
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 Desktop UI live acceptance D1-D5
