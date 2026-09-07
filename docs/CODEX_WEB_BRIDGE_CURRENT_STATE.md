@@ -26,6 +26,8 @@ call-id / web-session continuation         PASS
 P1.1 Responses compact live                PASS
 versioned UWA lifecycle CI                 PASS
 versioned UWA lifecycle live               PASS
+versioned UWA provider switch CI           PASS
+versioned UWA provider switch live         PASS
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
@@ -52,76 +54,88 @@ The old local lifecycle scripts had two defects:
 1. stop sent TERM and reported success without proving TCP 8199 was empty;
 2. start reused any already-healthy listener, so `git pull` could leave stale loaded bytecode active.
 
-The authoritative implementation is now repository-tracked in `tools/codex_uwa_lifecycle.py`, with thin user commands installed by `tools/install_codex_uwa_commands.py`.
+The authoritative implementation is repository-tracked in `tools/codex_uwa_lifecycle.py`, with thin user commands installed by `tools/install_codex_uwa_commands.py`.
 
-The real macOS live run produced:
+Real macOS evidence included a clean stop, a different listener PID, matching repository cwd, healthy service and connected browser. Detailed record: `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`.
+
+## Versioned UWA provider switch: PASS
+
+The former private helper `~/.uwa/config_switch.py uwa` was inspected and its UWA contract migrated into `tools/codex_provider_switch.py uwa`.
+
+The installed `codex-uwa` wrapper now depends only on repository-managed logic:
 
 ```text
-OLD_PID=57575
-STOPPED_LISTENERS=57575
-PORT_EMPTY=YES
-PORT_8199_EMPTY=YES
-NEW_PID=67555
+codex_uwa_memory_guard.py disable
+codex_provider_switch.py uwa
+codex_uwa_lifecycle.py restart
+```
+
+Real macOS validation proved:
+
+```text
+PRIVATE_HELPER_REFERENCE=NO
+UNRELATED_CONFIG_PRESERVED=YES
+UWA_ROOT_CONTRACT=PASS
+UWA_PROVIDER_CONTRACT=PASS
+MODEL_SPECIFIC_OVERRIDES_CLEARED=YES
+RESTORE_STATE=PRESENT
+OLD_PID=67555
+NEW_PID=29522
 LISTENER_REPLACED=YES
-NEW_CWD=/Users/jerson/universal-web-api
 SERVICE=healthy
 BROWSER_CONNECTED=True
 HEALTH_PASS=YES
-VERSIONED_LIFECYCLE_PASS
+VERSIONED_PROVIDER_SWITCH_LIVE_PASS
 ```
 
-This closes the stale-runtime lifecycle blocker. The normal UWA lifecycle now validates listener ownership, proves the port is empty after stop, requires a different listener on restart, and verifies `/health` plus browser connectivity. UWA startup also automatically disables Codex Memories.
+Security hardening CI #289 completed successfully for the provider/wrapper implementation.
 
-Detailed record: `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`.
+One operator-script caveat is recorded explicitly: local focused pytest did not execute because the local venv lacked pytest, while an unconditional echo printed `FOCUSED_TESTS=PASS`. That line is not counted as test evidence. CI #289 supplies regression evidence; the live macOS run supplies real configuration/restart/health evidence.
 
-## Current gate: migrate final Git-external provider switch
+Detailed record: `docs/CODEX_UWA_PROVIDER_SWITCH_MIGRATION_2026-09-08.md`.
 
-One transitional helper remains in the normal UWA entry path:
+## Current gate: P1.2 native Codex large-context compaction / recovery
 
-```text
-~/.uwa/config_switch.py uwa
-```
+The final known Git-external executable dependency in the normal UWA entry path is closed. The current gate is now a synthetic, machine-auditable long-context test that exercises native Codex continuation and `/v1/responses/compact` behavior rather than merely proving that a large file can be read.
 
-`~/bin/codex-uwa` currently invokes this helper before the repository-managed lifecycle restart. It is now the final known Git-external executable/config mutation path in the normal mode switch.
+P1.2 must distinguish:
+
+- large-context stress from actual compaction evidence;
+- conversation-memory recovery from local-file memory;
+- native Codex thread continuity from UWA web-session affinity;
+- exact success from prose-only claims.
+
+The intended acceptance shape is:
+
+1. seed a synthetic token only in the conversation;
+2. send deterministic large filler across the same Codex thread without repeating the token;
+3. gather machine-auditable evidence that the compact route was used if available;
+4. final turn must recover the token without the user restating it, write exact bytes to a result file, read them back and return a fixed pass marker;
+5. independent checker verifies exact bytes and required evidence.
+
+If explicit compaction evidence cannot be proven, classify the run as large-context stress/recovery rather than claiming compaction PASS.
 
 Current status:
 
 ```text
 P1.1 compact endpoint + direct live         PASS
-versioned lifecycle implementation          PASS
-versioned lifecycle regression / CI         PASS
-versioned lifecycle macOS live              PASS
-UWA provider switch contract in Git         CURRENT / missing
-P1.2 large-context compaction/recovery      NEXT after provider migration
-P1.3 lost-affinity/restart fallback         pending
+versioned lifecycle implementation/live     PASS
+versioned provider switch implementation    PASS
+versioned provider switch macOS live        PASS
+P1.2 large-context compaction/recovery      CURRENT
+P1.3 lost-affinity/restart fallback         pending / expanded
 Desktop UI D1-D5                            pending / mandatory before main
 ```
 
 ## Official-account escape hatch: automated
 
-`python3 tools/codex_provider_switch.py official` is a one-command macOS switch. It automatically quits ChatGPT Desktop/Codex, stops the verified UWA TCP 8199 listener only when its cwd matches this checkout, restores saved Codex Memories settings, removes only top-level provider/model/reasoning pins, preserves authentication and the `[model_providers.uwa]` definition, then reopens ChatGPT Desktop. No model or reasoning level is hard-coded.
+`python3 tools/codex_provider_switch.py official` is a one-command macOS switch. It automatically quits ChatGPT Desktop/Codex, stops the verified UWA TCP 8199 listener only when its cwd matches this checkout, restores saved Codex Memories settings, removes top-level provider/model/reasoning pins, preserves authentication, and reopens ChatGPT Desktop. No account model or reasoning level is hard-coded in official mode.
 
 ## WebCodex design review
 
-`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 design reference. It does not replace the V2 architecture: WebCodex needs its own local Runner because its cloud MCP clients need an executor, while this project intentionally keeps official Codex Desktop / CLI as the local filesystem/shell/Git/sandbox/approval owner.
+`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 design reference. It does not replace the V2 architecture: official Codex remains the local filesystem/shell/Git/sandbox/approval owner.
 
-The useful lessons are reliability contracts rather than executor code:
-
-- browser/window/transport identity must not become durable task or execution identity;
-- request loss is distinct from execution loss;
-- uncertain tool effects must be reconciled before any retry;
-- stable logical identity and current process/browser generation must remain separate;
-- correlation ids and observation cursors are not authority or retry permission;
-- protocol capabilities should fail closed when semantics cannot be preserved;
-- diagnostics and recovery evidence should remain bounded and secret-free.
-
-Roadmap impact:
-
-- P1.2 stays focused on native Codex `/v1/responses/compact`; durable task state is not a substitute for LLM context compaction.
-- P1.3 expands to explicit identity separation, stale-generation fencing and uncertain tool-effect recovery.
-- P2 expands per-continuation serialization, distinct concurrency planes and late/stale result rejection.
-- P3 uses WebCodex as a primary MCP/schema/capability reference while Codex remains the actual local MCP/tool executor.
-- P4/P5 strengthen bounded trace/transcript behavior, build/runtime identity and compatibility diagnostics.
+Useful reliability lessons incorporated into later gates include request-loss versus execution-loss separation, uncertain-effect reconciliation before retry, stable identity versus process/browser generation fencing, fail-closed capability compatibility, bounded diagnostics and distinct concurrency planes.
 
 Detailed audit: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
 
@@ -137,11 +151,10 @@ P1.3 will formalize the identity boundary further: Codex thread, Responses `resp
 ## Production-hardening order
 
 ```text
-P1 migrate ~/.uwa/config_switch.py UWA provider contract into Git
-P1 large-context compaction / stress / recovery
-P1 lost-affinity / restart + identity fencing + uncertain-effect recovery
+P1.2 native Codex large-context compaction / stress / recovery
+P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop UI live acceptance D1-D5
-P1 real-project long-task pilot
+P1.4 real-project long-task pilot
 P2 per-continuation serialization / queue planes / controlled-tab stale-result hardening
 P3 MCP/plugin namespace, capability fidelity and multi-agent/tool fan-out
 P4 Responses SSE slimming, bounded trace and transcript hygiene
