@@ -29,6 +29,8 @@ versioned UWA lifecycle macOS live          PASS
 versioned UWA provider switch CI            PASS
 versioned UWA provider switch macOS live    PASS
 P1.2 automated runner CI                    PASS
+P1.2 stream compatibility CI #313           PASS
+P1.2 non-zero usage macOS smoke             PASS
 ```
 
 Evidence note: the final Stage E/F runs were audited primarily through `codex exec` / `codex exec resume`. They close the protocol/CLI continuity gate but do not close actual ChatGPT Desktop UI acceptance. A mandatory Desktop D1-D5 gate is tracked in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
@@ -92,9 +94,30 @@ Detailed audit: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
 
 ## Current gate: P1.2 real macOS large-context run
 
-P1.2 is current. The automated acceptance runner is now implemented in `tools/codex_large_context_acceptance.py`, covered by `tests/test_codex_large_context_acceptance.py`, and compiled/regressed by CI.
+P1.2 is current. The automated acceptance runner is implemented in `tools/codex_large_context_acceptance.py`; `tools/codex_large_context_live.py` preserves UWA log evidence even when a Codex turn exits non-zero.
 
-Security hardening CI #300 (`34151173565`) completed successfully on `ab5a857c353530aced4a907a61e46f74ef8b46b1`, including upstream regression, macOS/Ubuntu security matrices and public-repository-safety.
+The first real macOS run completed the seed plus seven exact filler continuations, then round 8 failed with `idle timeout waiting for SSE`. Diagnostics showed completed turns had real usage objects whose token fields were all zero. Upstream Codex inspection confirmed two compatibility gaps: comment-only heartbeats do not reset its parsed-event idle timer, and native auto-compaction depends on accumulated session token usage.
+
+The bridge now emits parseable `response.in_progress` heartbeats during long browser-backed work and supplies a conservative bounded usage estimate only when real non-zero usage is unavailable. Security hardening CI #313 completed successfully for the final stream-compat + failed-turn evidence wrapper head.
+
+A real macOS smoke after replacing the UWA listener then proved the repair is active:
+
+```text
+LISTENER_REPLACED=YES
+SERVICE=healthy
+BROWSER_CONNECTED=True
+CODEX_RC=0
+REPLY_EXACT=YES
+INPUT_TOKENS=7113
+OUTPUT_TOKENS=54
+NONZERO_USAGE=YES
+ERROR_COUNT=0
+USAGE_SMOKE_PASS=YES
+CODEX_USAGE_MARKERS=1
+P1_STREAM_USAGE_SMOKE_PASS
+```
+
+Therefore the zero-usage blocker is closed and the next action is the full same-thread large-context rerun. This smoke does not itself prove compaction.
 
 The live runner protocol is:
 
@@ -115,7 +138,12 @@ Raw Codex JSONL is private under `~/.uwa/p1-large-context/`; public/synthetic ev
 
 Important classification rule: byte volume plus successful recovery proves large-context stress/recovery. Actual compaction is only claimed when the current run has explicit successful `/v1/responses/compact` lifecycle evidence. A recovery-only run is classified `STRESS_PASS_COMPACTION_UNPROVEN` rather than PASS.
 
-Detailed design and evidence contract: `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`.
+Detailed records:
+
+- `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`
+- `docs/CODEX_P1_LARGE_CONTEXT_LIVE_FAILURE_2026-09-08.md`
+- `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
+- `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
 
 ## Current gate
 
@@ -127,7 +155,8 @@ versioned lifecycle implementation/live     PASS
 versioned provider switch implementation    PASS
 versioned provider switch macOS live        PASS
 P1.2 automated runner implementation/CI     PASS
-P1.2 real macOS large-context live          CURRENT
+P1.2 stream/usage compatibility CI/live     PASS
+P1.2 full macOS large-context live rerun    CURRENT
 P1.3 affinity/restart/uncertain-effect       pending / expanded by WebCodex review
 Desktop UI live gate D1-D5                  pending / mandatory before main
 ```
