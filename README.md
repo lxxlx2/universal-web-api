@@ -40,7 +40,7 @@ P1.1 Responses compact direct live        PASS
 versioned lifecycle/provider switch       PASS
 P1.2 stream/usage compatibility           PASS
 P1.2 second full large-context live       FAIL
-P1.2 provider capability/cache diagnosis  CURRENT
+P1.2 rollout TokenCount diagnosis         CURRENT
 Codex Desktop UI live gate                REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -48,9 +48,13 @@ P1.2 第一次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼
 
 第二次完整实测中，同一 Codex thread 的 input usage 从 `21230` 连续增长到 `250919`，但 rounds 1-7 没有当前 run 的 `/v1/responses/compact` route/success marker，round 8 filler contract FAIL。
 
-进一步按实际安装版本核对 upstream：Codex `0.153.4` 对应 `rust-v0.153.4` / commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`。该版本只把 OpenAI 或 Azure identity 的 configured provider 标记为 remote compaction V2。当前 UWA provider 名称为 `Universal Web API`、base URL 为 localhost，因此被 Codex 判定为 remote compaction unsupported。
+只读诊断确认 cached/live model catalog 都是 64K context、57,600 truncation limit，且没有顶层 context-window 或 auto-compact override，因此 stale cache 与配置覆盖已排除。
 
-Codex 对 unsupported provider 仍有 local summary compaction fallback。因此当前先检查 live thread 实际 context metadata、`~/.codex/models_cache.json`、top-level context/auto-compact override 和 local-compaction evidence，再决定 capability shim；不再盲目重跑大上下文。
+精确核对实际安装版本：Codex `0.153.4` 对应 `rust-v0.153.4` / commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`。该版本只把 OpenAI 或 Azure identity 的 configured provider 标记为 remote compaction V2；当前 UWA provider 因此是 `RemoteCompactionSupport::Unsupported`，但仍保留 local auto-compaction fallback。
+
+同一版本源码还确认：resume/fork 会从 rollout 中最后一个 `EventMsg::TokenCount` 恢复 token usage；正常 `response.completed` 会记录 usage 并发送 `TokenCount`，普通 event 默认会持久化进 rollout。因此“每次 `codex exec resume` 都天然丢 usage”这一假设已被否定。
+
+当前唯一下一步是只读检查本次真实 P1.2 rollout 中是否存在 `TokenCount`，以及其安全的 numeric token totals / model context window。确认前不重复完整 stress run，也不手工把 provider 改成 `OpenAI`/`Azure`。
 
 ## 当前 P1.2 证据文档
 
@@ -59,6 +63,7 @@ Codex 对 unsupported provider 仍有 local summary compaction fallback。因此
 - `docs/CODEX_P1_LARGE_CONTEXT_SECOND_LIVE_FAILURE_2026-09-08.md`
 - `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
 - `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
+- `docs/CODEX_P1_MODEL_CACHE_RESUME_DIAG_2026-09-08.md`
 
 ## 连续性设计
 
@@ -107,7 +112,7 @@ python3 tools/codex_provider_switch.py official
 ## 后续路线
 
 ```text
-P1.2 provider capability/model-cache diagnosis → native compact/recovery
+P1.2 rollout TokenCount diagnosis → native compact/recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
