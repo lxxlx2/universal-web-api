@@ -9,7 +9,7 @@ The repository retains its existing license and Git history. The rules below des
 The hardened workflow is designed for a single-user local machine:
 
 ```text
-Codex Desktop
+Codex Desktop / CLI
   -> 127.0.0.1:8199
   -> UWA
   -> controlled Chromium profile
@@ -28,6 +28,7 @@ Keep these defaults unless there is a reviewed reason to change them:
 - `CMD_ALLOW_UNSAFE_PYTHON_COMMANDS=false`
 - `AUTO_UPDATE_ENABLED=false`
 - `UWAPI_ALLOW_REMOTE=false`
+- `UWA_CODEX_WIRE_TRACE=metadata`
 - use a dedicated controlled browser profile
 - keep Codex sandbox and approval controls enabled for normal work
 
@@ -50,13 +51,51 @@ Do not commit or upload:
 - browser profile directories
 - browser local storage or exported cookies
 - raw Codex/UWA request logs containing source code or prompts
+- Codex V2 wire-trace directories or request/response dump files
 - private chat transcripts
 - local request history and command-result stores
 - runtime SQLite databases containing Responses state
 - screenshots that reveal tokens, account identifiers, private repository content, private chat content, or filesystem secrets
 - generated archives or workflow artifacts that contain any of the above
 
-The repository `.gitignore` excludes known local runtime and browser state. Ignore rules are only a guardrail. Review `git status` and the actual diff before every push.
+The repository `.gitignore` and `tools/public_repo_safety_check.py` cover known runtime-state patterns. Ignore rules and scanners are guardrails only. Review `git status` and the actual diff before every push.
+
+## Codex V2 wire trace
+
+V2 can write correlated local request/response diagnostics under:
+
+```text
+~/.uwa/debug/codex-wire
+```
+
+Default mode:
+
+```text
+metadata
+```
+
+Metadata mode is designed to record protocol facts without request or tool-result bodies. It may include:
+
+- model and reasoning metadata
+- declared tool names
+- input item/role/type counts and character counts
+- Responses event order/counts
+- real `function_call` names
+- argument key names, argument length and a short hash
+- whether `workdir` or `cwd` is present and whether either equals `/`
+- response status
+
+Metadata mode must not store prompt text, source code, command bodies, tool-result text, cookies, tokens or passwords.
+
+`full` mode is explicit opt-in debugging. Full mode may contain prompts, private source snippets, commands and tool output. Treat it with the same sensitivity as a raw local Codex transcript. Disable it immediately after diagnosis. Never attach full trace files to a public issue or commit them.
+
+Trace directories and files are created with private permissions where the operating system supports them. The public-repository scanner rejects tracked paths named like `.uwa`, `codex-wire`, `wire-trace`, `responses-dump`, SQLite databases and logs.
+
+Local trace status is exposed only through the local Codex route:
+
+```text
+GET /v1/codex/wire-trace
+```
 
 ## Private Codex continuation database
 
@@ -68,13 +107,7 @@ Default location:
 ~/.uwa/codex_responses.sqlite3
 ```
 
-It may contain:
-
-- prompts
-- source-code snippets
-- tool arguments
-- tool output
-- assistant messages
+It may contain prompts, source-code snippets, tool arguments, tool output and assistant messages.
 
 Default policy:
 
@@ -87,17 +120,6 @@ DB/WAL/SHM mode      0600 where supported
 ```
 
 The database is private runtime data. Never move it into the repository, attach it to an issue, upload it as a CI artifact, or use it as public debugging evidence.
-
-To remove persisted Codex continuation data, stop UWA first and delete the local database files:
-
-```bash
-codex-uwa-stop
-rm -f ~/.uwa/codex_responses.sqlite3 \
-      ~/.uwa/codex_responses.sqlite3-wal \
-      ~/.uwa/codex_responses.sqlite3-shm
-```
-
-This removes the SQLite fallback. Process-local in-memory state disappears when UWA is stopped.
 
 ## If a secret is exposed
 
@@ -122,14 +144,16 @@ The model can propose local commands through client tools. Treat model-generated
 
 For routine work, prefer a workspace-scoped sandbox and interactive approval for operations that need broader access. Avoid combining an experimental web-model bridge with unrestricted filesystem access and a never-ask approval policy.
 
-The UWA tool-repair layer only converts a model decision into a client tool request. It does not execute the command itself and must never bypass Codex permission checks.
+The UWA tool-repair and V2 strict-tool layers only convert or validate model decisions. They do not execute commands and must never bypass Codex permission checks.
 
 ## Project continuity safety
 
-Long-term project progress must be reconstructable without private chat logs or the local continuation DB. Keep implementation decisions and verified milestones in tracked project files:
+Long-term project progress must be reconstructable without private chat logs, wire traces or the local continuation DB. Keep implementation decisions and verified milestones in tracked project files:
 
 - `README.md`
 - `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
+- `docs/CODEX_WEB_BRIDGE_V2.md`
+- `docs/REFERENCES_AND_ATTRIBUTION.md`
 - `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md`
 - `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
 
@@ -143,17 +167,10 @@ Use trusted package indexes. Review dependency changes before installation when 
 
 ## Public bug reports
 
-When reporting a problem, include only the minimum required information. Redact:
+When reporting a problem, include only the minimum required information. Redact tokens and cookies, private source code, sensitive repository names, local usernames/home-directory paths when unnecessary, unrelated chat text, and account identifiers.
 
-- tokens and cookies
-- private source code
-- private repository names when sensitive
-- local usernames and home-directory paths when unnecessary
-- chat text unrelated to the bug
-- account email addresses and identifiers
-
-Prefer synthetic reproduction files and the generated acceptance workspace over real project data.
+Prefer synthetic reproduction files, metadata-only trace summaries and the generated acceptance workspace over real project data.
 
 ## Current project status
 
-The core Codex Desktop read/edit/test tool loop has passed real macOS acceptance, including the Stage A multi-file scenario. Restart continuity and advanced tools remain under active validation. See `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md` for the current milestone and `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md` for the test matrix.
+The core Codex read/edit/test tool loop has passed real macOS acceptance, including the Stage A multi-file scenario. V2 adds protocol observability and an explicit-required-tool contract before Stage B resumes. See `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md` for the current milestone and `docs/CODEX_WEB_BRIDGE_V2.md` for the active architecture.
