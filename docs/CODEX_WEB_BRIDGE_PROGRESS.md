@@ -25,6 +25,7 @@
 - call-id affinity recovery for reconstructed Codex tool-result continuations: PASS
 - one real tool execution with one ChatGPT Web conversation: PASS
 - synthetic workspace marker/scenario probe: PASS
+- Codex CLI `exec resume` preserves the same thread id across Stage E turns: PASS
 
 ## V2 problem sequence resolved so far
 
@@ -68,6 +69,14 @@ This path is verified live.
 
 Stage C exposed that `第一步必须通过客户端 exec_command ...` could bypass strict tool detection and allow a plain-text workspace mismatch answer. V2 now treats client-prefixed Chinese variants as explicit required-tool requests while leaving ordinary explanatory mentions untouched.
 
+### 8. Same-thread path-oriented workspace refusal
+
+Stage E turn 1 returned `CONTEXT_READY` and created no file. Turn 2 resumed the exact same Codex thread id, proving client-thread continuity, but ChatGPT Web then claimed that the active execution environment did not contain `/Users/jerson/uwa-codex-acceptance` and performed no local file operation.
+
+The generic workspace-refusal repair already covered mounted/mapped/unavailable wording but did not match this specific Chinese form: `当前可用执行环境中不存在 /Users/...`.
+
+V2 now installs a narrow path-oriented refusal-language compatibility matcher. When the current request is a local workspace task and client workspace tools are declared, this wording is routed through the existing bounded client-workspace repair instead of being accepted as a final answer. Ordinary explanatory path text is not matched.
+
 ## Stage B verified
 
 Stage B `failure_recovery` passed the independent acceptance checker.
@@ -87,8 +96,6 @@ A repeated block of Stage B text after completion was traced to assigning task t
 
 Stage C `git_diff` passed the independent checker on macOS.
 
-Observed evidence:
-
 ```text
 workspace guard executed through real exec_command
 initial git_diff fixture: red
@@ -101,21 +108,9 @@ protected REQUIREMENTS.txt/tests: unchanged
 checker: ACCEPTANCE_PASS
 ```
 
-The final acceptance workspace intentionally retains Stage A/B/C implementation evidence:
-
-```text
-multi_file/math_ops.py
-multi_file/summary.py
-failure_recovery/parser.py
-failure_recovery/.run_history
-git_diff/config.py
-```
-
 ## Stage D verified
 
 Stage D `interactive` passed both the independent checker and the metadata wire-evidence gate.
-
-Observed live sequence:
 
 ```text
 workspace guard: real exec_command
@@ -128,21 +123,24 @@ interactive/result.txt contained INTERACTIVE_PASS
 checker: ACCEPTANCE_PASS
 ```
 
-The terminal UI collapsed the persistent-process interaction into the original `exec` block, so the visible CLI transcript alone was ambiguous. Private metadata trace resolved that ambiguity: a real `write_stdin` function call occurred between the worker launch and the final file check. A one-shot `echo GO | python3 ...` substitution was not used as acceptance evidence.
+The terminal UI collapsed the persistent-process interaction into the original `exec` block, so the visible CLI transcript alone was ambiguous. Private metadata trace resolved that ambiguity.
 
 ## Current gate
 
-Stage E same-thread context is NEXT.
+Stage E same-thread context is IN PROGRESS.
 
-The harness uses two prompts that must be delivered in the same Codex thread:
+First live attempt:
 
 ```text
-turn 1: remember EMBER-7319 only in conversation context; do not write it; reply CONTEXT_READY
-turn 2: without asking for the token again, write the remembered token to context/result.txt and verify it
-checker: context/result.txt must equal EMBER-7319 plus one newline
+turn 1 thread_id: 01a07b00-4c8b-7822-9aef-bab866d04ffa
+turn 1 reply: CONTEXT_READY
+turn 1 file state: clean
+turn 2 thread_id: same exact id
+thread resume: PASS
+turn 2 local file action: FAIL due path-oriented workspace refusal
 ```
 
-Stage E validates thread-level context continuity separately from project files, UWA SQLite continuation, and Git checkpoints.
+Rerun Stage E after the refusal-language repair is pulled and UWA is restarted. PASS still requires the same thread id, recalled `EMBER-7319`, `context/result.txt` containing exactly that token plus newline, and the independent checker passing.
 
 ## Remaining acceptance matrix
 
@@ -151,7 +149,7 @@ Stage A multi-file read/edit/test         PASS
 Stage B failure recovery                  PASS
 Stage C Git diff discipline               PASS
 Stage D long process + write_stdin        PASS
-Stage E same-thread context               NEXT
+Stage E same-thread context               IN PROGRESS
 Stage F UWA/Codex restart                 pending
 ```
 
