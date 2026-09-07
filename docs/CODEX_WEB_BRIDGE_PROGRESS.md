@@ -19,6 +19,7 @@ P1.2 stream compatibility CI #313           PASS
 P1.2 non-zero usage macOS smoke             PASS
 P1.2 rollout TokenCount persistence         PASS
 P1.2 second full large-context live         FAIL / runner threshold defect identified
+P1.2 small-step trigger implementation/CI   PASS: Security hardening #340
 ```
 
 Stage E/F remain protocol/CLI evidence and do not close the mandatory Desktop D1-D5 gate.
@@ -88,9 +89,29 @@ Therefore attempt 2 is now classified primarily as an acceptance-runner threshol
 
 A separate capability fact remains: the custom UWA provider is `RemoteCompactionSupport::Unsupported`, so when auto-compaction genuinely triggers it should currently choose the local fallback path rather than `/v1/responses/compact`.
 
+## Small-step trigger probe
+
+A dedicated versioned probe now implements the correct threshold approach:
+
+```text
+coarse growth
+→ switch near 57,600
+→ ~2KB fine filler
+→ one successful response slightly above 57,600 but below 60,800
+→ tiny next-turn trigger
+→ bounded rollout compact-lifecycle inspection
+```
+
+Tracked files:
+
+- `tools/codex_auto_compact_trigger_probe.py`
+- `tests/test_codex_auto_compact_trigger_probe.py`
+
+Security hardening #340, run id `34161703429`, head `31380c4d00d7006ba988485cd707c6be01dd7016`, completed with `success`. Implementation/CI is therefore closed PASS; only the real macOS live probe remains current.
+
 ## Current gate
 
-Use coarse filler until active context is close to 57,600, then ~2KB fine filler until one successful response lands only slightly above the auto-compact threshold. Send a tiny next-turn trigger and inspect bounded Codex rollout compact lifecycle evidence.
+Run the small-step trigger probe on the existing healthy UWA runtime. Do not rename the provider or rerun the old 20KB fixed-step stress path.
 
 Expected split:
 
@@ -112,7 +133,8 @@ versioned lifecycle/provider switch               PASS
 P1.2 stream/usage compatibility                    PASS
 P1.2 TokenCount persistence                        PASS
 P1.2 attempt-2 threshold diagnosis                 PASS
-P1.2 small-step auto-compact trigger probe         CURRENT
+P1.2 small-step trigger implementation/CI          PASS
+P1.2 small-step auto-compact trigger live          CURRENT
 P1.3 affinity/restart/uncertain-effect              pending
 Desktop UI live gate D1-D5                         pending / mandatory
 ```
