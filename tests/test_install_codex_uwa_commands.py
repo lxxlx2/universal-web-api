@@ -24,3 +24,7 @@ def test_start_wrapper_uses_verified_restart_not_health_reuse():
     assert 'codex_uwa_lifecycle.py" restart' in START_WRAPPER
     assert 'codex_uwa_lifecycle.py" start' not in START_WRAPPER
     assert "health_ok" not in START_WRAPPER
+
+
+def test_start_wrapper_disables_memories_automatically():
+    assert 'codex_uwa_memory_guard.py" disable' in START_WRAPPER
