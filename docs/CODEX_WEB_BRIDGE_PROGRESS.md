@@ -22,6 +22,9 @@
 - Stage F pre-restart turn 1 baseline: PASS
 - Stage F real UWA process restart: PASS
 - Stage F process-local web affinity cleared: PASS
+- Stage F same-thread post-restart resume: PASS
+- Stage F real local tool execution after restart: PASS
+- Stage F assistant `CONTEXT_PASS`: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -58,19 +61,13 @@ A generated `workdir="/"` is removed when the user did not explicitly request fi
 
 ### Same-thread path-oriented workspace refusal
 
-Stage E initially failed because the web model claimed that the current execution environment did not contain the local synthetic acceptance workspace before a real local tool check.
-
-The policy matcher was extended to cover this narrow path-missing refusal form. Regression coverage verified conversion to a real `exec_command` call without guessed `workdir`.
-
-The final live rerun then passed, so Stage E is closed as PASS.
+Stage E initially failed because the web model claimed that the current execution environment did not contain the local synthetic acceptance workspace before a real local tool check. The policy matcher was extended narrowly and the final live rerun passed.
 
 ## Current gate
 
-Stage F Codex + UWA restart continuity is IN PROGRESS.
+Stage F Codex + UWA restart continuity is IN PROGRESS with only the independent checker remaining.
 
-### Stage F pre-restart checkpoint
-
-Verified:
+### Stage F verified chain
 
 ```text
 prepare context fixture: PASS
@@ -78,31 +75,24 @@ preflight context fixture: PASS
 fresh Codex thread created: PASS
 turn 1 assistant reply: CONTEXT_READY
 context/result.txt after turn 1: ABSENT
-```
-
-### Stage F UWA restart checkpoint
-
-Verified:
-
-```text
-UWA was listening before restart
-UWA stopped cleanly
+UWA stopped cleanly: PASS
 listener after stop: absent
-UWA restarted with a different process id
+UWA restarted with a different process: PASS
 health after restart: healthy
 web affinity before restart: binding_count=4
 web affinity after restart: binding_count=0
 persistent=false
 fallback=fresh_chat_plus_reconstructed_history
-turn-1 private JSONL: present
-context/result.txt after restart: ABSENT
+same-thread post-restart resume: PASS
+THREAD_MATCH=YES
+context_2 did not repeat token
+real local command execution after restart: PASS
+context/result.txt == EMBER-7319\n
+assistant: CONTEXT_PASS
+affinity after resume: binding_count=2
 ```
 
-This confirms that the in-process web affinity layer has actually been destroyed. The next resume therefore tests recovery without relying on the pre-restart in-memory mapping.
-
-The real thread identifier and process identifiers remain private and are not written into Git.
-
-Do not reset the context fixture between the two turns.
+The in-process web affinity layer was destroyed and recovery still succeeded through the surviving continuity path. The real thread identifier and process identifiers remain private and are not written into Git.
 
 Detailed record: `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`.
 
@@ -118,13 +108,15 @@ Stage F Codex + UWA restart               IN PROGRESS
   pre-restart turn 1                      PASS
   UWA restart                             PASS
   process-local affinity cleared          PASS
-  same-thread post-restart resume         NEXT
-  independent checker                     pending
+  same-thread post-restart resume         PASS
+  real local execution                    PASS
+  CONTEXT_PASS                             PASS
+  independent checker                     NEXT
 ```
 
 ## Recording discipline
 
-Every live stage result and disruptive-stage checkpoint must be committed before the next step. README, canonical current state, this progress file, and the stage-specific record stay aligned. This supports multi-agent and multi-conversation collaboration where any one chat may reach its context limit.
+Every live stage result and disruptive-stage checkpoint must be committed before the next step. README, canonical current state, this progress file, and the stage-specific record stay aligned.
 
 ## Roadmap after Stage F
 
