@@ -18,8 +18,12 @@
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
+- duplicate required-tool suppression after tool output: PASS
+- call-id affinity recovery for reconstructed Codex tool-result continuations: PASS
+- one real tool execution with one ChatGPT Web conversation: PASS
+- synthetic workspace marker/scenario probe: PASS
 
-## V2 problem sequence
+## V2 problem sequence resolved so far
 
 ### 1. Plain text simulated tool output
 
@@ -39,9 +43,11 @@ A mapped `/c/...` conversation could already be healthy while local Responses hy
 
 ### 5. Duplicate tool execution after `function_call_output`
 
-Latest live evidence showed the strict repair successfully emitted one real `exec_command`, and Codex executed `pwd` in `/Users/jerson/uwa-codex-acceptance`. The next outer Codex request reconstructed the earlier request/call/output history and V2 forced `exec_command` again, causing a second identical execution.
+Live evidence showed Codex could reconstruct the earlier request/call/output history and make the original required-tool request visible again. V2 now treats a matching `function_call + function_call_output` pair as completion of that required-tool obligation.
 
-Current repair:
+### 6. Tool-result continuation without usable `previous_response_id`
+
+V2 now supports:
 
 ```text
 function_call call_id
@@ -53,32 +59,63 @@ function_call_output call_id
 → send only tool-result delta
 ```
 
-A matching `function_call + function_call_output` also marks the explicit required-tool obligation complete, so reconstructed history cannot force it twice.
+This path is verified live. The latest workspace probe executed exactly once and completed in the same ChatGPT Web conversation.
 
-## Current gate
+## Latest live PASS
 
-Run exactly one synthetic `exec_command(pwd)` acceptance turn.
+```text
+/Users/jerson/uwa-codex-acceptance
+MARKER=YES
+SCENARIO=YES
+```
 
-PASS requires:
+Acceptance properties:
 
 ```text
 one real exec only
-cwd = /Users/jerson/uwa-codex-acceptance
-no second pwd
-same ChatGPT conversation after tool output
+correct Codex cwd
+no root workdir override
+no duplicate command
+same ChatGPT conversation for tool-result continuation
 clean final completion
 ```
 
-Do not resume Stage B until this passes.
+## Current next gate
 
-## Pending acceptance
+Stage B: `failure_recovery`.
+
+Expected sequence:
 
 ```text
-Stage B failure recovery
-Stage C Git diff discipline
-Stage D long process + write_stdin
-Stage E same-thread context
-Stage F UWA/Codex restart continuation
+initial implementation/test failure
+→ Codex observes real failure
+→ edits implementation only
+→ reruns tests
+→ final success
+→ preserves run evidence required by the acceptance harness
+```
+
+## Remaining acceptance matrix
+
+```text
+Stage B failure recovery              NEXT
+Stage C Git diff discipline           pending
+Stage D long process + write_stdin    pending
+Stage E same-thread context           pending
+Stage F UWA/Codex restart             pending
+```
+
+## Remaining engineering roadmap after B-F
+
+```text
+successful Responses SSE payload slimming
+ChatGPT Web transcript hygiene
+concurrent request / queue / controlled-tab hardening
+long-context stress and recovery
+advanced MCP/plugin namespace coverage
+multi-agent/tool fan-out coverage
+lost-affinity fallback and restart recovery
+final operator docs and release checklist
 ```
 
 ## Current code checkpoints
@@ -86,8 +123,7 @@ Stage F UWA/Codex restart continuation
 ```text
 1f26fae Stop repeated required tools after Codex tool output
 9d38ec1 Cover call-id affinity and one-shot required tools
+60689d2 Record V2 call-id continuation fix
 ```
 
-Documentation checkpoints follow those code commits on the same V2 branch.
-
-Security hardening #140 passed the code head, including upstream regression. README/current-state documentation was then updated and remains subject to the same public-repo safety workflow.
+The live PASS is recorded in current-state/README/PR documentation on the same V2 branch.
