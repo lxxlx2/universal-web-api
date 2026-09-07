@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Install thin ~/bin wrappers for the versioned Codex/UWA lifecycle tools.
 
-The wrappers intentionally contain almost no lifecycle logic. Pulling a new
-repository revision therefore updates behavior without leaving stale copies in
-``~/bin``.
+The wrappers intentionally contain almost no lifecycle or provider-switch logic.
+Pulling a new repository revision therefore updates behavior without leaving
+stale copies in ``~/bin``.
 """
 
 from __future__ import annotations
@@ -27,15 +27,7 @@ ROOT="${CODEX_UWA_ROOT:-$HOME/universal-web-api}"
 STATE="$HOME/.uwa"
 
 python3 "$ROOT/tools/codex_uwa_memory_guard.py" disable
-
-# Transitional compatibility: provider switching is still sourced from the
-# existing private helper until its exact config contract is migrated into Git.
-if [[ -f "$STATE/config_switch.py" ]]; then
-    python3 "$STATE/config_switch.py" uwa
-else
-    echo "ERROR: missing $STATE/config_switch.py; UWA provider switch contract has not been migrated yet" >&2
-    exit 1
-fi
+python3 "$ROOT/tools/codex_provider_switch.py" uwa
 
 osascript -e 'tell application "Codex" to quit' >/dev/null 2>&1 || true
 sleep 1
