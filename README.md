@@ -33,30 +33,38 @@ continue task
 ## 当前实机状态
 
 ```text
-Stage A-F protocol/CLI                    PASS
-A-F aggregate checker                     PASS
-Responses tool round trip                 PASS
-P1.1 Responses compact direct live        PASS
-versioned lifecycle/provider switch       PASS
-P1.2 stream/usage compatibility           PASS
-P1.2 rollout TokenCount persistence       PASS
-P1.2 attempt-2 threshold diagnosis        PASS
-P1.2 small-step trigger implementation/CI PASS
-P1.2 small-step auto-compact live         CURRENT
-Codex Desktop UI live gate                REQUIRED BEFORE MAIN MERGE
+Stage A-F protocol/CLI                     PASS
+A-F aggregate checker                      PASS
+Responses tool round trip                  PASS
+P1.1 Responses compact direct live         PASS
+versioned lifecycle/provider switch        PASS
+P1.2 stream/usage compatibility            PASS
+P1.2 rollout TokenCount persistence        PASS
+P1.2 native auto-compact trigger/local     PASS
+P1.2 remote compaction capability          CURRENT
+Codex Desktop UI live gate                 REQUIRED BEFORE MAIN MERGE
 ```
 
-P1.2 第一次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼容缺口。修复后 Security hardening CI #313 与真实 macOS non-zero usage smoke 均 PASS。
+P1.2 首次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼容缺口，现已修复并通过 CI 与真实 macOS non-zero usage smoke。
 
-第二次完整实测中，CLI 累计 input usage 从 `21230` 连续增长到 `250919`，但 rounds 1-7 没有当前 run 的 `/v1/responses/compact` marker，round 8 filler contract FAIL。
+第二次固定 20KB stress run 后续被精确归因：Codex 0.153.4 的 native auto-compact 阈值是 `57,600`，hard effective cap 是 `60,800`，而 pre-turn compact check 在本轮新 user message 被记录之前执行。旧 runner 在上一轮 active context `55,632` 时一次追加 20KB，导致在 compact check 之后直接跨过阈值。
 
-后续只读诊断确认 cached/live model catalog 都是 64K，真实 rollout 中有 9 个持久化 `TokenCount`，并且 resume usage 恢复链路正常。精确核对 Codex `0.153.4` / `rust-v0.153.4` / commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` 后，第二次失败已重新归因：Codex 的 active-context 判断使用最近一次 response 的 `last_token_usage`，round 7 结束时为 `55,632`。
+新的 versioned small-step probe 已通过 CI 与真实 macOS live。实测先到 `57,429`，再小步到 `58,290`；下一轮 tiny trigger 产生一个新的 Codex rollout compaction marker，同时没有 remote `/v1/responses/compact` 调用：
 
-当前模型的 native auto-compact 阈值是 `64,000 * 90% = 57,600`；另一个 `60,800` 是 95% effective full-context hard cap，两者不是同一个阈值。Codex `run_turn()` 的 pre-turn compaction 又发生在本轮新 user message 被记录之前，因此旧 runner 在 `55,632` 状态下一次追加 20KB filler，正好在 compact check 之后跨过 auto-compact threshold 并向 hard cap 冲过去。
+```text
+57429 < 57600
+58290 > 57600
+PRE_TRIGGER_OVER_HARD_CAP=NO
+ROLLOUT_COMPACT_MARKER_DELTA=1
+REMOTE_COMPACT_ROUTE_DELTA=0
+REMOTE_COMPACT_SUCCESS_DELTA=0
+AUTO_COMPACT_MODE=LOCAL_FALLBACK
+AUTO_COMPACT_TRIGGER_PROBE_PASS
+```
 
-因此 attempt 2 不再视为“Codex 已观察到超阈值状态却拒绝 compact”的证据。新的 versioned probe 改为 coarse 增长到接近 57,600，再用约 2KB fine filler 让一轮成功结束时只略高于 57,600，下一轮用极小 trigger 验证真正的 pre-turn auto-compact。该 probe 与回归已经通过 Security hardening #340（run `34161703429`）；当前只剩真实 macOS live。
+这证明 native threshold trigger、TokenCount 持久化/resume 恢复和 local fallback 均正常。详细记录：`docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`。
 
-另一个独立事实仍然成立：当前 `Universal Web API` 自定义 provider 在 Codex 0.153.4 中被判定为 `RemoteCompactionSupport::Unsupported`，所以真实 auto-compact 触发后应先看到 local fallback；remote `/v1/responses/compact` capability 作为后续独立 gate 处理，暂不伪装 OpenAI/Azure provider。
+当前剩余 P1.2 blocker 是 remote capability：P1.1 已证明 UWA 的 `POST /v1/responses/compact` 端点可用，但 Codex 0.153.4 把普通 `Universal Web API` 自定义 provider 判定为 `RemoteCompactionSupport::Unsupported`，所以 auto-compact 仍走 local fallback。下一步只做 exact-release provider capability 审计，寻找最窄的 remote-compaction enablement；暂不把 provider 粗暴改成 `OpenAI`/`Azure`。
 
 ## 当前 P1.2 证据文档
 
@@ -66,6 +74,7 @@ P1.2 第一次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼
 - `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
 - `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
 - `docs/CODEX_P1_MODEL_CACHE_RESUME_DIAG_2026-09-08.md`
+- `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`
 
 ## 连续性设计
 
@@ -114,7 +123,7 @@ python3 tools/codex_provider_switch.py official
 ## 后续路线
 
 ```text
-P1.2 small-step auto-compact trigger → remote capability/recovery
+P1.2 remote compact capability + compact/recovery proof
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
