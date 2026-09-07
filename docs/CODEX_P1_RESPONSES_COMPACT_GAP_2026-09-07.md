@@ -62,7 +62,7 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-The traceback identified the exact cause:
+The first traceback identified:
 
 ```text
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
@@ -72,9 +72,9 @@ The backing ChatGPT Web compact request and non-empty assistant replacement outp
 
 Detailed incident: `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`.
 
-## Repair and CI
+## First repair and CI
 
-The active branch now contains the narrow repair:
+The active branch contains the narrow first repair:
 
 - success logging uses one preformatted message argument;
 - backing-error logging uses one preformatted message argument;
@@ -84,17 +84,23 @@ The active branch now contains the narrow repair:
 
 Security hardening CI #239 for repair code commit `7c6d7ff` completed successfully.
 
-The direct macOS post-repair rerun is now the current gate. Acceptance criteria remain unchanged:
+## Post-repair live rerun
+
+The operator pulled through `b3f37ac`, verified the repaired logger line locally, restarted UWA, confirmed `/health`, confirmed the compact route, and reran the unchanged direct probe.
+
+Observed result:
 
 ```text
 COMPACT_ROUTE_REGISTERED=YES
-COMPACT_HTTP_CODE=200
+COMPACT_HTTP_CODE=500
 JSON_PARSE=PASS
-OUTPUT_IS_LIST=YES
-OUTPUT_COUNT>=1
-MARKER_PRESERVED=YES
-TASK_PRESERVED=YES
+OUTPUT_IS_LIST=NO
+OUTPUT_COUNT=0
+MARKER_PRESERVED=NO
+TASK_PRESERVED=NO
 ```
+
+The first logger defect is fixed and deployed, but this live result proves that P1.1 still contains a second unhandled runtime path. Its root cause is unknown until a fresh post-repair traceback is inspected.
 
 ## Classification
 
@@ -107,20 +113,25 @@ P1 compact contract inspection        DONE
 initial runtime compact probe         DONE: 404 confirmed
 compact endpoint implementation       DONE
 first post-implementation live probe  FAIL: HTTP 500
-traceback root cause                  CONFIRMED: SecureLogger signature
-narrow repair + route regressions     DONE
-repair CI                             PASS: #239
-post-repair macOS live rerun          NEXT
+first traceback root cause            CONFIRMED: SecureLogger signature
+first repair + route regressions      DONE
+first repair CI                       PASS: #239
+post-repair live rerun                FAIL: HTTP 500
+second traceback root cause           CURRENT / UNKNOWN
 large-context stress/recovery         BLOCKED until live compact PASS
 Desktop UI live gate                  required before main merge
 ```
 
 ## Next sequence
 
-1. rerun the exact same direct compact call and require HTTP 200 plus an assistant message inside `output`;
-2. add the synthetic large-context workload;
-3. require an observable compaction lifecycle item plus post-compaction context recovery;
-4. deepen lost-affinity/restart validation;
-5. run the mandatory Desktop UI live gate before the real-project/final merge gate.
+1. extract the fresh local traceback for the post-repair compact request;
+2. reproduce the exact second failing path in route-level coverage;
+3. implement the smallest repair;
+4. require CI green;
+5. rerun the unchanged direct compact call and require HTTP 200 plus an assistant message inside `output`;
+6. add the synthetic large-context workload;
+7. require an observable compaction lifecycle item plus post-compaction context recovery;
+8. deepen lost-affinity/restart validation;
+9. run the mandatory Desktop UI live gate before the real-project/final merge gate.
 
 No private runtime state, conversation identifiers, cookies, logs or Responses SQLite contents are included in this record.
