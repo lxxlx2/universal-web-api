@@ -55,7 +55,17 @@ P1.0 therefore closed with the endpoint confirmed absent.
 
 P1.1 implementation added `app/api/codex_compact.py` plus `tests/test_codex_responses_compact.py`. GitHub Actions Security hardening run #220 at the original implementation/test head completed with `success`.
 
-The first post-implementation macOS live probe then produced:
+The first post-implementation macOS live probe then produced HTTP 500. The first local traceback identified:
+
+```text
+TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
+```
+
+The backing compact request and assistant replacement output had already succeeded. The request failed only on the final success log because `app/api/codex_compact.py` used stdlib logging interpolation arguments against UWA's one-argument `SecureLogger`. The backing-error `logger.warning()` branch had the same latent incompatibility.
+
+The first narrow repair changed compact success/error logging to single preformatted messages and added route-level success/error regressions. Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
+
+The operator then pulled through branch head `b3f37ac`, verified the repaired logger line locally, restarted UWA, confirmed health and route registration, and reran the exact same direct probe. The result was still:
 
 ```text
 COMPACT_ROUTE_REGISTERED=YES
@@ -67,22 +77,7 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-The local traceback closed the diagnostic uncertainty:
-
-```text
-TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
-```
-
-The backing compact request and assistant replacement output had already succeeded. The request failed only on the final success log because `app/api/codex_compact.py` used stdlib logging interpolation arguments against UWA's one-argument `SecureLogger`. The backing-error `logger.warning()` branch had the same latent incompatibility.
-
-The narrow repair is now on the active branch:
-
-- compact success/error logging uses single preformatted messages;
-- route-level success regression uses an `info(message)` logger;
-- route-level backing-error regression uses a `warning(message)` logger;
-- compact protocol behavior itself is unchanged.
-
-Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
+This proves the first logger defect is repaired and deployed, while P1.1 still has a second unhandled runtime path. No second root cause is assigned until a fresh traceback is captured.
 
 Detailed records:
 
@@ -100,12 +95,12 @@ Stage A-F protocol/CLI acceptance          PASS
 aggregate A-F checker                      PASS
 P1 initial compact runtime probe           DONE: 404 confirmed
 compact endpoint implementation            DONE
-pre-repair compact regression + CI         PASS
-post-implementation compact runtime probe  FAIL: HTTP 500
-compact traceback root cause               CONFIRMED: SecureLogger signature
-SecureLogger repair + route regressions    DONE
-repair CI                                  PASS: #239
-post-repair macOS direct compact rerun      NEXT
+first compact runtime probe                FAIL: HTTP 500
+first root cause                            CONFIRMED: SecureLogger signature
+first repair + route regressions           DONE
+first repair CI                            PASS: #239
+post-repair compact runtime probe           FAIL: HTTP 500
+second traceback / root cause               CURRENT / UNKNOWN
 large-context compaction stress            BLOCKED until live compact PASS
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
@@ -113,7 +108,7 @@ Desktop UI live gate D1-D5                 pending / mandatory before main
 ## Production-hardening roadmap
 
 ```text
-P1.1 post-repair direct compact live rerun
+P1.1 capture second compact traceback and repair exact path
 P1.2 large-context compaction / stress / recovery
 P1.3 lost-affinity / restart fallback deeper validation
 Desktop D1-D5 actual UI acceptance
