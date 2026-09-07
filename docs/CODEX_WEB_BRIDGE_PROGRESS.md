@@ -53,18 +53,26 @@ HTTP/1.1 404 Not Found
 
 P1.0 therefore closed with the endpoint confirmed absent.
 
-P1.1 now includes:
+P1.1 implementation added `app/api/codex_compact.py` plus `tests/test_codex_responses_compact.py`. GitHub Actions Security hardening run #220 at implementation/test head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed with `success`.
+
+The first post-implementation macOS live probe then produced:
 
 ```text
-app/api/codex_compact.py
-tests/test_codex_responses_compact.py
+COMPACT_ROUTE_REGISTERED=YES
+COMPACT_HTTP_CODE=500
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=NO
+OUTPUT_COUNT=0
+MARKER_PRESERVED=NO
+TASK_PRESERVED=NO
 ```
 
-The compact route is registered, client tools are disabled during compaction, incoming model/reasoning context is preserved, replacement history is returned as assistant Responses message items, and function-call-only output is rejected. GitHub Actions Security hardening run #220 at implementation/test head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed with `success`.
+This keeps P1.1 open. Route registration PASS and CI PASS are insufficient because the real handler still fails. Large-context compaction remains blocked.
 
-The next gate is the real macOS post-implementation runtime probe.
+Detailed records:
 
-Detailed record: `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`.
+- `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
+- `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
 
 ## Official Codex Desktop recovery
 
@@ -78,15 +86,16 @@ aggregate A-F checker                      PASS
 P1 initial compact runtime probe           DONE: 404 confirmed
 compact endpoint implementation            DONE
 compact regression + CI                    PASS
-post-implementation compact runtime probe  NEXT
-large-context compaction stress            blocked on live compact acceptance
+post-implementation compact runtime probe  FAIL: HTTP 500
+compact traceback / route-level repro      CURRENT
+large-context compaction stress            BLOCKED
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
 
 ## Production-hardening roadmap
 
 ```text
-P1.1 direct compact live acceptance
+P1.1 diagnose + repair direct compact live failure
 P1.2 large-context compaction / stress / recovery
 P1.3 lost-affinity / restart fallback deeper validation
 Desktop D1-D5 actual UI acceptance
