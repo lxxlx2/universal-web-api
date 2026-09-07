@@ -21,6 +21,7 @@ P1.2 stream compatibility CI #313          PASS
 P1.2 non-zero usage macOS smoke            PASS
 P1.2 rollout TokenCount persistence        PASS
 P1.2 second full large-context run         FAIL / runner threshold defect identified
+P1.2 small-step trigger implementation/CI  PASS: Security hardening #340
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
@@ -98,7 +99,9 @@ A separate provider-capability fact remains: the UWA custom provider is `RemoteC
 
 ### Next live gate
 
-Do not change provider identity yet. Use coarse filler until active context is near 57,600, then switch to ~2KB fine filler so one successful response finishes only slightly above 57,600. The following turn must be tiny, allowing Codex's next pre-turn check to observe the over-limit persisted state and exercise auto-compaction deterministically.
+A narrow versioned probe is now tracked at `tools/codex_auto_compact_trigger_probe.py`, with regression coverage in `tests/test_codex_auto_compact_trigger_probe.py`. Security hardening #340 (run `34161703429`, head `31380c4d00d7006ba988485cd707c6be01dd7016`) completed successfully.
+
+Do not change provider identity yet. The live probe uses coarse filler until active context is near 57,600, then switches to ~2KB fine filler so one successful response finishes only slightly above 57,600. The following turn is tiny, allowing Codex's next pre-turn check to observe the over-limit persisted state and exercise auto-compaction deterministically.
 
 This probe will distinguish:
 
@@ -126,7 +129,8 @@ versioned lifecycle/provider switch             PASS
 P1.2 stream/usage compatibility CI/live         PASS
 P1.2 rollout TokenCount persistence             PASS
 P1.2 attempt-2 root cause                       runner threshold-crossing defect
-P1.2 small-step auto-compact trigger probe      CURRENT
+P1.2 small-step trigger implementation/CI       PASS
+P1.2 small-step auto-compact trigger live       CURRENT
 P1.3 lost-affinity/restart fallback             pending / expanded
 Desktop UI D1-D5                                pending / mandatory before main
 ```
