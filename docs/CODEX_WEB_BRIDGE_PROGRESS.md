@@ -65,6 +65,19 @@ Detailed records:
 
 `tools/codex_provider_switch.py official` now performs the normal macOS official-account switch as one automated operation: quit Desktop, stop only the verified repository UWA listener, restore saved Memories settings, remove top-level provider/model/reasoning pins, preserve authentication/UWA provider definition, and reopen Desktop. The normal workflow no longer requires manual quit/reopen.
 
+## Lifecycle discovery
+
+The macOS acceptance machine resolved both lifecycle commands to standalone local executables:
+
+```text
+codex-uwa-stop -> /Users/jerson/bin/codex-uwa-stop
+codex-uwa      -> /Users/jerson/bin/codex-uwa
+```
+
+They are not shell functions or aliases, and no related definition was found in the inspected shell startup files. Repository search also found no canonical source/install definition for these scripts. The stop/start implementation is therefore currently local untracked state and cannot be covered by CI.
+
+The current repair target is to inspect these scripts, migrate their authoritative logic into repository-tracked tooling, add ownership-aware listener stop plus fresh-PID/health verification and regression coverage, and reduce the local `~/bin` commands to wrappers/symlinks.
+
 ## Current gate
 
 ```text
@@ -72,6 +85,7 @@ Stage A-F protocol/CLI acceptance          PASS
 aggregate A-F checker                      PASS
 P1.1 compact endpoint + live protocol      PASS
 UWA real listener stop/start lifecycle     CURRENT
+lifecycle implementation in repository     MISSING
 P1.2 large-context compaction/recovery     NEXT
 P1.3 lost-affinity/restart fallback        pending
 Desktop UI live gate D1-D5                 pending / mandatory before main
@@ -80,7 +94,7 @@ Desktop UI live gate D1-D5                 pending / mandatory before main
 ## Production-hardening roadmap
 
 ```text
-P1.1 harden real UWA stop/start listener lifecycle
+P1.1 migrate/harden UWA stop/start lifecycle into tracked code
 P1.2 large-context compaction / stress / recovery
 P1.3 lost-affinity / restart fallback deeper validation
 Desktop D1-D5 actual UI acceptance
