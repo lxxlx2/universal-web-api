@@ -2,13 +2,13 @@
 
 ## Context
 
-After Stage F was closed as PASS, the operator ran the aggregate acceptance checker:
+After Stage F was closed as PASS, the operator ran:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py check
 ```
 
-Observed result:
+Observed:
 
 ```text
 multi_file: PASS
@@ -19,57 +19,67 @@ context: PASS
 ACCEPTANCE_FAIL count=1
 ```
 
-## Failure classification
+## Classification
 
-This is classified as a harness false failure, not a Stage C bridge regression.
+This is a harness false failure, not a Stage C bridge regression.
 
-The `git_diff` checker reported:
+The failing checker also reported:
 
 ```text
 values_ok=True
 diff_check=0
 ```
 
-So the Stage C implementation values were correct and `git diff --check` was clean.
+The only unexpected paths were outside the Stage C implementation scope:
 
-The failure came only from the aggregate workspace-status filter treating harness/runtime artifacts as unexpected changes:
-
-- regenerated `PROMPTS.md` after the acceptance harness changed;
+- regenerated `PROMPTS.md`;
 - Python `__pycache__` directories;
-- generated `.pyc` files from running the test suites.
-
-These files are not Stage C implementation edits and should not invalidate the Git-discipline checker.
+- generated `.pyc` files.
 
 ## Root cause
 
-`_check_git_diff()` calls `_changed_paths()`, which currently uses:
+The Stage C checker used whole-workspace `git status --untracked-files=all` and compared every path against a static allowlist. That made the Stage C verdict depend on artifacts produced later by other scenarios and by Python itself.
+
+The Stage C acceptance contract is narrower: verify the intended config values, require `git diff --check`, and ensure that tracked changes inside `git_diff/` only touch `git_diff/config.py`.
+
+## Repair implemented
+
+`tools/codex_desktop_acceptance.py` now scopes the Stage C change audit to:
 
 ```text
-git status --porcelain=v1 --untracked-files=all
+git diff --name-only -- git_diff
 ```
 
-and then compares every returned path against a static allowlist. The allowlist contains prior scenario result artifacts but does not exclude deterministic Python cache files or the harness-generated `PROMPTS.md`.
+and accepts only:
 
-This remained hidden during the isolated Stage C run because those later aggregate artifacts were not all present yet. It surfaced only after running the complete A-F workspace through the aggregate checker.
+```text
+git_diff/config.py
+```
 
-## Required repair
+This means other scenario result files, regenerated prompt metadata, and untracked runtime caches do not contaminate Stage C. A tracked edit to `git_diff/tests/*`, `git_diff/REQUIREMENTS.txt`, or any other tracked Stage C path still fails.
 
-The harness repair must remain narrow:
+Regression coverage added in `tests/test_codex_desktop_acceptance_harness.py` verifies both sides:
 
-1. ignore generated Python cache artifacts (`__pycache__` and `.pyc`) when evaluating acceptance-workspace changes;
-2. treat harness-owned `PROMPTS.md` as allowed aggregate metadata;
-3. continue rejecting unexpected implementation/test/source edits;
-4. add regression coverage reproducing this exact aggregate-workspace shape;
-5. rerun CI and then rerun the full local acceptance checker.
+1. outside-scenario/runtime artifacts do not fail a valid Stage C result;
+2. a tracked Stage C test edit is rejected.
+
+Repair commits:
+
+```text
+b9235d9  Scope git diff acceptance to Stage C tracked files
+d9543b5  Cover aggregate Stage C checker artifacts
+```
 
 ## Status
 
 ```text
 Stage A-F live acceptance          PASS
 post-Stage-F aggregate check       FAIL (harness false failure)
-harness repair                     IN PROGRESS
-full aggregate rerun               pending
+harness repair                     DONE
+regression coverage                DONE
+CI                                 verifying repaired branch
+full aggregate local rerun         NEXT
 large-context acceptance           blocked until aggregate checker is clean
 ```
 
-The aggregate failure is recorded before applying the repair so another collaborator can recover the exact state from Git.
+The original failing evidence and the repair are both committed before the local rerun so another collaborator can recover the complete problem chain from Git.
