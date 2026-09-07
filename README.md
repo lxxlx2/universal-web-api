@@ -19,8 +19,8 @@ macOS 实机已经验证：
 - Stage A 多文件读 / 改 / 测：PASS，checker 返回 `ACCEPTANCE_PASS`
 - Responses `function_call -> function_call_output`：PASS
 - V2 metadata wire trace：PASS
-- 显式 required-tool contract：已实现并有回归测试
-- V2 tool-loop ChatGPT conversation affinity：已实现，等待最新实机复验
+- 显式 required-tool contract：PASS 到真实 `function_call`，单次执行 gate 仍在复验
+- V2 tool-loop ChatGPT conversation affinity：已实现 `previous_response_id` 与 `call_id` 两条恢复路径，等待最新实机复验
 
 最近一次实机 `pwd` 已真实由 Codex 执行，并显示：
 
@@ -29,7 +29,7 @@ macOS 实机已经验证：
 /Users/jerson/uwa-codex-acceptance
 ```
 
-此前 `/` 工作目录问题已解除。最新主要问题是一个 Codex agent loop 会连续创建多个 ChatGPT Web 对话，并可能重复执行同一个工具。V2 当前迭代专门修复这一层。
+`/` 工作目录问题已经解除。最新实机暴露的问题是 Codex 在收到第一次真实 `exec_command` 后，以重建历史的形式回传 `function_call_output`，旧 V2 又从原始用户文本中重新识别出 required-tool，导致同一个 `pwd` 被执行两次。当前 V2 已增加 one-shot required-tool 保护和 `call_id -> response_id -> ChatGPT /c/...` affinity fallback，正在复验这个最后的最小 tool-loop gate。
 
 ## 架构
 
@@ -40,7 +40,7 @@ OpenAI Responses request
         ↓
 UWA V2 Responses guard
         ↓
-previous_response_id → ChatGPT /c/... affinity
+previous_response_id / call_id → ChatGPT /c/... affinity
         ↓
 ChatGPT Web / GPT-5.6 Sol / High
         ↓
@@ -71,7 +71,7 @@ function_call_output
 → 再开新对话
 ```
 
-V2 现在把网页会话连续性和 Responses 连续性绑定：
+V2 现在把网页会话连续性和 Responses 连续性绑定。正常路径使用 `previous_response_id`：
 
 ```text
 首次 Codex turn
@@ -85,14 +85,28 @@ Codex 返回 function_call_output
 → response_id B 继续绑定同一个 /c/...
 ```
 
+实机还观察到 Codex 可能以重建历史形式回传工具结果，没有可直接使用的 UWA `previous_response_id`。V2 因此增加 metadata-only call bridge：
+
+```text
+function_call call_id
+→ 记录 call_id -> response_id
+→ response_id 已绑定 /c/...
+
+function_call_output call_id
+→ 找回 response_id
+→ 找回同一个 /c/...
+→ 只发送 function_call_output delta
+```
+
 关键规则：
 
-1. `previous_response_id` 与 ChatGPT conversation pathname 的映射仅保存在 UWA 进程内存。
+1. response / call affinity 仅保存在 UWA 进程内存。
 2. 映射只接受由当前受控 `chatgpt.com` 页面观测到的 `/c/...` pathname。
-3. continuation 复用时不重放完整 Codex transcript，只把新增 Responses delta 发到已有网页会话。
-4. Codex 浏览器轮次会临时覆盖通用 workflow 的 `new_chat` 决策，因此内部 repair round 也不会自行新开网页对话。
-5. 映射丢失、TTL 到期、UWA 重启、页面不可恢复或模型/推理档不匹配时，安全回退为 `fresh chat + reconstructed history`。
-6. 该 affinity 不持久化到磁盘，避免把 ChatGPT conversation 标识变成长期项目状态。
+3. call bridge 仅保存 call id、response id 和时间戳，不保存 prompt、命令正文或 tool output。
+4. continuation 复用时不重放完整 Codex transcript，只把新增 Responses delta 发到已有网页会话。
+5. 已经存在匹配 `function_call + function_call_output` 时，同一个 required-tool 不会再次被强制执行。
+6. Codex 浏览器轮次会临时覆盖通用 workflow 的 `new_chat` 决策，因此内部 repair round 也不会自行新开网页对话。
+7. 映射丢失、TTL 到期、UWA 重启、页面不可恢复或模型/推理档不匹配时，安全回退为 `fresh chat + reconstructed history`。
 
 默认配置：
 
@@ -160,7 +174,7 @@ GET /v1/codex/wire-trace
 
 V2 要求 Responses 中真实出现对应 `function_call`。纯文本模拟结果、声称工具不可用、只写 `/path` 都不算成功。
 
-首次结果没有真实工具调用时，V2 进行有限 repair。repair 也会使用前一次 response id 继续同一个 ChatGPT conversation，而不另开一条网页聊天。超过上限后 fail closed。
+首次结果没有真实工具调用时，V2 进行有限 repair。repair 使用前一次 response id 继续同一个 ChatGPT conversation。工具真实执行并有匹配 `function_call_output` 后，该 required-tool 已满足，不会因为重建历史里仍包含原始用户要求而再次强制同一工具。
 
 ## Root workdir 防护
 
@@ -184,7 +198,7 @@ UWA 不猜测替代绝对路径。用户明确要求根目录时仍允许 `/`。
 
 1. Codex Desktop thread history。
 2. UWA private Responses continuation：`~/.uwa/codex_responses.sqlite3`。
-3. V2 进程内 ChatGPT web-session affinity。
+3. V2 进程内 ChatGPT web-session / call-id affinity。
 4. Git tracked checkpoint，作为长期项目事实来源。
 
 V2 web affinity 丢失不会破坏项目，系统会回退 fresh chat + reconstructed Responses history。
@@ -233,7 +247,8 @@ curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
 Stage A 多文件读/改/测                 PASS
 真实 exec_command cwd                 PASS
 V2 metadata wire trace                PASS
-V2 单网页会话 tool loop                当前复验目标
+V2 required-tool 真 function_call      PASS
+V2 单次工具执行 + 单网页会话           当前复验目标
 Stage B failure recovery              pending
 Stage C Git diff discipline           pending
 Stage D long process + write_stdin    pending
@@ -241,7 +256,7 @@ Stage E same-thread context           pending
 Stage F Codex + UWA restart           pending
 ```
 
-V2 单网页会话 gate 通过后再继续 Stage B，避免在一个已知会话架构问题上继续烧网页额度。
+V2 单次工具执行 + 单网页会话 gate 通过后再继续 Stage B，避免在已知 continuation 问题上继续消耗网页额度。
 
 ## 安全默认值
 
