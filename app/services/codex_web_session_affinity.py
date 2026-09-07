@@ -33,6 +33,8 @@ _BINDINGS_LOCK = threading.RLock()
 _PATCH_LOCK = threading.Lock()
 _PATCH_INSTALLED = False
 _ORIGINAL_SHOULD_START_NEW = None
+_REUSE_TAB_IDS: set[str] = set()
+_REUSE_TAB_IDS_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -149,9 +151,12 @@ def affinity_status() -> Dict[str, Any]:
     with _BINDINGS_LOCK:
         _prune_locked()
         count = len(_BINDINGS)
+    with _REUSE_TAB_IDS_LOCK:
+        active_reuse_tabs = len(_REUSE_TAB_IDS)
     return {
         "enabled": affinity_enabled(),
         "binding_count": count,
+        "active_reuse_tabs": active_reuse_tabs,
         "ttl_sec": affinity_ttl_sec(),
         "max_entries": affinity_max_entries(),
         "persistent": False,
@@ -199,13 +204,27 @@ def ensure_chatgpt_conversation(pathname: str, *, timeout_sec: float = 8.0) -> b
     return False
 
 
+def _tab_id(value: Any) -> str:
+    return str(getattr(value, "tab_id", "") or "").strip()
+
+
+def _tab_id_has_reuse_hint(tab_id: str) -> bool:
+    key = str(tab_id or "").strip()
+    if not key:
+        return False
+    with _REUSE_TAB_IDS_LOCK:
+        return key in _REUSE_TAB_IDS
+
+
 def install_codex_workflow_reuse_policy() -> None:
     """Teach the generic workflow to honor a request-scoped Codex reuse hint.
 
     The generic UWA workflow normally starts a new conversation when its global
-    reuse threshold is disabled.  Codex owns conversation creation explicitly,
-    so a Codex browser round marks the selected ChatGPT tab/session as reusable.
-    Other sites and ordinary UWA requests keep the original behavior.
+    reuse threshold is disabled. Codex owns conversation creation explicitly,
+    so a Codex browser round marks the selected ChatGPT raw tab id as reusable.
+    The raw-id set also works when DrissionPage returns another wrapper object for
+    the same underlying tab. Other sites and ordinary UWA requests retain the
+    original policy.
     """
 
     global _PATCH_INSTALLED, _ORIGINAL_SHOULD_START_NEW
@@ -217,8 +236,11 @@ def install_codex_workflow_reuse_policy() -> None:
         original = TabSession.should_start_new_conversation
 
         def _codex_aware_should_start(self: TabSession, *args: Any, **kwargs: Any) -> bool:
-            if bool(getattr(self, "_codex_web_affinity_reuse", False)) or bool(
-                getattr(getattr(self, "tab", None), "_uwa_codex_reuse_conversation", False)
+            session_tab = getattr(self, "tab", None)
+            if (
+                bool(getattr(self, "_codex_web_affinity_reuse", False))
+                or bool(getattr(session_tab, "_uwa_codex_reuse_conversation", False))
+                or _tab_id_has_reuse_hint(_tab_id(session_tab))
             ):
                 return False
             return bool(original(self, *args, **kwargs))
@@ -233,10 +255,10 @@ def _matching_tab_sessions(tab: Any):
         browser = get_browser()
         pool = getattr(browser, "tab_pool", None)
         sessions = getattr(pool, "_tabs", {}) if pool is not None else {}
-        wanted_id = str(getattr(tab, "tab_id", "") or "").strip()
+        wanted_id = _tab_id(tab)
         for session in list(sessions.values()) if isinstance(sessions, dict) else []:
             session_tab = getattr(session, "tab", None)
-            session_id = str(getattr(session_tab, "tab_id", "") or "").strip()
+            session_id = _tab_id(session_tab)
             if session_tab is tab or (wanted_id and session_id == wanted_id):
                 yield session
     except Exception:
@@ -250,6 +272,13 @@ def set_codex_workflow_reuse_hint(enabled: bool) -> None:
     except ChatGPTWebModeError:
         return
     flag = bool(enabled)
+    raw_id = _tab_id(tab)
+    if raw_id:
+        with _REUSE_TAB_IDS_LOCK:
+            if flag:
+                _REUSE_TAB_IDS.add(raw_id)
+            else:
+                _REUSE_TAB_IDS.discard(raw_id)
     try:
         setattr(tab, "_uwa_codex_reuse_conversation", flag)
     except Exception:
