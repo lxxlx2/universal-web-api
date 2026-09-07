@@ -66,6 +66,8 @@ diff_check=0
 1. 其他 scenario 的结果、prompt metadata、Python cache 不会污染 Stage C；
 2. 修改 `git_diff/tests/*`、`REQUIREMENTS.txt` 或其他 Stage C tracked 文件仍会失败。
 
+当前状态：修复已提交，CI 正在验证最新分支，随后需要本地重跑 aggregate checker。large-context 暂时不启动，先把 aggregate checker 恢复为干净 PASS。
+
 详细记录：
 
 - `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
@@ -83,8 +85,6 @@ P3 MCP / plugin namespace 与 multi-agent / tool fan-out
 P4 Responses SSE slimming 与 ChatGPT Web transcript hygiene
 P5 final regression / operator docs / release checklist
 ```
-
-large-context 暂时不启动，先把 aggregate checker 恢复为干净 PASS。
 
 ## 连续性设计
 
