@@ -41,7 +41,8 @@ versioned lifecycle/provider switch       PASS
 P1.2 stream/usage compatibility           PASS
 P1.2 rollout TokenCount persistence       PASS
 P1.2 attempt-2 threshold diagnosis        PASS
-P1.2 small-step auto-compact trigger      CURRENT
+P1.2 small-step trigger implementation/CI PASS
+P1.2 small-step auto-compact live         CURRENT
 Codex Desktop UI live gate                REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -53,7 +54,7 @@ P1.2 第一次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼
 
 当前模型的 native auto-compact 阈值是 `64,000 * 90% = 57,600`；另一个 `60,800` 是 95% effective full-context hard cap，两者不是同一个阈值。Codex `run_turn()` 的 pre-turn compaction 又发生在本轮新 user message 被记录之前，因此旧 runner 在 `55,632` 状态下一次追加 20KB filler，正好在 compact check 之后跨过 auto-compact threshold 并向 hard cap 冲过去。
 
-因此 attempt 2 不再视为“Codex 已观察到超阈值状态却拒绝 compact”的证据。当前改为：先 coarse 增长到接近 57,600，再用约 2KB fine filler 让一轮成功结束时只略高于 57,600，下一轮用极小 trigger 验证真正的 pre-turn auto-compact。
+因此 attempt 2 不再视为“Codex 已观察到超阈值状态却拒绝 compact”的证据。新的 versioned probe 改为 coarse 增长到接近 57,600，再用约 2KB fine filler 让一轮成功结束时只略高于 57,600，下一轮用极小 trigger 验证真正的 pre-turn auto-compact。该 probe 与回归已经通过 Security hardening #340（run `34161703429`）；当前只剩真实 macOS live。
 
 另一个独立事实仍然成立：当前 `Universal Web API` 自定义 provider 在 Codex 0.153.4 中被判定为 `RemoteCompactionSupport::Unsupported`，所以真实 auto-compact 触发后应先看到 local fallback；remote `/v1/responses/compact` capability 作为后续独立 gate 处理，暂不伪装 OpenAI/Azure provider。
 
