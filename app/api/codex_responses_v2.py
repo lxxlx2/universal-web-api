@@ -1,30 +1,70 @@
-"""Codex Web Bridge V2 guardrail and observability layer.
+"""Codex Web Bridge V2: strict tools, wire observability and web-session affinity.
 
-This router intentionally sits before the existing Codex Responses router. It
-keeps the proven browser/tool bridge underneath, while adding two V2 behaviors:
+The V2 router is registered before the older Codex Responses adapter.  It keeps
+that adapter as the compatibility fallback while owning streamed Codex tool
+turns.  A Codex ``previous_response_id`` is bound to the ChatGPT ``/c/...``
+conversation created by the corresponding browser round.  Continuations restore
+that conversation and send only the new Responses delta instead of replaying the
+entire transcript into a fresh web chat.
 
-1. private request/response metadata tracing for protocol diagnosis;
-2. a strict contract when the client/user explicitly requires a declared tool.
-
-A plain-text imitation of a tool result is never accepted for a strict tool turn.
-The bridge retries once with the requested function forced through ``tool_choice``
-and then fails closed if a real Responses ``function_call`` still does not appear.
+If the in-memory web binding is unavailable (UWA restart, TTL expiry, browser
+navigation failure), V2 deliberately falls back to a fresh ChatGPT conversation
+plus the reconstructed Responses history.  Correctness wins over affinity.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 import time
-from typing import Any, AsyncIterator, Dict, List
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.api.chat import ResponsesRequest, _build_responses_object, _new_response_id, verify_auth
-from app.api.codex_responses import _require_loopback, codex_aware_responses
-from app.services.chatgpt_web_mode import web_mode_enabled
+from app.api.chat import (
+    ResponsesRequest,
+    _build_responses_object,
+    _new_response_id,
+    _responses_completion_status_from_chat_payload,
+    _responses_error_payload,
+    _responses_request_to_chat_request,
+    _run_chat_completion_final,
+    _store_responses_state,
+    verify_auth,
+)
+from app.api.codex_responses import (
+    _codex_event,
+    _codex_wire_item,
+    _hydrate_codex_continuation,
+    _persist_codex_history,
+    _require_loopback,
+    _sanitize_codex_root_workdirs,
+    _sanitize_codex_tool_payload,
+    codex_aware_responses,
+)
+from app.core.config import get_logger
+from app.services.chatgpt_web_mode import (
+    ChatGPTWebModeError,
+    target_web_model,
+    web_mode_enabled,
+)
+from app.services.codex_network_tuning import install_codex_chatgpt_network_tuning
+from app.services.codex_web_policy import (
+    inspect_codex_web_mode_status,
+    normalize_codex_reasoning,
+    prepare_and_verify_codex_web_mode,
+)
+from app.services.codex_web_session_affinity import (
+    affinity_status,
+    bind_response_to_conversation,
+    current_chatgpt_conversation_path,
+    ensure_chatgpt_conversation,
+    resolve_conversation_binding,
+    set_codex_workflow_reuse_hint,
+)
 from app.services.codex_wire_observability import (
     new_trace_id,
     summarize_responses_request,
@@ -35,6 +75,16 @@ from app.services.codex_wire_observability import (
 
 
 router = APIRouter()
+logger = get_logger("API.CODEX_RESPONSES_V2")
+_CODEX_SSE_KEEPALIVE_SEC = 5.0
+
+_WORKSPACE_TOOL_NAMES = {
+    "exec_command",
+    "shell_command",
+    "local_shell",
+    "apply_patch",
+    "write_stdin",
+}
 
 _REQUIRED_TOOL_PATTERNS = (
     re.compile(
@@ -144,19 +194,23 @@ def _clone_for_required_tool_retry(
     body: ResponsesRequest,
     required_tool: str,
     attempt: int,
+    *,
+    previous_response_id: str,
 ) -> ResponsesRequest:
+    """Build an incremental repair turn that stays in the same web conversation."""
+
     cloned = _model_copy(body)
-    existing = str(cloned.instructions or "").rstrip()
     repair = (
         "[Codex V2 Required Tool Contract]\n"
-        f"This turn explicitly requires a real client function call to `{required_tool}`. "
-        "A plain-text answer, simulated command output, or statement that the tool is unavailable is invalid. "
-        f"Emit an actual call to `{required_tool}` using the declared schema and wait for the client tool result. "
-        "Do not invent tool output. For exec-like tools, omit `workdir` unless the user explicitly requested a "
-        "different working directory; the Codex turn cwd is authoritative. "
-        f"Repair attempt: {attempt}."
+        f"The previous answer did not emit the required real client function `{required_tool}`. "
+        "Do not simulate command output and do not claim the declared tool is unavailable. "
+        f"Emit an actual `{required_tool}` function call using the declared schema, then wait for "
+        "the client tool result. For exec-like tools omit `workdir` unless the user explicitly "
+        f"requested another working directory. Repair attempt: {attempt}."
     )
-    cloned.instructions = f"{existing}\n\n{repair}" if existing else repair
+    cloned.instructions = None
+    cloned.previous_response_id = str(previous_response_id or "").strip() or None
+    cloned.input = [{"role": "user", "content": repair}]
     cloned.tool_choice = {"type": "function", "name": required_tool}
     return cloned
 
@@ -223,6 +277,262 @@ def _required_tool_failed_events(body: ResponsesRequest, required_tool: str) -> 
     ]
 
 
+def _response_id_from_sse(chunks: List[str]) -> str:
+    text = "".join(chunks)
+    for block in re.split(r"\r?\n\r?\n", text):
+        data_lines = [line[5:].lstrip() for line in block.splitlines() if line.startswith("data:")]
+        if not data_lines:
+            continue
+        try:
+            payload = json.loads("\n".join(data_lines))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        response = payload.get("response")
+        if isinstance(response, dict):
+            response_id = str(response.get("id") or "").strip()
+            if response_id:
+                return response_id
+    return ""
+
+
+def _browser_delta_request(body: ResponsesRequest) -> ResponsesRequest:
+    """Remove server-side history handles before sending a continuation delta to the web UI."""
+
+    cloned = _model_copy(body)
+    cloned.previous_response_id = None
+    cloned.instructions = None
+    return cloned
+
+
+def _prepare_codex_web_turn(body: ResponsesRequest) -> Tuple[ResponsesRequest, bool, str, str]:
+    """Prepare browser state and return hydrated state body plus affinity metadata."""
+
+    incoming_previous = str(body.previous_response_id or "").strip()
+    reasoning = normalize_codex_reasoning(body.reasoning)
+    web_model = target_web_model()
+    binding = resolve_conversation_binding(
+        incoming_previous,
+        model=web_model,
+        reasoning=reasoning,
+    )
+
+    reused = False
+    reused_path = ""
+    if binding is not None and ensure_chatgpt_conversation(binding.pathname):
+        try:
+            state = inspect_codex_web_mode_status(reasoning)
+        except Exception:
+            state = {"verified": False}
+        if bool(state.get("verified")):
+            reused = True
+            reused_path = binding.pathname
+            logger.info("[CODEX_WEB_AFFINITY] reusing mapped ChatGPT conversation (path redacted)")
+
+    if not reused:
+        prepare_and_verify_codex_web_mode(body.reasoning)
+        if incoming_previous:
+            logger.info(
+                "[CODEX_WEB_AFFINITY] mapping unavailable/unhealthy; "
+                "falling back to fresh chat plus reconstructed history"
+            )
+
+    hydrated = _hydrate_codex_continuation(body)
+    install_codex_chatgpt_network_tuning()
+    return hydrated, reused, reused_path, reasoning
+
+
+async def _stream_codex_v2_attempt(
+    *,
+    request: Request,
+    state_body: ResponsesRequest,
+    browser_source_body: ResponsesRequest,
+    reuse_web_conversation: bool,
+    reused_path: str,
+    reasoning: str,
+    authenticated: bool,
+) -> AsyncIterator[str]:
+    """Execute one Codex browser turn and emit the minimal Responses SSE contract."""
+
+    response_id = _new_response_id()
+    created_at = int(time.time())
+    sequence = 1
+    state_chat_body = _responses_request_to_chat_request(state_body, stream=False)
+    browser_body = (
+        _responses_request_to_chat_request(_browser_delta_request(browser_source_body), stream=False)
+        if reuse_web_conversation
+        else state_chat_body
+    )
+
+    in_progress = _build_responses_object(
+        state_body,
+        {"choices": [], "usage": {}},
+        response_id=response_id,
+        created_at=created_at,
+        status="in_progress",
+        error=None,
+    )
+    yield _codex_event(
+        "response.created",
+        sequence_number=sequence,
+        response=in_progress,
+    )
+    sequence += 1
+
+    set_codex_workflow_reuse_hint(True)
+    task = asyncio.create_task(
+        _run_chat_completion_final(
+            request=request,
+            body=browser_body,
+            authenticated=authenticated,
+        )
+    )
+    try:
+        while not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=_CODEX_SSE_KEEPALIVE_SEC)
+            except asyncio.TimeoutError:
+                if await request.is_disconnected():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+                yield ": keepalive\n\n"
+        status_code, raw_payload = task.result()
+    except Exception as exc:
+        failed = _build_responses_object(
+            state_body,
+            {"choices": [], "usage": {}},
+            response_id=response_id,
+            created_at=created_at,
+            status="failed",
+            error={
+                "message": str(exc),
+                "type": "execution_error",
+                "code": "responses_backing_request_failed",
+            },
+        )
+        yield _codex_event(
+            "response.failed",
+            sequence_number=sequence,
+            response=failed,
+        )
+        return
+    finally:
+        set_codex_workflow_reuse_hint(False)
+
+    payload = _sanitize_codex_root_workdirs(
+        _sanitize_codex_tool_payload(raw_payload),
+        state_chat_body.messages,
+    )
+    if status_code >= 400 or "error" in payload:
+        failed = _build_responses_object(
+            state_body,
+            payload,
+            response_id=response_id,
+            created_at=created_at,
+            status="failed",
+            error=_responses_error_payload(payload),
+        )
+        yield _codex_event(
+            "response.failed",
+            sequence_number=sequence,
+            response=failed,
+        )
+        return
+
+    response_status, incomplete_details, terminal_event = (
+        _responses_completion_status_from_chat_payload(payload)
+    )
+    completed = _build_responses_object(
+        state_body,
+        payload,
+        response_id=response_id,
+        created_at=created_at,
+        status=response_status,
+        error=None,
+        incomplete_details=incomplete_details,
+    )
+
+    output = completed.get("output") if isinstance(completed.get("output"), list) else []
+    tool_names: List[str] = []
+    for output_index, item in enumerate(output):
+        if not isinstance(item, dict):
+            continue
+        wire_item = _codex_wire_item(item)
+        if wire_item.get("type") == "function_call":
+            tool_names.append(str(wire_item.get("name") or ""))
+        yield _codex_event(
+            "response.output_item.done",
+            sequence_number=sequence,
+            output_index=output_index,
+            item=wire_item,
+        )
+        sequence += 1
+
+    state_enabled = state_body.store is not False
+    _store_responses_state(
+        response_id,
+        state_chat_body.messages,
+        payload,
+        enabled=state_enabled,
+    )
+    _persist_codex_history(
+        response_id,
+        state_chat_body.messages,
+        payload,
+        enabled=state_enabled,
+    )
+
+    path = current_chatgpt_conversation_path() or (reused_path if reuse_web_conversation else "")
+    bind_response_to_conversation(
+        response_id,
+        path,
+        model=target_web_model(),
+        reasoning=reasoning,
+    )
+
+    logger.info(
+        "[CODEX_RESPONSES_V2] stream completed: "
+        f"response_id={response_id} output_items={len(output)} "
+        f"tool_names={tool_names or ['none']} status={response_status} "
+        f"web_session_reused={reuse_web_conversation} "
+        f"browser_input={'delta' if reuse_web_conversation else 'full'}"
+    )
+
+    yield _codex_event(
+        terminal_event,
+        sequence_number=sequence,
+        response=completed,
+    )
+
+
+async def _codex_web_attempt_response(
+    *,
+    request: Request,
+    body: ResponsesRequest,
+    authenticated: bool,
+) -> StreamingResponse:
+    incoming = _model_copy(body)
+    state_body, reused, reused_path, reasoning = _prepare_codex_web_turn(body)
+    return StreamingResponse(
+        _stream_codex_v2_attempt(
+            request=request,
+            state_body=state_body,
+            browser_source_body=incoming,
+            reuse_web_conversation=reused,
+            reused_path=reused_path,
+            reasoning=reasoning,
+            authenticated=authenticated,
+        ),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
+
+
 async def _trace_passthrough(
     *,
     response: StreamingResponse,
@@ -257,15 +567,11 @@ async def _strict_required_tool_stream(
     current_body = body
 
     for attempt in range(1, attempts + 1):
-        response = await codex_aware_responses(
+        response = await _codex_web_attempt_response(
             request=request,
             body=current_body,
             authenticated=authenticated,
         )
-        if not isinstance(response, StreamingResponse):
-            for text in _required_tool_failed_events(body, required_tool):
-                yield text
-            return
 
         buffered: List[str] = []
         async for chunk in response.body_iterator:
@@ -282,10 +588,14 @@ async def _strict_required_tool_stream(
         response_summary["required_tool_satisfied"] = satisfied
         response_summary["strict_attempt"] = attempt
 
+        request_summary = summarize_responses_request(current_body, required_tool)
+        request_summary["previous_response_id_present"] = bool(
+            str(current_body.previous_response_id or "").strip()
+        )
         write_trace_attempt(
             trace_id=trace_id,
             attempt=attempt,
-            request_summary=summarize_responses_request(current_body, required_tool),
+            request_summary=request_summary,
             response_summary=response_summary,
             full_request=current_body,
             raw_sse="".join(buffered),
@@ -296,11 +606,13 @@ async def _strict_required_tool_stream(
                 yield text
             return
 
-        if attempt < attempts:
+        attempt_response_id = _response_id_from_sse(buffered)
+        if attempt < attempts and attempt_response_id:
             current_body = _clone_for_required_tool_retry(
                 body,
                 required_tool,
                 attempt=attempt + 1,
+                previous_response_id=attempt_response_id,
             )
             yield f": codex-v2-required-tool-retry attempt={attempt + 1}\n\n"
             continue
@@ -316,20 +628,26 @@ async def codex_wire_trace_status(request: Request) -> Dict[str, Any]:
     return trace_status()
 
 
+@router.get("/v1/codex/web-affinity")
+async def codex_web_affinity_status(request: Request) -> Dict[str, Any]:
+    _require_loopback(request)
+    return affinity_status()
+
+
 @router.post("/v1/responses")
 async def codex_responses_v2(
     request: Request,
     body: ResponsesRequest,
     authenticated: bool = Depends(verify_auth),
 ):
-    is_codex_web = (
+    is_codex_web_tool_turn = (
         str(body.model or "").strip().lower() == "chatgpt"
         and web_mode_enabled()
         and bool(body.stream)
         and isinstance(body.tools, list)
         and bool(body.tools)
     )
-    if not is_codex_web:
+    if not is_codex_web_tool_turn:
         return await codex_aware_responses(
             request=request,
             body=body,
@@ -338,7 +656,6 @@ async def codex_responses_v2(
 
     trace_id = new_trace_id()
     required_tool = required_declared_tool(body)
-
     if required_tool:
         return StreamingResponse(
             _strict_required_tool_stream(
@@ -352,14 +669,11 @@ async def codex_responses_v2(
             headers=_stream_headers(),
         )
 
-    response = await codex_aware_responses(
+    response = await _codex_web_attempt_response(
         request=request,
         body=body,
         authenticated=authenticated,
     )
-    if not isinstance(response, StreamingResponse):
-        return response
-
     return StreamingResponse(
         _trace_passthrough(response=response, body=body, trace_id=trace_id),
         media_type="text/event-stream",
@@ -367,4 +681,8 @@ async def codex_responses_v2(
     )
 
 
-__all__ = ["codex_responses_v2", "required_declared_tool", "router"]
+__all__ = [
+    "codex_responses_v2",
+    "required_declared_tool",
+    "router",
+]

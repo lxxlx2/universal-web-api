@@ -48,10 +48,11 @@ jobs:
           app/services/chatgpt_web_prepare.py
           app/services/codex_web_policy.py
           app/services/codex_responses_state.py
+          app/services/codex_wire_observability.py
+          app/services/codex_web_session_affinity.py
           app/api/codex_compat.py
           app/api/codex_responses.py
-      # Keep this matrix dependency-light. Browser-package imports are exercised
-      # by upstream-regression after installing the complete requirements set.
+          app/api/codex_responses_v2.py
       - run: python -m pytest -q tests/test_security_hardening.py
 
   upstream-regression:
@@ -63,10 +64,6 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements.txt pytest
-      # Some inherited tests depend on runtime/local files intentionally excluded
-      # from the public repository. Exclude only those fixture-bound suites/cases
-      # so CI exercises every reproducible tracked regression, including Codex
-      # continuation persistence and hydration tests.
       - name: Run reproducible regression tests
         run: >-
           python -m pytest -q

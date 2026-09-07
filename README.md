@@ -1,214 +1,216 @@
 # UWA Codex Web Bridge V2
 
-让 Codex Desktop / Codex CLI 保留本地文件、Shell、测试、Git、sandbox 与 approval 能力，同时把模型推理通过本机 UWA 转发到已登录的 ChatGPT Web。
+面向 Codex Desktop / Codex CLI 的本地 ChatGPT Web 推理桥。
+
+目标是保留 Codex 的本地工作区、Shell、文件修改、测试、Git、sandbox 与 approval 能力，同时把模型推理通过本机 UWA 转发到已登录的 ChatGPT Web。网页模型负责分析和选择客户端工具，真正的本地操作仍由 Codex 客户端执行。
 
 当前开发分支：`codex-web-bridge-v2`
 
-## 目标
+## 当前状态
+
+macOS 实机已经验证：
+
+- 普通 ChatGPT Web 推理：PASS
+- Codex custom provider：PASS
+- GPT-5.6 Sol / High 目标路径：PASS
+- 真实 `exec_command`：PASS
+- Codex turn cwd 继承：PASS
+- 单文件读 / 改 / 测：PASS
+- Stage A 多文件读 / 改 / 测：PASS，checker 返回 `ACCEPTANCE_PASS`
+- Responses `function_call -> function_call_output`：PASS
+- V2 metadata wire trace：PASS
+- 显式 required-tool contract：已实现并有回归测试
+- V2 tool-loop ChatGPT conversation affinity：已实现，等待最新实机复验
+
+最近一次实机 `pwd` 已真实由 Codex 执行，并显示：
+
+```text
+/bin/zsh -lc pwd in /Users/jerson/uwa-codex-acceptance
+/Users/jerson/uwa-codex-acceptance
+```
+
+此前 `/` 工作目录问题已解除。最新主要问题是一个 Codex agent loop 会连续创建多个 ChatGPT Web 对话，并可能重复执行同一个工具。V2 当前迭代专门修复这一层。
+
+## 架构
 
 ```text
 Codex Desktop / CLI
-        |
-        | OpenAI Responses API
-        v
-Codex V2 guard / observability
-        |
-        v
-UWA Codex bridge
-        |
-        v
-受控 Chromium / ChatGPT Web
-        |
-        v
-网页模型选择客户端工具
-        |
-        v
-Responses function_call
-        |
-        v
+        ↓
+OpenAI Responses request
+        ↓
+UWA V2 Responses guard
+        ↓
+previous_response_id → ChatGPT /c/... affinity
+        ↓
+ChatGPT Web / GPT-5.6 Sol / High
+        ↓
+结构化客户端工具调用
+        ↓
 Codex 在本机执行
-        |
-        v
-function_call_output 返回
-        |
-        v
-继续推理直到完成
+        ↓
+function_call_output
+        ↓
+同一 ChatGPT conversation 增量继续
+        ↓
+直到最终答案
 ```
 
-网页本身不拥有本机文件系统权限。真正的文件读写、Shell、测试和 Git 操作始终由 Codex 客户端在自己的权限模型中执行。
+浏览器页面自身没有本机文件系统权限。本地文件、Shell、测试和 Git 能力来自 Codex 客户端。
 
-## 当前状态
+## V2 Web Session Affinity
 
-已经实机验证：
+旧流程在每个外层 Responses turn 前都会准备 fresh composer，而通用 UWA workflow 默认也会执行 `new_chat_btn`。一个简单工具循环因此可能变成：
 
 ```text
-普通文本推理                         PASS
-单文件读取 / 修改 / 测试             PASS
-Stage A 多文件读取 / 修改 / 测试      PASS
-Responses function_call 交付          PASS
-function_call_output 多轮继续         PASS
-GPT-5.6 Sol / High 网页目标路径       PASS
+用户任务
+→ 新 ChatGPT 对话
+→ function_call
+→ Codex tool result
+→ 再开新 ChatGPT 对话并重放历史
+→ function_call
+→ 再开新对话
 ```
 
-Stage B failure-recovery 尚未完成最终实机 PASS。V2 先解决之前暴露出的协议可观测性问题，再恢复完整验收。
-
-## 为什么拉 V2 分支
-
-旧分支已经证明核心路线可行，但后续调试有一个明显问题：我们经常只能看到 Codex 最终显示的文字，无法马上确认它来自真实工具执行还是网页模型自己生成的文本。
-
-例如：
+V2 现在把网页会话连续性和 Responses 连续性绑定：
 
 ```text
-/
+首次 Codex turn
+→ 创建 fresh ChatGPT conversation
+→ response_id A 绑定到 /c/...
+
+Codex 返回 function_call_output
+→ previous_response_id=A
+→ 恢复同一个 /c/...
+→ 只发送新增 tool result
+→ response_id B 继续绑定同一个 /c/...
 ```
 
-它可能是 `exec_command(pwd)` 的真实输出，也可能只是网页模型直接回答 `/`。
+关键规则：
 
-V2 的开发顺序改成：
+1. `previous_response_id` 与 ChatGPT conversation pathname 的映射仅保存在 UWA 进程内存。
+2. 映射只接受由当前受控 `chatgpt.com` 页面观测到的 `/c/...` pathname。
+3. continuation 复用时不重放完整 Codex transcript，只把新增 Responses delta 发到已有网页会话。
+4. Codex 浏览器轮次会临时覆盖通用 workflow 的 `new_chat` 决策，因此内部 repair round 也不会自行新开网页对话。
+5. 映射丢失、TTL 到期、UWA 重启、页面不可恢复或模型/推理档不匹配时，安全回退为 `fresh chat + reconstructed history`。
+6. 该 affinity 不持久化到磁盘，避免把 ChatGPT conversation 标识变成长期项目状态。
+
+默认配置：
 
 ```text
-先观察 wire
--> 再强制协议约束
--> 再跑实机验收
--> 最后优化 prompt / session / 性能
+UWA_CODEX_WEB_SESSION_AFFINITY=true
+UWA_CODEX_WEB_SESSION_TTL_SEC=7200
+UWA_CODEX_WEB_SESSION_MAX_ENTRIES=512
 ```
 
-详细设计：`docs/CODEX_WEB_BRIDGE_V2.md`。
-
-## V2 第一批改动
-
-### 1. 独立 Codex V2 路由层
-
-新增：
+本地只读状态接口：
 
 ```text
-app/api/codex_responses_v2.py
+GET /v1/codex/web-affinity
 ```
 
-它注册在现有 Codex Responses 路由之前。已经跑通的旧实现继续作为底层，不直接推倒重写。
+只返回是否启用、binding 数量、TTL、容量和 fallback 类型，不返回 conversation pathname。
 
-这样后续可以逐步替换：
+## V2 Wire Observability
 
-```text
-Responses 兼容层
-工具协议约束
-wire tracing
-session affinity
-```
-
-同时保留现有 UWA 浏览器控制、模型切换、网页监听和 continuation 能力。
-
-### 2. 私有 Codex wire trace
-
-新增：
-
-```text
-app/services/codex_wire_observability.py
-```
-
-默认写到：
+默认 metadata trace 路径：
 
 ```text
 ~/.uwa/debug/codex-wire
 ```
 
-默认模式：
+它用于区分：
 
 ```text
-metadata
+网页模型只是输出了一段看似命令结果的文字
 ```
 
-metadata 只记录：
+和：
 
-- Responses event 类型和顺序
-- 是否真的出现 `function_call`
-- tool name
-- argument key 名称、长度和 hash
-- 是否出现 `workdir` / `cwd`
-- 是否等于 `/`
+```text
+UWA 真的向 Codex 发出了 Responses function_call
+```
+
+metadata 默认记录：
+
+- Responses event 顺序
+- function call 名称
+- argument keys
+- argument 长度与短 hash
+- 是否存在 `workdir` / `cwd`
+- 是否为 `/`
 - response status
-- request 中声明的工具名和输入规模
 
-默认不会写入：
+默认不记录 prompt、源码、命令正文、tool output、Cookie 或 Token。
 
-- prompt 正文
-- 源码
-- 命令正文
-- tool result 正文
-- Cookie / Token / Password
-
-本地状态：
+状态接口：
 
 ```text
 GET /v1/codex/wire-trace
 ```
 
-`full` 模式只用于明确的本地调试，可能包含私有源码与工具结果，严禁提交或随意分享。
+`full` capture 仅供显式本地调试，可能包含私有 prompt、源码和工具输出，严禁提交或上传。
 
-### 3. Explicit required-tool contract
+## Required Tool Contract
 
-当用户或客户端明确要求一个已经声明的工具，例如：
+当用户明确要求：
 
 ```text
 必须使用 exec_command 执行 pwd
 ```
 
-V2 不再接受这种结果：
+V2 要求 Responses 中真实出现对应 `function_call`。纯文本模拟结果、声称工具不可用、只写 `/path` 都不算成功。
+
+首次结果没有真实工具调用时，V2 进行有限 repair。repair 也会使用前一次 response id 继续同一个 ChatGPT conversation，而不另开一条网页聊天。超过上限后 fail closed。
+
+## Root workdir 防护
+
+实机曾出现 Codex turn cwd 正确，但网页模型生成 `workdir="/"`，导致命令落到文件系统根目录。
+
+当前策略：
 
 ```text
-assistant text: /
+用户没有明确要求 filesystem root
++
+exec-like tool 生成 workdir="/"
+→ 删除错误 override
+→ Codex 使用自己的 turn cwd
 ```
 
-必须看到真实 Responses：
+UWA 不猜测替代绝对路径。用户明确要求根目录时仍允许 `/`。
 
-```text
-response.output_item.done
-item.type = function_call
-item.name = exec_command
+## 连续性
+
+项目有四个不同层次的连续性：
+
+1. Codex Desktop thread history。
+2. UWA private Responses continuation：`~/.uwa/codex_responses.sqlite3`。
+3. V2 进程内 ChatGPT web-session affinity。
+4. Git tracked checkpoint，作为长期项目事实来源。
+
+V2 web affinity 丢失不会破坏项目，系统会回退 fresh chat + reconstructed Responses history。
+
+## Codex Memories
+
+UWA 模式当前继续关闭 Codex 自动 Memories，避免后台 memory consolidation 抢占唯一受控 ChatGPT tab：
+
+```toml
+[memories]
+generate_memories = false
+use_memories = false
 ```
 
-如果第一轮没有产生真实 function call，V2 会进行有限修复，并通过 `tool_choice` 强制目标函数。
+helper：
 
-仍失败时返回：
-
-```text
-required_client_tool_not_called
+```bash
+python3 tools/codex_uwa_memory_guard.py status
+python3 tools/codex_uwa_memory_guard.py disable
+python3 tools/codex_uwa_memory_guard.py restore
 ```
 
-不会伪造工具输出。
-
-## 现有保护继续保留
-
-- GPT-5.6 Sol / High 网页模式准备与校验
-- Codex minimal Responses SSE
-- false local-workspace / tool-unavailable repair
-- accidental `workdir="/"` guard
-- `function_call_output` continuation
-- 私有 SQLite Responses continuation
-- UWA 模式 Codex Memories 隔离
-- localhost hardened defaults
-- public-repository safety rules
-
-## 配置
-
-新增 V2 配置：
-
-```text
-UWA_CODEX_REQUIRED_TOOL_RETRY_MAX=1
-UWA_CODEX_WIRE_TRACE=metadata
-UWA_CODEX_WIRE_TRACE_DIR=
-UWA_CODEX_WIRE_TRACE_MAX_FILES=400
-```
-
-完整默认值见 `.env.example`。
-
-## 本地运行
-
-切到 V2：
+## 快速开始
 
 ```bash
 cd ~/universal-web-api
-git fetch origin
 git switch codex-web-bridge-v2
 git pull
 python3 tools/codex_uwa_memory_guard.py disable
@@ -220,125 +222,61 @@ codex-uwa
 
 ```bash
 curl -sS http://127.0.0.1:8199/health
-curl -sS http://127.0.0.1:8199/v1/codex/web-mode
-curl -sS http://127.0.0.1:8199/v1/codex/continuity
 curl -sS http://127.0.0.1:8199/v1/codex/wire-trace
+curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
 ```
 
-默认 API Base URL：
+## 实机验收矩阵
 
 ```text
-http://127.0.0.1:8199/v1
+单文件读/改/测                        PASS
+Stage A 多文件读/改/测                 PASS
+真实 exec_command cwd                 PASS
+V2 metadata wire trace                PASS
+V2 单网页会话 tool loop                当前复验目标
+Stage B failure recovery              pending
+Stage C Git diff discipline           pending
+Stage D long process + write_stdin    pending
+Stage E same-thread context           pending
+Stage F Codex + UWA restart           pending
 ```
 
-## 下一次实机 gate
+V2 单网页会话 gate 通过后再继续 Stage B，避免在一个已知会话架构问题上继续烧网页额度。
 
-先只跑一个很短的 CLI 探针：
+## 安全默认值
 
 ```text
-必须使用 exec_command 执行 pwd，只返回真实命令输出。
+API bind           127.0.0.1
+CORS               disabled
+Debug              disabled
+Unsafe Python      disabled
+Auto update        disabled
+Remote access      disabled
+DevTools           local only
 ```
 
-通过标准必须同时满足：
-
-```text
-Codex 最终输出是正确项目目录
-wire trace 中 function_call_names 包含 exec_command
-```
-
-如果网页模型只生成 `/` 之类的普通文本，V2 应该重试或明确失败，不能把它冒充成真实工具结果。
-
-短探针通过以后，再恢复：
-
-```text
-Stage B failure recovery
-Stage C Git diff discipline
-Stage D long process + write_stdin
-Stage E same-thread continuity
-Stage F Codex + UWA restart continuity
-```
-
-## 后续技术路线
-
-### Phase 2: tool-call prompt A/B
-
-在同一验收集上比较现有 XML-first 和 JSON-first structured tool-call prompt。用真实合法 function-call 比率决定保留哪条路线。
-
-### Phase 3: Responses translator isolation
-
-进一步拆分：
-
-```text
-request normalization
-backing result
-Responses SSE construction
-```
-
-让协议兼容测试尽量不依赖 live browser。
-
-### Phase 4: web-session affinity
-
-解决当前一个 Codex agent loop 可能生成多个 ChatGPT sidebar 对话、重复灌入大段历史的问题。
-
-目标：
-
-```text
-Codex logical session
--> stable web-session mapping
--> bounded TTL / queue
--> incremental tool-result continuation
--> mapping 丢失时回退 fresh reconstructed chat
-```
-
-## 项目连续性
-
-长期项目状态不依赖某一个聊天窗口。
-
-```text
-Codex Desktop thread history
-+ ~/.uwa 私有 continuation
-+ Git 代码 / tests / docs checkpoint
-```
-
-Canonical handoff：
-
-- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
-- `docs/CODEX_WEB_BRIDGE_V2.md`
-- `docs/REFERENCES_AND_ATTRIBUTION.md`
-- `docs/CODEX_DESKTOP_LIVE_ACCEPTANCE.md`
-- `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
-
-## 安全
-
-仓库是 public。
-
-严禁提交：
+仓库是 public。禁止提交：
 
 - `.env`
-- API Key / Token / Password
+- API Key / Token / 密码
 - Cookie / Session / Local Storage
 - 浏览器 profile
-- 私有 UWA / Codex 日志
-- 私有源码 / prompt / tool result
+- UWA / Codex 私有日志
+- 私有源码和聊天正文
 - `~/.uwa/codex_responses.sqlite3`
 - `~/.uwa/debug/codex-wire`
 - Codex memory workspace 内容
 
-默认 API 与 Chromium DevTools 只允许 localhost。Codex sandbox 与 approval 始终是本地执行的最终权限边界。
+## 设计参考与 Attribution
 
-## 致谢与借鉴
+V2 研究并借鉴了以下公开项目的设计思路：
 
-本仓库 fork 自 `lumingya/universal-web-api`。感谢原项目作者与贡献者提供通用网页自动化、站点抽象和 OpenAI-compatible API 基础。本 fork 保留原 Git history 与 AGPL-3.0 许可证，并在此基础上发展自己的 Codex Web Bridge 路线。
+- `lumingya/universal-web-api`：浏览器/API 基础，AGPL-3.0。
+- `FlameFront-end/chatgpt-gateway`：浏览器 tool-call round trip 与结构化工具证据，MIT。
+- `lininn/codex-proxy`：Responses translation 分层，MIT。
+- `mehdic/codex-proxy`：sticky session、TTL、queue、SSE keepalive，MIT。
+- OpenAI `codex-responses-api-proxy`：Responses 协议诊断和 paired private dumps，Apache-2.0。
 
-V2 还研究了：
+详细来源、许可证、借鉴内容和差异见 `docs/REFERENCES_AND_ATTRIBUTION.md`。
 
-- `FlameFront-end/chatgpt-gateway`
-- `lininn/codex-proxy`
-- `mehdic/codex-proxy`
-- OpenAI `codex-responses-api-proxy`
-
-借鉴的具体设计、许可证与我们的差异全部记录在：
-
-`docs/REFERENCES_AND_ATTRIBUTION.md`
-
-当前 V2 第一批代码为独立实现，没有直接复制这些项目的源文件。以后如果实质复制或改编第三方代码，必须在对应 commit 和 attribution 文档中记录来源、上游 commit、许可证和本地目标文件。
+当前 V2 新增代码根据这些设计原则独立实现，没有直接复制上述参考项目的源文件。仓库继续保留 upstream Git history 和既有 AGPL-3.0 许可证义务。
