@@ -25,13 +25,11 @@ call-id continuation affinity               PASS
 single-tool / single-web-conversation gate  PASS
 ```
 
-Evidence note: the final Stage E/F runs were audited primarily through `codex exec` / `codex exec resume`. They close the protocol/CLI continuity gate but do not close actual ChatGPT Desktop UI acceptance. A mandatory Desktop D1-D5 gate has now been added in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
+Evidence note: the final Stage E/F runs were audited primarily through `codex exec` / `codex exec resume`. They close the protocol/CLI continuity gate but do not close actual ChatGPT Desktop UI acceptance. A mandatory Desktop D1-D5 gate is tracked in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
 
 ## Aggregate checker false failure: CLOSED
 
-The first aggregate checker run after Stage F returned only `git_diff: FAIL`; the checker repair now scopes Stage C change auditing to tracked diffs under `git_diff/` while still rejecting tracked edits to Stage C tests or requirements.
-
-The operator reran the full checker in the existing workspace without cleaning generated artifacts and obtained:
+The operator reran the repaired full checker in the existing workspace without cleaning generated artifacts and obtained:
 
 ```text
 multi_file: PASS
@@ -44,53 +42,51 @@ ACCEPTANCE_PASS
 
 Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-## P1 compact endpoint prerequisite
+## P1 compact protocol
 
-Before generating large synthetic context, upstream Codex compaction behavior was inspected. Remote compaction posts to:
-
-```text
-/v1/responses/compact
-```
-
-The current Codex client consumes a JSON `output` array of Responses items and exposes compaction through observable lifecycle items.
-
-Code inspection found no matching UWA route. The real macOS runtime probe then confirmed:
+Initial inspection and live runtime evidence showed:
 
 ```text
 COMPACT_ROUTE_REGISTERED=NO
 HTTP/1.1 404 Not Found
 ```
 
-P1.0 is closed. P1.1 implementation is current.
+P1.0 therefore closed with the endpoint confirmed absent.
+
+P1.1 now includes:
+
+```text
+app/api/codex_compact.py
+tests/test_codex_responses_compact.py
+```
+
+The compact route is registered, client tools are disabled during compaction, incoming model/reasoning context is preserved, replacement history is returned as assistant Responses message items, and function-call-only output is rejected. GitHub Actions Security hardening run #220 at implementation/test head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed with `success`.
+
+The next gate is the real macOS post-implementation runtime probe.
 
 Detailed record: `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`.
 
 ## Official Codex Desktop recovery
 
-A safe helper now exists:
-
-```text
-tools/codex_provider_switch.py
-```
-
-Its `official` action backs up `~/.codex/config.toml`, removes only top-level provider/model/reasoning pins, keeps the UWA provider definition, and leaves authentication untouched. The restored Desktop session is intentionally model-agnostic; the signed-in account/workspace controls which models can be selected.
+`tools/codex_provider_switch.py official` backs up `~/.codex/config.toml`, removes only top-level provider/model/reasoning pins, keeps the UWA provider definition, and leaves authentication untouched. After Desktop restarts, the signed-in account/workspace controls which models are available; the restore path intentionally does not pin Astra, GPT-5.6 Sol, reasoning effort, or any other model setting.
 
 ## Current gate
 
 ```text
 Stage A-F protocol/CLI acceptance          PASS
 aggregate A-F checker                      PASS
-P1 compact contract inspection             DONE
-local /v1/responses/compact runtime probe  DONE: 404 confirmed
-compact endpoint implementation            IN PROGRESS
-large-context compaction stress            blocked on compact protocol support
+P1 initial compact runtime probe           DONE: 404 confirmed
+compact endpoint implementation            DONE
+compact regression + CI                    PASS
+post-implementation compact runtime probe  NEXT
+large-context compaction stress            blocked on live compact acceptance
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
 
 ## Production-hardening roadmap
 
 ```text
-P1.1 compact endpoint + regression + CI
+P1.1 direct compact live acceptance
 P1.2 large-context compaction / stress / recovery
 P1.3 lost-affinity / restart fallback deeper validation
 Desktop D1-D5 actual UI acceptance
