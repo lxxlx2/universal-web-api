@@ -42,9 +42,15 @@ UWA's `SecureLogger.info()` accepts one message argument, unlike the stdlib logg
 
 The narrow repair on `codex-web-bridge-v2` changed compact success/error logging to single preformatted message arguments and added route-level success/error regressions using a one-argument logger. Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
 
+The repaired source line is now:
+
+```python
+logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
+```
+
 ## Post-repair live rerun: FAIL
 
-The operator then pulled through branch head `b3f37ac`, verified the repaired source line locally, restarted UWA successfully, confirmed service health and route registration, and reran the exact same direct compact probe.
+The operator pulled through branch head `b3f37ac`, verified the repaired source line locally, restarted UWA, confirmed service health and route registration, and reran the exact same direct compact probe.
 
 Observed non-sensitive evidence:
 
@@ -59,7 +65,21 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-The logger repair is therefore deployed, but P1.1 still has a second unhandled runtime path. The new `500` must not be attributed to the already-fixed `SecureLogger.info()` call without a fresh traceback.
+## Fresh post-repair traceback
+
+The fresh traceback again reports the same old multi-argument-call exception:
+
+```text
+File ".../app/api/codex_compact.py", line 179, in codex_responses_compact
+    logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
+TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
+```
+
+This combination is internally inconsistent for the same executing bytecode: the displayed source contains exactly one explicit argument, while the exception says two explicit arguments were passed to the bound `SecureLogger.info()` method.
+
+The strongest evidence-based hypothesis is therefore stale runtime bytecode/process state: the 8199 listener may still be executing the pre-repair function object while traceback line rendering reads the already-updated source file from disk. This is not yet treated as proven until the actual listener PID/start time and a fresh interpreter import are inspected.
+
+Do not introduce another compact protocol code change from this traceback alone.
 
 ## Current classification
 
@@ -69,23 +89,23 @@ first live 500 root cause                  CONFIRMED: SecureLogger signature
 first SecureLogger repair                  DONE
 first repair route regressions              DONE
 repair CI                                   PASS: #239
-post-repair service restart                 PASS
+post-repair service restart                 reported PASS
 post-repair route registration              PASS
 post-repair direct compact request          FAIL: HTTP 500
-second traceback root cause                 UNKNOWN / CURRENT
+fresh traceback                             SAME OLD SIGNATURE ERROR
+current hypothesis                          stale UWA process / stale loaded bytecode
+hypothesis confirmation                     NEXT: listener PID + start time + fresh import
 P1.1 overall                                NOT PASS
 P1.2 large-context stress                   BLOCKED
 ```
 
 ## Immediate next action
 
-1. preserve this second live failure in Git before any repair;
-2. extract only the fresh local traceback for the post-repair request;
-3. identify the exact new failing line;
-4. reproduce that route-level path in regression coverage;
-5. implement the narrow repair;
-6. require CI green;
-7. rerun the unchanged direct macOS probe.
+1. inspect the exact process listening on TCP 8199 and its start time;
+2. inspect its cwd/command line;
+3. independently import `app.api.codex_compact` in the repository venv and verify the live source/function signature;
+4. if the listener predates the repair restart or otherwise appears stale, fully terminate the actual listener and start a fresh process with a verified new PID;
+5. rerun the unchanged compact probe only after the process boundary is proven fresh.
 
 The live acceptance criteria remain:
 
