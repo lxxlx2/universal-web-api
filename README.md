@@ -75,28 +75,30 @@ POST /v1/responses/compact
 
 首次本机 runtime probe 已确认旧版本 UWA 的实际行为：OpenAPI 没有该 route，直接 POST 返回 `404 Not Found`。
 
-P1.1 已实现 compact endpoint 并通过单元/回归测试与 GitHub Actions Security hardening #220。随后进行的首个 post-implementation macOS live probe 得到：
+P1.1 已实现 compact endpoint 并加入回归覆盖。第一次 post-implementation macOS probe 证明 route 已注册，但返回 HTTP 500：
 
 ```text
 COMPACT_ROUTE_REGISTERED=YES
 COMPACT_HTTP_CODE=500
 JSON_PARSE=PASS
 OUTPUT_IS_LIST=NO
-OUTPUT_COUNT=0
-MARKER_PRESERVED=NO
-TASK_PRESERVED=NO
 ```
 
-因此当前结论是：route registration PASS，CI/regression PASS，但真实 compact handler 仍存在未覆盖的运行时异常，P1.1 不能判定 PASS，P1.2 large-context 继续阻塞。当前先提取本机 traceback，补 route-level 回归后再修复，不盲改。
+随后 traceback 已锁定根因：compact 的 backing 请求和 assistant replacement output 已成功，最后一行成功日志使用了 stdlib logging 的多参数插值调用，而本项目 `SecureLogger.info()` 只接受一个 message 参数。相同问题也存在于 backing-error 的 `logger.warning()` 分支。
+
+当前窄修复已经完成：compact 的 `info/warning` 都改为单参数预格式化消息，并补充 route-level success/error regression，专门用只接受一个参数的 logger 复现这类兼容性问题。下一步等待修复 CI，再运行同一条 macOS direct compact probe；在拿到 HTTP 200 和有效 `output` 前，P1.2 large-context 仍保持 blocked。
 
 当前顺序：
 
 ```text
 P1.0 首次 /v1/responses/compact runtime probe       DONE: 404 confirmed
-P1.1 compact endpoint 实现 + regression + CI        DONE, CI PASS
-P1.1 post-implementation direct compact probe        FAIL: HTTP 500
-P1.1 traceback + route-level reproduction + repair   CURRENT
-P1.2 synthetic large-context compaction / recovery   BLOCKED
+P1.1 compact endpoint 实现                           DONE
+P1.1 首次 post-implementation live probe             FAIL: HTTP 500
+P1.1 traceback root cause                            CONFIRMED
+P1.1 SecureLogger repair + route regressions         DONE
+P1.1 repair CI                                       NEXT
+P1.1 post-repair macOS live rerun                    blocked on CI
+P1.2 synthetic large-context compaction / recovery   blocked on live compact acceptance
 P1.3 lost-affinity / restart fallback 深化验证       pending
 Desktop live gate D1-D5                              required before real-project/final merge
 P1.4 真实项目长任务 pilot                            pending
