@@ -73,21 +73,40 @@ UWA service remained healthy and the controlled browser remained connected durin
 
 ## Closed hypotheses
 
-The following explanations are now rejected by live evidence:
+The following explanations are rejected by live evidence:
 
 1. stale `models_cache.json` advertising a larger context window;
 2. live `/v1/models` advertising a larger context window;
 3. explicit top-level context-window / auto-compact overrides;
 4. a visible local-summary compaction lifecycle during rounds 1-7.
 
-## Current hypothesis
+A fifth hypothesis was investigated and rejected by exact-release source inspection: fresh `codex exec resume` processes do not inherently discard persisted token usage.
 
-The acceptance runner uses one fresh `codex exec resume` process per filler turn. A plausible remaining failure mode is that resumed CLI processes reconstruct conversation history but do not restore the prior process's in-memory token-usage state before the next pre-turn auto-compact check.
+## Exact Codex 0.153.4 source verification
 
-If so, each resumed process can begin with insufficient token accounting, perform one oversized sampling request, receive the current turn's non-zero usage only after sampling, then exit because the filler reply requires no tool follow-up. The next process would repeat the same pattern. This would explain why input usage can exceed the advertised 64K window without either remote compact or visible local compact.
+The installed release `rust-v0.153.4` resolves to upstream commit:
 
-This hypothesis is not yet accepted as fact. The next step is source-level verification against the exact Codex 0.153.4 release (`rust-v0.153.4`, commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`) for resume/history/token-info restoration behavior.
+```text
+3d2ee51ca2d5db578f328aa75e20aa22c0197c9a
+```
+
+That release already contains explicit token-usage restoration on resume/fork. During `InitialHistory::Resumed`, Codex scans the recorded rollout for the latest `EventMsg::TokenCount` and seeds session state with its `TokenUsageInfo` before the next real turn.
+
+The normal sampling path also records usage from `response.completed`, then emits a `TokenCount` event. `send_event_raw` persists ordinary events as `RolloutItem::EventMsg`, so the intended 0.153.4 design is for non-zero response usage to survive a later CLI resume.
+
+Therefore process restart alone does not explain the missing pre-turn compaction.
+
+## Remaining diagnostic question
+
+The next fact to establish is whether this actual P1.2 thread's private rollout contains the expected persisted `TokenCount` events and, if so, what safe numeric token totals they contain near rounds 2-4.
+
+Two outcomes are possible:
+
+1. `TokenCount` is absent or carries zero/incorrect totals: the bridge/client usage persistence chain remains the blocker;
+2. `TokenCount` contains the expected over-threshold usage before a later resumed turn: pre-turn token-limit/compaction selection becomes the next fault boundary.
+
+Do not print prompts, response bodies, thread IDs, response IDs, tool payloads, credentials, or the full rollout. Only bounded event-type counts and numeric token fields are acceptable public evidence.
 
 ## Gate
 
-Do not rerun the full stress test and do not change provider identity until the resume/token-usage restoration path is verified.
+Do not rerun the full stress test and do not change provider identity until the real rollout `TokenCount` persistence/restoration fact is known.
