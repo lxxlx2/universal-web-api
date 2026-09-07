@@ -35,48 +35,26 @@ The repaired full checker in the existing workspace passed every scenario plus `
 
 ## P1 compact protocol: CLOSED PASS
 
-P1.0 confirmed `/v1/responses/compact` was initially absent. P1.1 implemented the route.
+P1.0 confirmed `/v1/responses/compact` was initially absent. P1.1 implemented the route. The first live HTTP 500 was traced to stdlib-style multi-argument logging against UWA's one-argument `SecureLogger`; the repair and route-level regressions passed CI #239.
 
-The first live HTTP 500 was traced to stdlib-style multi-argument logging against UWA's one-argument `SecureLogger`. The narrow repair changed success/error logging to single preformatted messages and added route-level one-argument logger regressions. Security hardening CI #239 for repair code commit `7c6d7ff` passed.
-
-The apparent post-repair recurrence was ultimately proven to be stale runtime state: the real TCP 8199 listener predated the repair even though the checkout and fresh interpreter contained the corrected bytecode.
-
-After terminating the verified repository listener, proving TCP 8199 empty, starting a different UWA PID and rerunning the unchanged probe, the real macOS runtime returned:
-
-```text
-PORT_8199_EMPTY=YES
-LISTENER_REPLACED=YES
-COMPACT_HTTP_CODE=200
-JSON_PARSE=PASS
-OUTPUT_IS_LIST=YES
-OUTPUT_COUNT=1
-OUTPUT_0_TYPE=message ROLE=assistant
-MARKER_PRESERVED=YES
-TASK_PRESERVED=YES
-```
-
-P1.1 is therefore PASS.
-
-## Official Codex Desktop recovery: automated
-
-`tools/codex_provider_switch.py official` performs the normal macOS official-account switch as one automated operation: quit Desktop, stop only the verified repository UWA listener, restore saved Memories settings, remove top-level provider/model/reasoning pins, preserve authentication/UWA provider definition, and reopen Desktop. The normal workflow no longer requires manual quit/reopen.
+The apparent recurrence was stale runtime state: the real TCP 8199 listener predated the repair. After proving the port empty, starting a different UWA PID and rerunning the unchanged probe, the real macOS runtime returned HTTP 200 with valid assistant `output`, preserving both the marker and compact task semantics.
 
 ## UWA lifecycle hardening
 
-Inspection of the real macOS lifecycle scripts confirmed two defects:
+Inspection of the real macOS scripts confirmed two defects:
 
-1. the old `codex-uwa-stop` did not prove TCP 8199 was empty after TERM and had no required escalation path;
-2. the old `codex-uwa` reused a healthy listener rather than requiring a fresh process, allowing stale bytecode after repository updates.
+1. old `codex-uwa-stop` did not prove TCP 8199 was empty after TERM and had no mandatory escalation path;
+2. old `codex-uwa` reused a healthy listener rather than requiring a fresh process, allowing stale bytecode after repository updates.
 
-The authoritative lifecycle has now moved into repository-tracked code:
+The authoritative lifecycle is now repository-tracked:
 
 - `tools/codex_uwa_lifecycle.py` performs ownership-aware listener discovery, TERM/wait/KILL, port-empty proof, fresh start, replacement proof and `/health` verification;
-- `tools/install_codex_uwa_commands.py` installs thin `~/bin/codex-uwa*` wrappers that delegate to the current checkout;
+- `tools/install_codex_uwa_commands.py` installs thin `~/bin/codex-uwa*` wrappers delegating to the current checkout;
 - UWA startup automatically disables Codex Memories;
-- tests cover fail-closed foreign listeners, TERM->KILL escalation, required stop/start ordering, PID replacement and wrapper delegation;
+- tests cover fail-closed foreign listeners, TERM->KILL escalation, stop/start ordering, PID replacement and wrapper delegation;
 - Security hardening CI #269 completed successfully, including upstream regression.
 
-The remaining lifecycle gate is a real macOS install + stop/start run on the acceptance machine.
+The remaining lifecycle gate is a real macOS wrapper installation + stop/start run on the acceptance machine.
 
 One transitional Git-external helper remains: `~/.uwa/config_switch.py uwa` supplies the current exact UWA provider config contract. After lifecycle live validation, it will be inspected and migrated into Git.
 
