@@ -90,6 +90,42 @@ What V2 adopts conceptually:
 - explicit opt-in for full local payload capture;
 - file and directory permissions intended to prevent accidental sharing.
 
+## `yyjeqhc/webcodex`
+
+Repository: https://github.com/yyjeqhc/webcodex
+
+Reviewed upstream commit: `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` on 2026-09-07.
+
+License observed during V2 research: Apache-2.0.
+
+Ideas studied:
+
+- strict separation between model-facing transport, durable task/session identity, local executor identity and observation/correlation state;
+- request loss versus execution loss, including explicit handling of uncertain effects rather than blind retries;
+- stable logical Runner identity separated from current process generation/lease;
+- bounded Job observation, reset/delta semantics and opaque cursors that are not authority or idempotency keys;
+- per-executor concurrency accounting and the rule that queued work keeps the same logical execution identity;
+- fail-closed protocol/capability compatibility behavior;
+- bounded, private forensic tracing with correlation identifiers that do not become execution authority;
+- MCP schema/capability discipline, project/root authority boundaries and explicit task continuation.
+
+What V2 adopts conceptually:
+
+- P1.3 will explicitly test identity separation, stale-generation fencing and uncertain tool-effect recovery;
+- P2 concurrency hardening will distinguish request/browser/model/executor concurrency planes and prohibit blind duplicate effects after ambiguous transport failure;
+- P3 will use WebCodex as a primary reference for MCP/schema/capability/fan-out fidelity while keeping Codex as the actual local tool/MCP executor;
+- P4/P5 will strengthen bounded diagnostics, runtime/build identity and transcript/trace hygiene.
+
+What V2 deliberately does differently:
+
+- V2 does not introduce a second local Runner because official Codex already owns filesystem, shell, Git, process, sandbox and approval execution;
+- V2 does not introduce its own Job manager for Codex child processes;
+- V2 does not infer local workspace authority from a browser/server registry;
+- V2 does not make a public MCP tunnel part of the core local Codex-to-UWA architecture;
+- WebCodex durable Agent/scheduler concepts remain future reference only and are not part of the current V2 scope.
+
+Detailed review: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
+
 ## License and copying policy
 
 The active repository remains governed by its existing AGPL-3.0 license.
