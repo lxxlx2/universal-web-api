@@ -19,17 +19,21 @@ macOS 实机已经验证：
 - Stage A 多文件读 / 改 / 测：PASS，checker 返回 `ACCEPTANCE_PASS`
 - Responses `function_call -> function_call_output`：PASS
 - V2 metadata wire trace：PASS
-- 显式 required-tool contract：PASS 到真实 `function_call`，单次执行 gate 仍在复验
-- V2 tool-loop ChatGPT conversation affinity：已实现 `previous_response_id` 与 `call_id` 两条恢复路径，等待最新实机复验
+- 显式 required-tool contract：PASS
+- duplicate required-tool suppression：PASS
+- `call_id -> response_id -> ChatGPT /c/...` tool-result affinity：PASS
+- V2 单次工具执行 + 单 ChatGPT Web conversation：PASS
+- workspace marker/scenario probe：PASS
 
-最近一次实机 `pwd` 已真实由 Codex 执行，并显示：
+最新实机 workspace probe 只执行了一次真实命令，并输出：
 
 ```text
-/bin/zsh -lc pwd in /Users/jerson/uwa-codex-acceptance
 /Users/jerson/uwa-codex-acceptance
+MARKER=YES
+SCENARIO=YES
 ```
 
-`/` 工作目录问题已经解除。最新实机暴露的问题是 Codex 在收到第一次真实 `exec_command` 后，以重建历史的形式回传 `function_call_output`，旧 V2 又从原始用户文本中重新识别出 required-tool，导致同一个 `pwd` 被执行两次。当前 V2 已增加 one-shot required-tool 保护和 `call_id -> response_id -> ChatGPT /c/...` affinity fallback，正在复验这个最后的最小 tool-loop gate。
+工具结果通过 call-id affinity 回到同一个 ChatGPT Web conversation，未再次执行相同命令，也未为 tool-result continuation 新建网页对话。当前下一项正式验收是 Stage B `failure_recovery`。
 
 ## 架构
 
@@ -243,20 +247,21 @@ curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
 ## 实机验收矩阵
 
 ```text
-单文件读/改/测                        PASS
-Stage A 多文件读/改/测                 PASS
-真实 exec_command cwd                 PASS
-V2 metadata wire trace                PASS
-V2 required-tool 真 function_call      PASS
-V2 单次工具执行 + 单网页会话           当前复验目标
-Stage B failure recovery              pending
-Stage C Git diff discipline           pending
-Stage D long process + write_stdin    pending
-Stage E same-thread context           pending
-Stage F Codex + UWA restart           pending
+单文件读/改/测                         PASS
+Stage A 多文件读/改/测                  PASS
+真实 exec_command cwd                  PASS
+V2 metadata wire trace                 PASS
+V2 required-tool 真 function_call       PASS
+V2 单次工具执行 + 单网页会话            PASS
+workspace marker/scenario probe        PASS
+Stage B failure recovery               NEXT
+Stage C Git diff discipline            pending
+Stage D long process + write_stdin     pending
+Stage E same-thread context            pending
+Stage F Codex + UWA restart            pending
 ```
 
-V2 单次工具执行 + 单网页会话 gate 通过后再继续 Stage B，避免在已知 continuation 问题上继续消耗网页额度。
+Stage B-F 通过后，还需要完成成功 Responses SSE 瘦身、网页 transcript hygiene、并发/queue/controlled-tab 稳定性、长上下文、MCP/plugin namespace、多 agent/tool fan-out、丢失 affinity fallback 和发布检查。
 
 ## 安全默认值
 
