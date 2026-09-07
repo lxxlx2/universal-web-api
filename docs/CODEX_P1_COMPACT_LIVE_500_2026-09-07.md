@@ -46,29 +46,32 @@ logger.warning("Codex compact backing request failed: %s", exc)
 
 That path had not triggered in the live probe, but it would likewise raise instead of returning the intended structured 502.
 
+## Repair
+
+The narrow repair is now on `codex-web-bridge-v2`:
+
+1. success and warning logs use single preformatted messages;
+2. a route-level success regression uses a logger whose `info()` accepts exactly one argument;
+3. a backing-failure route regression uses a logger whose `warning()` accepts exactly one argument;
+4. compaction request/response semantics are otherwise unchanged.
+
+Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
+
 ## Classification
 
 ```text
 route registration                         PASS
 backing compact execution                   PASS in observed live path
 assistant replacement output generation     PASS in observed live path
-success logging                             FAIL: incompatible SecureLogger call
-implementation unit/regression tests        insufficient before repair
-GitHub Actions Security hardening #220      PASS on pre-repair tests
-direct macOS compact request                FAIL: HTTP 500
+first live success logging                  FAIL: incompatible SecureLogger call
+traceback root cause                        CONFIRMED
+SecureLogger repair                         DONE
+route-level regression coverage             DONE
+repair CI                                   PASS: #239
+direct macOS post-repair rerun              NEXT
 P1.1 overall                                NOT PASS until live rerun
-P1.2 large-context stress                   BLOCKED
+P1.2 large-context stress                   BLOCKED until P1.1 live PASS
 ```
-
-## Repair
-
-The narrow repair is:
-
-1. replace stdlib-style multi-argument logger calls with single preformatted messages;
-2. cover the full compact route success path using a logger whose `info()` accepts exactly one argument;
-3. cover the backing-failure route with a logger whose `warning()` accepts exactly one argument;
-4. run CI;
-5. rerun the same macOS direct compact probe without changing acceptance criteria.
 
 The post-repair live gate still requires:
 
