@@ -19,6 +19,9 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 - Stage C Git diff discipline: PASS
 - Stage D long process + `write_stdin`: PASS
 - Stage E same-thread context continuity: PASS
+- Stage F pre-restart turn 1 baseline: PASS
+- Stage F real UWA restart: PASS
+- Stage F process-local affinity cleared after restart: PASS
 - Responses `function_call -> function_call_output`: PASS
 - V2 metadata wire trace: PASS
 - strict required-tool repair to a real client tool call: PASS
@@ -30,26 +33,9 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 
 ## Latest completed live acceptance
 
-Stage E completed successfully in the synthetic acceptance workspace.
+Stage E completed successfully in the synthetic acceptance workspace. Its final same-thread rerun recovered the conversation-only token without repeating it, performed real local tool calls, returned `CONTEXT_PASS`, and passed the independent checker.
 
-Observed sequence:
-
-```text
-turn 1 stored EMBER-7319 only in conversation context
-turn 1 left context/result.txt absent
-turn 2 resumed the exact same Codex thread id
-turn 2 was not given EMBER-7319 again
-real exec_command inspected the acceptance workspace
-context/result.txt was written as EMBER-7319\n
-file was read back successfully
-assistant returned CONTEXT_PASS
-independent checker returned context: PASS
-independent checker returned ACCEPTANCE_PASS
-```
-
-Stage E initially exposed a false path-oriented workspace refusal. The policy matcher was extended narrowly, covered by regression tests, pulled into the live environment, and the final same-thread rerun passed.
-
-Detailed record:
+Detailed Stage E record:
 
 `docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
 
@@ -57,7 +43,7 @@ Detailed record:
 
 Stage F Codex + UWA restart continuity is IN PROGRESS.
 
-Pre-restart baseline is already verified:
+Verified so far:
 
 ```text
 fresh context fixture prepared: PASS
@@ -65,21 +51,28 @@ context preflight: PASS
 fresh Codex thread created: PASS
 turn 1 reply: CONTEXT_READY
 context/result.txt after turn 1: ABSENT
-Stage F token remains conversation-only before restart
+real UWA stop: PASS
+UWA listener absent after stop: PASS
+UWA restarted as a different process: PASS
+health after restart: healthy
+web affinity before restart: binding_count=4
+web affinity after restart: binding_count=0
+web affinity persistence: false
+fallback: fresh_chat_plus_reconstructed_history
+private turn-1 JSONL remains present
+context/result.txt after restart: ABSENT
 ```
 
-The live thread identifier is intentionally kept out of the public repository. The local turn-1 JSONL remains the private source used to recover it for `codex exec resume`.
+This is the critical proof that Stage F crossed a real UWA process boundary. Process-local ChatGPT web-session and call-id affinity are gone in the new process, while the acceptance fixture remains untouched.
 
-The turn was run with `codex exec`, whose client process exited after turn 1. The next resume therefore starts a new Codex CLI process. The remaining disruptive boundary is UWA restart, which must remove process-local web-session and call-id affinity.
+The live thread identifier and runtime process identifiers are intentionally kept out of the public repository. They are recovered only from local private state when needed for the resume step.
 
 Next required sequence:
 
 ```text
-stop UWA
-restart UWA
-verify UWA health
 recover the same Stage F thread id locally
-send context_2 through codex exec resume without the token
+generate context_2 from the acceptance harness
+send context_2 through codex exec resume without repeating the token
 require the same thread id on resume
 require real local tool execution
 require context/result.txt == EMBER-7319\n
@@ -103,7 +96,10 @@ Stage D long process + write_stdin       PASS
 Stage E same-thread context              PASS
 Stage F Codex + UWA restart              IN PROGRESS
   pre-restart turn 1                     PASS
-  UWA restart                            NEXT
+  UWA restart                            PASS
+  process-local affinity cleared         PASS
+  same-thread post-restart resume        NEXT
+  independent checker                    pending
 ```
 
 ## Continuity layers
@@ -115,7 +111,7 @@ Current continuity mechanisms are:
 3. process-local ChatGPT web-session / call-id affinity.
 4. Git tracked handoff documents as the long-term project truth.
 
-Process-local web affinity is expected to disappear across a UWA restart. Restart recovery must therefore work without depending on that in-memory map.
+Stage F has now verified that layer 3 really disappears across a UWA restart. The next resume must therefore succeed through the remaining continuity mechanisms and documented reconstructed-history fallback as needed.
 
 ## Collaboration recording rule
 
@@ -140,4 +136,4 @@ Keep `codex-web-bridge-v2` as the active development branch until Stage F, requi
 
 ## Public repository safety
 
-Do not commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, SQLite continuation state, live Codex thread identifiers, Codex memory workspace content, or private project source captured during acceptance.
+Do not commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, SQLite continuation state, live Codex thread identifiers, local process identifiers, Codex memory workspace content, or private project source captured during acceptance.
