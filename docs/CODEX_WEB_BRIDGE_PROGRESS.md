@@ -16,6 +16,7 @@
 - single-file coding loop: PASS
 - Stage A multi-file coding loop: PASS
 - Stage B failure recovery: PASS
+- Stage C Git diff discipline: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -62,11 +63,13 @@ function_call_output call_id
 
 This path is verified live.
 
+### 7. Client-prefixed required-tool wording
+
+Stage C exposed that `第一步必须通过客户端 exec_command ...` could bypass strict tool detection and allow a plain-text workspace mismatch answer. V2 now treats client-prefixed Chinese variants as explicit required-tool requests while leaving ordinary explanatory mentions untouched.
+
 ## Stage B verified
 
 Stage B `failure_recovery` passed the independent acceptance checker.
-
-Live evidence:
 
 ```text
 initial audited test exit: 1
@@ -77,42 +80,67 @@ final audited test exit: 0
 checker: ACCEPTANCE_PASS
 ```
 
-The parser fix strips surrounding whitespace before digit/range validation. Test files were unchanged.
+A repeated block of Stage B text after completion was traced to assigning task text to zsh's special `PROMPT` variable. No `codex exec` process remained. Future commands use `ACCEPTANCE_PROMPT`.
 
-A repeated block of Stage B text after completion was traced to the operator assigning the prompt text to zsh's special `PROMPT` variable. No `codex exec` process remained. Future commands must use `ACCEPTANCE_PROMPT` or another ordinary variable name.
+## Stage C verified
+
+Stage C `git_diff` passed the independent checker on macOS.
+
+Observed evidence:
+
+```text
+workspace guard executed through real exec_command
+initial git_diff fixture: red
+requirements read: MODE=prod, TIMEOUT=30
+implementation edit: git_diff/config.py only
+tests: 2/2 PASS
+git diff --check: PASS
+git diff -- git_diff: only git_diff/config.py
+protected REQUIREMENTS.txt/tests: unchanged
+checker: ACCEPTANCE_PASS
+```
+
+The final acceptance workspace intentionally retains Stage A/B/C implementation evidence:
+
+```text
+multi_file/math_ops.py
+multi_file/summary.py
+failure_recovery/parser.py
+failure_recovery/.run_history
+git_diff/config.py
+```
 
 ## Current gate
 
-Stage C `git_diff` is NEXT.
+Stage D `interactive` is NEXT.
 
-Expected sequence:
+The harness expects a real long-lived local process plus stdin continuation:
 
 ```text
-prepare synthetic git_diff fixture
-→ preflight confirms initial red
-→ workspace guard
-→ read git_diff/REQUIREMENTS.txt
-→ modify git_diff/config.py only for this scenario
-→ tests pass
-→ git diff --check passes
-→ git diff -- git_diff shows only intended implementation change
+workspace guard
+→ start python3 interactive/worker.py
+→ observe READY while process remains alive
+→ use client write_stdin / persistent-process tool on the same process
+→ send GO plus newline
+→ process exits with INTERACTIVE_PASS
+→ interactive/result.txt contains INTERACTIVE_PASS
 → independent checker passes
 ```
 
-Before Stage C, remove acceptance-workspace noise that the checker does not allow, specifically tracked `PROMPTS.md` drift and untracked `__pycache__` directories. Preserve Stage A/B implementation evidence and `failure_recovery/.run_history`.
+A one-shot shell command that pipes `GO` at process launch does not prove Stage D. The goal is to validate that Codex can keep a process handle/session alive across tool turns and then use `write_stdin` against that same process.
 
 ## Remaining acceptance matrix
 
 ```text
 Stage A multi-file read/edit/test         PASS
 Stage B failure recovery                  PASS
-Stage C Git diff discipline               NEXT
-Stage D long process + write_stdin        pending
+Stage C Git diff discipline               PASS
+Stage D long process + write_stdin        NEXT
 Stage E same-thread context               pending
 Stage F UWA/Codex restart                 pending
 ```
 
-## Remaining engineering roadmap after C-F
+## Remaining engineering roadmap after D-F
 
 ```text
 successful Responses SSE payload slimming
@@ -124,14 +152,3 @@ multi-agent/tool fan-out coverage
 lost-affinity fallback and restart recovery
 final operator docs and release checklist
 ```
-
-## Current code checkpoints
-
-```text
-1f26fae Stop repeated required tools after Codex tool output
-9d38ec1 Cover call-id affinity and one-shot required tools
-60689d2 Record V2 call-id continuation fix
-ec0e60b Mark V2 single-web tool loop verified
-```
-
-Stage B PASS and the Stage C operator gate are recorded in current-state/README/PR documentation on the same V2 branch.
