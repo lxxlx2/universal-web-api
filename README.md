@@ -43,7 +43,7 @@ required-tool enforcement              PASS
 call-id / web-session continuation     PASS
 P1.1 Responses compact live            PASS
 versioned UWA lifecycle CI             PASS
-versioned UWA lifecycle live           CURRENT
+versioned UWA lifecycle live           PASS
 Codex Desktop UI live gate             REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -78,7 +78,7 @@ POST /v1/responses/compact
 
 P1.0 首次实机检查确认旧版本 UWA 没有该 route，直接 POST 返回 `404 Not Found`。P1.1 随后实现 compact endpoint，并补充 route-level regression。
 
-第一次 post-implementation macOS probe 暴露了 `SecureLogger.info()` 调用签名问题；修复后 CI #239 PASS。随后又发现普通 `codex-uwa-stop` / `codex-uwa` 流程没有真正替换 TCP 8199 上的旧 listener，导致请求继续命中修复前加载的旧 bytecode。
+第一次 post-implementation macOS probe 暴露了 `SecureLogger.info()` 调用签名问题；修复后 CI PASS。随后又发现普通 `codex-uwa-stop` / `codex-uwa` 流程没有真正替换 TCP 8199 上的旧 listener，导致请求继续命中修复前加载的旧 bytecode。
 
 在验证 listener cwd 后强制清空 8199、启动新的 UWA PID，再运行完全相同的 compact probe，最终实机结果为：
 
@@ -101,9 +101,27 @@ TASK_PRESERVED=YES
 - `tools/codex_uwa_lifecycle.py`：以真实 8199 listener + cwd 为准，TERM → 等待 → 必要时 KILL → 必须确认端口为空；restart 必须产生新的 listener PID 并通过 `/health`。
 - `tools/install_codex_uwa_commands.py`：把 `~/bin/codex-uwa` 与 `~/bin/codex-uwa-stop` 安装为薄 wrapper，核心逻辑始终从当前 Git checkout 执行。
 - `codex-uwa` wrapper 自动关闭 UWA 模式下的 Codex Memories，不再要求用户手工先执行 memory guard。
-- lifecycle / wrapper 回归在 Security hardening CI #269 中 PASS。
+- lifecycle / wrapper regression 与 CI PASS。
 
-当前还需要一次真实 macOS wrapper 安装 + stop/restart 验证，之后立即进入 P1.2 large-context compaction / recovery。
+真实 macOS wrapper 安装和 stop/restart 也已经通过：
+
+```text
+STOPPED_LISTENERS=57575
+PORT_EMPTY=YES
+PORT_8199_EMPTY=YES
+OLD_PID=57575
+NEW_PID=67555
+LISTENER_REPLACED=YES
+NEW_CWD=/Users/jerson/universal-web-api
+SERVICE=healthy
+BROWSER_CONNECTED=True
+HEALTH_PASS=YES
+VERSIONED_LIFECYCLE_PASS
+```
+
+因此 stale-runtime lifecycle blocker 已正式关闭。详细记录：`docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`。
+
+当前最后一个 Git 外执行依赖是 `~/.uwa/config_switch.py uwa`。它仍由 `codex-uwa` thin wrapper 临时调用来设置 Codex UWA provider。下一步先把该配置合同迁回仓库并移除这个私有 helper 依赖，然后立即进入 P1.2 large-context compaction / recovery。
 
 当前顺序：
 
@@ -112,7 +130,8 @@ P1.0 /v1/responses/compact runtime gap               DONE: 404 confirmed
 P1.1 compact endpoint + regressions                  PASS
 P1.1 macOS fresh-listener direct compact             PASS: HTTP 200
 P1.1 versioned lifecycle implementation + CI         PASS
-P1.1 versioned lifecycle macOS live validation       CURRENT
+P1.1 versioned lifecycle macOS live validation       PASS
+P1.1 migrate ~/.uwa/config_switch.py UWA contract    CURRENT
 P1.2 synthetic large-context compaction / recovery   next
 P1.3 lost-affinity / restart fallback 深化验证       pending
 Desktop live gate D1-D5                              required before real-project/final merge
@@ -129,6 +148,7 @@ P5   final regression / operator docs / release checklist
 - `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
 - `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
 - `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
+- `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## 连续性设计
@@ -186,7 +206,7 @@ codex-uwa
 
 `codex-uwa` 会自动关闭 UWA 模式下的 Codex Memories、切换 UWA provider、退出 Codex Desktop、执行可验证的 UWA restart、确认新 listener 与 `/health`，然后重新打开 Codex Desktop。`codex-uwa-stop` 会在确认 listener 属于当前仓库后停止真实 8199 listener，并且只有端口确实为空才返回成功。
 
-当前 provider 切换仍临时复用既有 `~/.uwa/config_switch.py` 的 `uwa` 配置合同；该最后一个 Git 外状态会在 lifecycle live gate 后迁回仓库。生命周期的 stop/start/restart 已不再依赖这个私有脚本。
+当前 provider 切换仍临时复用既有 `~/.uwa/config_switch.py` 的 `uwa` 配置合同；该最后一个 Git 外状态正在迁回仓库。生命周期的 stop/start/restart 已不再依赖这个私有脚本。
 
 ## 一键切回官方 Codex Desktop / ChatGPT 账号模式
 
