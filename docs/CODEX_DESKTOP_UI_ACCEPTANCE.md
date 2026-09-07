@@ -11,6 +11,7 @@ The production target includes normal use from ChatGPT Desktop in **Codex mode**
 ```text
 CLI / protocol A-F acceptance             PASS
 aggregate A-F checker                     PASS
+P1.1 Responses compact live              PASS
 Desktop D1 tool round trip                pending
 Desktop D2 same-thread continuation       pending
 Desktop D3 Desktop app restart resume     pending
@@ -29,6 +30,8 @@ A Desktop case is PASS only when both are true:
 2. a machine-auditable local artifact/checker confirms the expected result.
 
 Assistant prose or screenshots alone are insufficient.
+
+Where a restart/configuration step can be automated safely, the acceptance procedure should use the repository helper rather than asking the operator to close/reopen applications or edit config manually. Manual interaction is fallback only when the operating system blocks automation.
 
 ## D1: Desktop native tool round trip
 
@@ -95,11 +98,10 @@ Procedure:
 
 1. prepare the `context` scenario;
 2. in a fresh Desktop Codex thread send `context_1` and receive `CONTEXT_READY`;
-3. fully quit ChatGPT Desktop;
-4. reopen ChatGPT Desktop;
-5. select Codex and reopen the exact same thread from history;
-6. send `context_2` without repeating the token;
-7. run the context checker.
+3. use the repository Desktop restart helper once it is wired into the acceptance harness; manual quit/reopen is fallback only;
+4. reopen the exact same thread from history;
+5. send `context_2` without repeating the token;
+6. run the context checker.
 
 PASS requires `CONTEXT_PASS` plus `ACCEPTANCE_PASS` after a real application restart.
 
@@ -112,13 +114,11 @@ Procedure:
 1. prepare fresh `context` fixture;
 2. start a fresh Desktop Codex thread and send `context_1`;
 3. receive `CONTEXT_READY` and verify `context/result.txt` is absent;
-4. fully quit ChatGPT Desktop;
-5. stop UWA and verify port 8199 has no listener;
-6. restart UWA and verify `/health` is healthy and `/v1/codex/web-affinity` starts with zero bindings;
-7. reopen ChatGPT Desktop;
-8. reopen the same Desktop Codex thread from history;
-9. send `context_2` without repeating the token;
-10. verify the local artifact and run the checker.
+4. use the automated lifecycle helper to restart Desktop and UWA, requiring TCP 8199 to be empty before the new UWA listener starts and requiring a different listener PID afterward;
+5. verify `/health` is healthy and `/v1/codex/web-affinity` starts with zero bindings;
+6. reopen the same Desktop Codex thread from history;
+7. send `context_2` without repeating the token;
+8. verify the local artifact and run the checker.
 
 PASS requires successful same-thread recovery across both process boundaries and `ACCEPTANCE_PASS`.
 
@@ -126,22 +126,30 @@ PASS requires successful same-thread recovery across both process boundaries and
 
 Goal: prove the project can be exited cleanly and normal Codex Desktop account usage is restored without pinning a model.
 
-Procedure:
+Normal operator action is intentionally one command:
 
 ```bash
 cd ~/universal-web-api
-codex-uwa-stop
 python3 tools/codex_provider_switch.py official
-python3 tools/codex_uwa_memory_guard.py restore
-python3 tools/codex_provider_switch.py status
 ```
 
-Then fully quit/reopen ChatGPT Desktop. If prompted, sign in with the user's normal ChatGPT account. In Codex mode verify:
+The helper must automatically:
+
+1. quit running ChatGPT Desktop/Codex;
+2. stop the UWA TCP 8199 listener only after proving its cwd is the current repository;
+3. restore the pre-UWA Codex Memories settings;
+4. back up `~/.codex/config.toml` and remove only top-level provider/model/reasoning pins;
+5. preserve authentication and the `[model_providers.uwa]` definition;
+6. reopen ChatGPT Desktop automatically.
+
+Then in Codex mode verify:
 
 1. UWA is not required for the session;
 2. the model picker is controlled by the signed-in account/workspace rather than a README/CLI hard-coded model;
 3. any currently available model can be selected, including Astra when the account/rollout permits it;
 4. a harmless local Codex task can run successfully.
+
+The script output should include `AUTH=UNCHANGED` and `MODEL_SELECTION=ACCOUNT_DEFAULT_UI`. If the script cannot prove listener ownership or cannot reopen a supported Desktop application, the case is FAIL rather than a manual-success assumption.
 
 Do not record account identifiers or usage amounts in the public repository.
 
