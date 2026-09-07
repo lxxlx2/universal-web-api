@@ -1,15 +1,17 @@
 """Runtime guardrails for the Codex Web Bridge V2 streaming path.
 
-The browser bridge is intentionally layered on top of several optional local
-facilities such as wire tracing, SQLite continuation snapshots and in-process
-web-session affinity. None of those helpers is allowed to tear down the HTTP
-chunked response after ChatGPT Web has already produced a result.
+The browser bridge is layered on optional local facilities such as wire tracing,
+Responses continuation snapshots and in-process web-session affinity. None of
+those helpers may tear down the HTTP stream after ChatGPT Web produced a result.
 
-This module also protects the strict required-tool retry path. When a mapped
-ChatGPT conversation is healthy but local Responses hydration fails, the retry
-may still continue as an incremental browser delta on that already-bound web
-conversation. This preserves the live Codex tool loop instead of failing before
-the repair prompt reaches ChatGPT Web.
+This module also repairs two Codex continuation shapes seen in live macOS runs:
+
+* a strict required-tool repair can reuse an already-bound ChatGPT conversation
+  even when local Responses hydration fails;
+* Codex may return a full-history ``function_call_output`` request without a
+  usable ``previous_response_id``. The bridge remembers only ``call_id ->
+  response_id`` metadata so that tool output can return to the same web
+  conversation and so an already-completed required tool is not forced again.
 
 The guard is process-local and idempotent. It stores no prompt, command, tool
 result, cookie or browser credential.
@@ -17,8 +19,11 @@ result, cookie or browser credential.
 
 from __future__ import annotations
 
+import json
+import threading
 import time
-from typing import Any, AsyncIterator, Callable, Dict, List
+from collections import OrderedDict
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Set, Tuple
 
 from fastapi.responses import StreamingResponse
 
@@ -29,6 +34,10 @@ from app.core.config import get_logger
 
 logger = get_logger("CODEX_V2_RUNTIME")
 _INSTALLED = False
+_CALL_RESPONSE_LOCK = threading.RLock()
+_CALL_RESPONSE_IDS: "OrderedDict[str, Tuple[float, str]]" = OrderedDict()
+_CALL_RESPONSE_TTL_SEC = 7200.0
+_CALL_RESPONSE_MAX = 4096
 
 
 def _model_copy(body: ResponsesRequest) -> ResponsesRequest:
@@ -38,8 +47,6 @@ def _model_copy(body: ResponsesRequest) -> ResponsesRequest:
 
 
 def _compact_failure_body(body: ResponsesRequest) -> ResponsesRequest:
-    """Keep failure envelopes small even when Codex advertises huge tool schemas."""
-
     compact = _model_copy(body)
     compact.input = ""
     compact.instructions = None
@@ -53,17 +60,144 @@ def _compact_failure_body(body: ResponsesRequest) -> ResponsesRequest:
 
 
 def _degraded_reuse_state_body(body: ResponsesRequest) -> ResponsesRequest:
-    """Build state for a same-web-conversation retry when hydration is unavailable.
-
-    The browser conversation already owns the earlier dialogue. The retry only
-    needs the current delta and declared tools. Clearing previous_response_id
-    prevents a second hydration attempt while preserving the repair input.
-    """
-
     cloned = _model_copy(body)
     cloned.previous_response_id = None
     cloned.instructions = None
     return cloned
+
+
+def _item_type(item: Any) -> str:
+    return str(item.get("type") or "").strip().lower() if isinstance(item, dict) else ""
+
+
+def _item_call_id(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("call_id")
+        or item.get("tool_call_id")
+        or item.get("id")
+        or ""
+    ).strip()
+
+
+def _item_function_name(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    function_data = item.get("function") if isinstance(item.get("function"), dict) else {}
+    return str(item.get("name") or function_data.get("name") or "").strip()
+
+
+def _function_call_output_ids(source: Any) -> List[str]:
+    ids: List[str] = []
+    for item in source if isinstance(source, list) else []:
+        if _item_type(item) not in {"function_call_output", "tool_result"}:
+            continue
+        call_id = _item_call_id(item)
+        if call_id and call_id not in ids:
+            ids.append(call_id)
+    return ids
+
+
+def _completed_function_call_names(source: Any) -> Set[str]:
+    calls: Dict[str, str] = {}
+    outputs: Set[str] = set()
+    completed: Set[str] = set()
+    for item in source if isinstance(source, list) else []:
+        item_type = _item_type(item)
+        if item_type in {"function_call", "tool_call"}:
+            call_id = _item_call_id(item)
+            name = _item_function_name(item)
+            if call_id and name:
+                calls[call_id] = name
+        elif item_type in {"function_call_output", "tool_result"}:
+            call_id = _item_call_id(item)
+            if call_id:
+                outputs.add(call_id)
+            direct_name = _item_function_name(item)
+            if direct_name:
+                completed.add(direct_name)
+    for call_id in outputs:
+        name = calls.get(call_id)
+        if name:
+            completed.add(name)
+    return completed
+
+
+def _tool_result_delta_body(body: ResponsesRequest) -> ResponsesRequest:
+    cloned = _model_copy(body)
+    cloned.previous_response_id = None
+    cloned.instructions = None
+    if isinstance(cloned.input, list):
+        outputs = [
+            item
+            for item in cloned.input
+            if _item_type(item) in {"function_call_output", "tool_result"}
+        ]
+        if outputs:
+            cloned.input = outputs
+    return cloned
+
+
+def _prune_call_response_ids_locked(now: Optional[float] = None) -> None:
+    current = float(now if now is not None else time.time())
+    cutoff = current - _CALL_RESPONSE_TTL_SEC
+    expired = [key for key, value in _CALL_RESPONSE_IDS.items() if value[0] < cutoff]
+    for key in expired:
+        _CALL_RESPONSE_IDS.pop(key, None)
+    while len(_CALL_RESPONSE_IDS) > _CALL_RESPONSE_MAX:
+        _CALL_RESPONSE_IDS.popitem(last=False)
+
+
+def _remember_call_response(call_ids: List[str], response_id: str) -> None:
+    response_key = str(response_id or "").strip()
+    if not response_key:
+        return
+    safe_ids = [str(call_id or "").strip() for call_id in call_ids if str(call_id or "").strip()]
+    if not safe_ids:
+        return
+    now = time.time()
+    with _CALL_RESPONSE_LOCK:
+        _prune_call_response_ids_locked(now)
+        for call_id in safe_ids:
+            _CALL_RESPONSE_IDS[call_id] = (now, response_key)
+            _CALL_RESPONSE_IDS.move_to_end(call_id)
+        _prune_call_response_ids_locked(now)
+
+
+def _resolve_call_response(call_ids: List[str]) -> str:
+    with _CALL_RESPONSE_LOCK:
+        _prune_call_response_ids_locked()
+        for call_id in reversed(call_ids):
+            value = _CALL_RESPONSE_IDS.get(str(call_id or "").strip())
+            if value is not None:
+                _CALL_RESPONSE_IDS.move_to_end(str(call_id or "").strip())
+                return value[1]
+    return ""
+
+
+def _response_and_call_ids_from_sse(chunks: List[str]) -> Tuple[str, List[str]]:
+    response_id = ""
+    call_ids: List[str] = []
+    for block in "".join(chunks).replace("\r\n", "\n").split("\n\n"):
+        data_lines = [line[5:].lstrip() for line in block.splitlines() if line.startswith("data:")]
+        if not data_lines:
+            continue
+        try:
+            payload = json.loads("\n".join(data_lines))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        response = payload.get("response")
+        if isinstance(response, dict) and not response_id:
+            response_id = str(response.get("id") or "").strip()
+        item = payload.get("item")
+        if isinstance(item, dict) and _item_type(item) == "function_call":
+            call_id = _item_call_id(item)
+            if call_id and call_id not in call_ids:
+                call_ids.append(call_id)
+    return response_id, call_ids
 
 
 def _failure_events(
@@ -72,8 +206,6 @@ def _failure_events(
     code: str,
     exc: BaseException,
 ) -> List[str]:
-    """Build a compact terminal Responses sequence without leaking exception text."""
-
     compact = _compact_failure_body(body)
     response_id = _new_response_id()
     created_at = int(time.time())
@@ -101,16 +233,8 @@ def _failure_events(
         },
     )
     return [
-        _codex_event(
-            "response.created",
-            sequence_number=1,
-            response=in_progress,
-        ),
-        _codex_event(
-            "response.failed",
-            sequence_number=2,
-            response=failed,
-        ),
+        _codex_event("response.created", sequence_number=1, response=in_progress),
+        _codex_event("response.failed", sequence_number=2, response=failed),
     ]
 
 
@@ -145,8 +269,6 @@ def _best_effort_wrapper(
 
 
 def install_codex_v2_runtime_hardening() -> None:
-    """Install the V2 guard exactly once for the running UWA process."""
-
     global _INSTALLED
     if _INSTALLED:
         return
@@ -164,6 +286,80 @@ def install_codex_v2_runtime_hardening() -> None:
             continue
         setattr(v2, name, _best_effort_wrapper(name, current, default=default))
 
+    original_required_declared_tool = v2.required_declared_tool
+    if not bool(getattr(original_required_declared_tool, "_uwa_codex_v2_guarded", False)):
+
+        def _required_tool_once(body: ResponsesRequest) -> str:
+            required = original_required_declared_tool(body)
+            if required and required in _completed_function_call_names(body.input):
+                logger.info(
+                    "[CODEX_V2_RUNTIME] required client tool already has a matching "
+                    "function_call_output; suppressing duplicate enforcement"
+                )
+                return ""
+            return required
+
+        setattr(_required_tool_once, "_uwa_codex_v2_guarded", True)
+        v2.required_declared_tool = _required_tool_once
+
+    original_browser_delta_request = v2._browser_delta_request
+    if not bool(getattr(original_browser_delta_request, "_uwa_codex_v2_guarded", False)):
+
+        def _tool_result_only_delta(body: ResponsesRequest) -> ResponsesRequest:
+            base = original_browser_delta_request(body)
+            trimmed = _tool_result_delta_body(base)
+            if isinstance(body.input, list) and len(trimmed.input or []) < len(body.input):
+                logger.info(
+                    "[CODEX_V2_RUNTIME] trimmed reconstructed Responses history to "
+                    "function_call_output delta for web-session reuse"
+                )
+            return trimmed
+
+        setattr(_tool_result_only_delta, "_uwa_codex_v2_guarded", True)
+        v2._browser_delta_request = _tool_result_only_delta
+
+    original_prepare = v2._prepare_codex_web_turn
+    if not bool(getattr(original_prepare, "_uwa_codex_v2_guarded", False)):
+
+        def _prepare_with_call_id_affinity(body: ResponsesRequest):
+            output_call_ids = _function_call_output_ids(body.input)
+            mapped_response_id = _resolve_call_response(output_call_ids)
+            if mapped_response_id:
+                reasoning = v2.normalize_codex_reasoning(body.reasoning)
+                try:
+                    binding = v2.resolve_conversation_binding(
+                        mapped_response_id,
+                        model=v2.target_web_model(),
+                        reasoning=reasoning,
+                    )
+                    if binding is not None and v2.ensure_chatgpt_conversation(binding.pathname):
+                        state = v2.inspect_codex_web_mode_status(reasoning)
+                        if bool(state.get("verified")):
+                            try:
+                                hydrated = v2._hydrate_codex_continuation(body)
+                            except Exception as exc:
+                                logger.warning(
+                                    "[CODEX_V2_RUNTIME] full-history tool-result continuation "
+                                    "could not hydrate locally; reusing call_id affinity with "
+                                    f"delta state: {type(exc).__name__}"
+                                )
+                                hydrated = _degraded_reuse_state_body(body)
+                            v2.install_codex_chatgpt_network_tuning()
+                            logger.info(
+                                "[CODEX_WEB_AFFINITY] reusing ChatGPT conversation from "
+                                "function_call_output call_id (path redacted)"
+                            )
+                            return hydrated, True, binding.pathname, reasoning
+                except Exception as exc:
+                    logger.warning(
+                        "[CODEX_V2_RUNTIME] call_id affinity fallback unavailable: "
+                        f"{type(exc).__name__}"
+                    )
+            return original_prepare(body)
+
+        setattr(_prepare_with_call_id_affinity, "_uwa_codex_v2_guarded", True)
+        v2._prepare_codex_web_turn = _prepare_with_call_id_affinity
+
     original_required_tool_failed_events = v2._required_tool_failed_events
     if not bool(getattr(original_required_tool_failed_events, "_uwa_codex_v2_guarded", False)):
 
@@ -171,10 +367,7 @@ def install_codex_v2_runtime_hardening() -> None:
             body: ResponsesRequest,
             required_tool: str,
         ) -> List[str]:
-            return original_required_tool_failed_events(
-                _compact_failure_body(body),
-                required_tool,
-            )
+            return original_required_tool_failed_events(_compact_failure_body(body), required_tool)
 
         setattr(_compact_required_tool_failed_events, "_uwa_codex_v2_guarded", True)
         v2._required_tool_failed_events = _compact_required_tool_failed_events
@@ -193,8 +386,7 @@ def install_codex_v2_runtime_hardening() -> None:
                         buffered.append(text)
             except Exception as exc:
                 logger.exception(
-                    "[CODEX_V2_RUNTIME] browser attempt stream crashed; "
-                    "converted to response.failed"
+                    "[CODEX_V2_RUNTIME] browser attempt stream crashed; converted to response.failed"
                 )
                 state_body = kwargs.get("state_body")
                 if isinstance(state_body, ResponsesRequest):
@@ -205,6 +397,14 @@ def install_codex_v2_runtime_hardening() -> None:
                     ):
                         yield event
                 return
+
+            response_id, call_ids = _response_and_call_ids_from_sse(buffered)
+            if response_id and call_ids:
+                _remember_call_response(call_ids, response_id)
+                logger.info(
+                    "[CODEX_V2_RUNTIME] remembered function call ids for same-web-conversation "
+                    "tool-result continuation"
+                )
 
             for text in buffered:
                 yield text
@@ -260,8 +460,7 @@ def install_codex_v2_runtime_hardening() -> None:
                         )
 
                 logger.exception(
-                    "[CODEX_V2_RUNTIME] browser turn preparation crashed; "
-                    "converted to response.failed"
+                    "[CODEX_V2_RUNTIME] browser turn preparation crashed; converted to response.failed"
                 )
                 if not isinstance(body, ResponsesRequest):
                     raise
@@ -366,7 +565,13 @@ def install_codex_v2_runtime_hardening() -> None:
 
 __all__ = [
     "_compact_failure_body",
+    "_completed_function_call_names",
     "_degraded_reuse_state_body",
     "_failure_events",
+    "_function_call_output_ids",
+    "_remember_call_response",
+    "_resolve_call_response",
+    "_response_and_call_ids_from_sse",
+    "_tool_result_delta_body",
     "install_codex_v2_runtime_hardening",
 ]
