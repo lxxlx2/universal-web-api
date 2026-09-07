@@ -210,3 +210,54 @@ def test_failure_recovery_check_rejects_test_file_edits(tmp_path):
     assert rejected.returncode != 0
     assert "failure_recovery: FAIL" in rejected.stdout
     assert "failure_recovery/tests/test_parser.py" in rejected.stdout
+
+
+def test_git_diff_check_ignores_other_scenario_and_runtime_artifacts(tmp_path):
+    root = tmp_path / "acceptance"
+    assert _run("setup", "--root", str(root)).returncode == 0
+
+    (root / "git_diff" / "config.py").write_text(
+        'MODE = "prod"\nTIMEOUT = 30\n',
+        encoding="utf-8",
+    )
+    prompts = root / "PROMPTS.md"
+    prompts.write_text(prompts.read_text(encoding="utf-8") + "\n# harness refresh\n", encoding="utf-8")
+    cache_dir = root / "multi_file" / "__pycache__"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "math_ops.cpython-314.pyc").write_bytes(b"cache")
+    (root / "interactive" / "result.txt").write_text("INTERACTIVE_PASS\n", encoding="utf-8")
+    (root / "context" / "result.txt").write_text("EMBER-7319\n", encoding="utf-8")
+
+    accepted = _run(
+        "check",
+        "--root",
+        str(root),
+        "--scenario",
+        "git_diff",
+    )
+    assert accepted.returncode == 0, accepted.stdout
+    assert "git_diff: PASS" in accepted.stdout
+    assert "ACCEPTANCE_PASS" in accepted.stdout
+
+
+def test_git_diff_check_still_rejects_tracked_stage_c_test_edits(tmp_path):
+    root = tmp_path / "acceptance"
+    assert _run("setup", "--root", str(root)).returncode == 0
+
+    (root / "git_diff" / "config.py").write_text(
+        'MODE = "prod"\nTIMEOUT = 30\n',
+        encoding="utf-8",
+    )
+    test_file = root / "git_diff" / "tests" / "test_config.py"
+    test_file.write_text(test_file.read_text(encoding="utf-8") + "\n# changed\n", encoding="utf-8")
+
+    rejected = _run(
+        "check",
+        "--root",
+        str(root),
+        "--scenario",
+        "git_diff",
+    )
+    assert rejected.returncode != 0
+    assert "git_diff: FAIL" in rejected.stdout
+    assert "git_diff/tests/test_config.py" in rejected.stdout
