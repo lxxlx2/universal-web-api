@@ -41,7 +41,7 @@ content-type: application/json
 
 This closed P1.0 with code inspection and deployed-runtime evidence agreeing: the compact endpoint was genuinely absent.
 
-## P1.1 implementation and CI
+## P1.1 implementation and first live failure
 
 The branch added:
 
@@ -50,24 +50,7 @@ app/api/codex_compact.py
 tests/test_codex_responses_compact.py
 ```
 
-The route is registered before normal Responses handling. It is designed to:
-
-- accept `POST /v1/responses/compact`;
-- preserve the incoming model/reasoning context instead of pinning a different model;
-- disable client tools during compaction;
-- ask the configured ChatGPT Web model for a concise replacement-history summary;
-- return only valid assistant Responses message items in `{"output": [...]}`;
-- reject function-call-only backing output;
-- avoid fabricating OpenAI encrypted compaction blobs;
-- return structured errors on backing failures.
-
-Regression coverage checks route registration, model/reasoning preservation, tool suppression, assistant-message output and rejection of function-call-only output.
-
-GitHub Actions `Security hardening` run #220 for implementation/test head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed with `success`.
-
-## Post-implementation live result: FAIL, root cause confirmed
-
-After pulling the implementation, restarting UWA and confirming health, the operator observed:
+The first post-implementation macOS probe showed that the route was now registered, but the live call returned HTTP 500:
 
 ```text
 COMPACT_ROUTE_REGISTERED=YES
@@ -79,28 +62,39 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-The traceback then identified the exact failure:
+The traceback identified the exact cause:
 
 ```text
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
 ```
 
-The compact backing request and assistant replacement output had already succeeded. The request failed only when `app/api/codex_compact.py` tried to log success using stdlib logging interpolation arguments. UWA's `SecureLogger.info()` accepts exactly one message argument.
+The backing ChatGPT Web compact request and non-empty assistant replacement output had already succeeded. Only the final success log failed because the new endpoint used stdlib logging interpolation arguments against UWA's one-argument `SecureLogger.info()`. The backing-error `logger.warning()` path had the same latent incompatibility.
 
-The same incompatible pattern also existed on the backing-error `logger.warning()` branch and was repaired proactively.
+Detailed incident: `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`.
 
-A dedicated incident record is in `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`.
+## Repair and CI
 
-## Repair
+The active branch now contains the narrow repair:
 
-The narrow repair:
+- success logging uses one preformatted message argument;
+- backing-error logging uses one preformatted message argument;
+- route-level success regression uses a logger exposing only `info(message)`;
+- route-level backing-error regression uses a logger exposing only `warning(message)`;
+- compaction protocol semantics are otherwise unchanged.
 
-- changes compact success/error logging to single preformatted messages;
-- adds full route-level success coverage with a one-argument logger;
-- adds full backing-error route coverage with a one-argument logger;
-- keeps all compaction protocol behavior otherwise unchanged.
+Security hardening CI #239 for repair code commit `7c6d7ff` completed successfully.
 
-Repair commit: `2e1a1f36960a253d67e105e6a0da84d0a7b56fe5`.
+The direct macOS post-repair rerun is now the current gate. Acceptance criteria remain unchanged:
+
+```text
+COMPACT_ROUTE_REGISTERED=YES
+COMPACT_HTTP_CODE=200
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=YES
+OUTPUT_COUNT>=1
+MARKER_PRESERVED=YES
+TASK_PRESERVED=YES
+```
 
 ## Classification
 
@@ -112,23 +106,21 @@ aggregate A-F checker                 PASS
 P1 compact contract inspection        DONE
 initial runtime compact probe         DONE: 404 confirmed
 compact endpoint implementation       DONE
-pre-repair compact regression + CI    PASS
-post-implementation runtime probe     FAIL: HTTP 500
+first post-implementation live probe  FAIL: HTTP 500
 traceback root cause                  CONFIRMED: SecureLogger signature
 narrow repair + route regressions     DONE
-repair CI                             NEXT
-post-repair macOS live rerun          blocked on CI
-large-context stress/recovery         BLOCKED
+repair CI                             PASS: #239
+post-repair macOS live rerun          NEXT
+large-context stress/recovery         BLOCKED until live compact PASS
 Desktop UI live gate                  required before main merge
 ```
 
 ## Next sequence
 
-1. require repair CI green;
-2. rerun the exact same direct compact call and require HTTP 200 plus an assistant message inside `output`;
-3. add the synthetic large-context workload;
-4. require an observable compaction lifecycle item plus post-compaction context recovery;
-5. deepen lost-affinity/restart validation;
-6. run the mandatory Desktop UI live gate before the real-project/final merge gate.
+1. rerun the exact same direct compact call and require HTTP 200 plus an assistant message inside `output`;
+2. add the synthetic large-context workload;
+3. require an observable compaction lifecycle item plus post-compaction context recovery;
+4. deepen lost-affinity/restart validation;
+5. run the mandatory Desktop UI live gate before the real-project/final merge gate.
 
 No private runtime state, conversation identifiers, cookies, logs or Responses SQLite contents are included in this record.
