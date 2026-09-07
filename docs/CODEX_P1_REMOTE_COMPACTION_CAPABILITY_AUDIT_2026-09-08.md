@@ -82,7 +82,7 @@ No Azure-specific URL, auth, or alternate request body is selected merely becaus
 
 The same Azure detector is used by `codex doctor` when deciding whether to probe the `/models` route. With the compatibility name `Azure`, `codex doctor` skips its own models-route reachability probe.
 
-This does not disable the normal runtime provider models manager. The project already has direct UWA model-catalog health checks and live Codex model-catalog acceptance. The doctor behavior must nevertheless be documented as a deliberate compatibility tradeoff.
+This does not disable the normal runtime provider models manager. The project already has direct UWA model-catalog health checks and live Codex model-catalog acceptance. The doctor behavior is a deliberate compatibility tradeoff and remains documented here.
 
 ## Decision
 
@@ -98,26 +98,50 @@ requires_openai_auth = false
 
 All other existing provider fields remain unchanged.
 
-Regression requirements:
+## Versioned implementation
 
-1. provider id remains `uwa`;
-2. base URL remains loopback UWA;
-3. auth remains disabled/unchanged;
-4. only the provider display/capability name changes to `Azure`;
-5. official-mode cleanup still removes only top-level UWA pins and preserves the provider table;
-6. tracked documentation calls this a Codex 0.153.4 compatibility shim, not an actual Azure backend.
+A fail-closed helper is tracked at:
 
-## Live gate after CI
+```text
+tools/codex_remote_compaction_compat.py
+```
 
-After implementation/CI, run the small-step threshold probe again under the new versioned provider config. Required evidence:
+Regression coverage:
+
+```text
+tests/test_codex_remote_compaction_compat.py
+```
+
+The helper refuses to modify the config unless all of these are true:
+
+```text
+top-level model_provider       uwa
+provider table                 model_providers.uwa
+provider name                  Universal Web API or Azure
+base_url                       http://127.0.0.1:8199/v1
+wire_api                       responses
+requires_openai_auth           false
+supports_websockets            false
+```
+
+When enabled, it changes only the managed provider's `name` field to `Azure`, creates a local backup, and leaves model selection, auth, base URL, retry policy, browser state, all unrelated config and all other provider tables untouched.
+
+Security hardening #351 / run `34164070091` at head `127ed09fbb1f8941ff4332db72bf498fb9f80287` completed with `success`. The implementation/CI gate is therefore closed PASS.
+
+## Current live gate
+
+Run the compatibility helper against the real managed UWA config, verify the exact safe contract, then rerun the small-step native threshold probe.
+
+Required remote evidence:
 
 ```text
 threshold crossed safely
 REMOTE_COMPACT_ROUTE_DELTA >= 1
 REMOTE_COMPACT_SUCCESS_DELTA >= 1
 AUTO_COMPACT_MODE=REMOTE
-rollout compact lifecycle delta >= 1
-same-thread post-compact recovery succeeds
+ROLLOUT_COMPACT_MARKER_DELTA >= 1
 ```
+
+That proves native Codex selected the remote compact endpoint. It still does not by itself close all of P1.2: same-thread post-compact recovery of the original conversation-only synthetic token through a real local write/read remains mandatory afterward.
 
 Do not mark P1.2 closed from a direct compact HTTP probe alone; P1.1 already proves that endpoint. P1.2 requires native Codex auto-compaction to select the remote endpoint and preserve conversation recovery.
