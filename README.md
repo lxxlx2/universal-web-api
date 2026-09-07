@@ -49,11 +49,11 @@ P1.2 第一次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼
 
 第二次完整实测中，CLI 累计 input usage 从 `21230` 连续增长到 `250919`，但 rounds 1-7 没有当前 run 的 `/v1/responses/compact` marker，round 8 filler contract FAIL。
 
-后续只读诊断确认 cached/live model catalog 都是 64K，真实 rollout 中有 9 个持久化 `TokenCount`，`model_context_window=60800`，并且 resume usage 恢复链路正常。
+后续只读诊断确认 cached/live model catalog 都是 64K，真实 rollout 中有 9 个持久化 `TokenCount`，并且 resume usage 恢复链路正常。精确核对 Codex `0.153.4` / `rust-v0.153.4` / commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` 后，第二次失败已重新归因：Codex 的 active-context 判断使用最近一次 response 的 `last_token_usage`，round 7 结束时为 `55,632`。
 
-精确核对 Codex `0.153.4` / `rust-v0.153.4` / commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` 后，第二次失败已重新归因：Codex 的 active-context 判断使用最近一次 response 的 `last_token_usage`，round 7 结束时为 `55,632 < 60,800`；而 `run_turn()` 的 pre-turn compaction 在本轮新 user message 被记录之前执行。旧 runner 随后一次追加 20KB filler，导致 round 8 在 compact check 之后直接跨过窗口边界。
+当前模型的 native auto-compact 阈值是 `64,000 * 90% = 57,600`；另一个 `60,800` 是 95% effective full-context hard cap，两者不是同一个阈值。Codex `run_turn()` 的 pre-turn compaction 又发生在本轮新 user message 被记录之前，因此旧 runner 在 `55,632` 状态下一次追加 20KB filler，正好在 compact check 之后跨过 auto-compact threshold 并向 hard cap 冲过去。
 
-因此当前不再把 attempt 2 视为“Codex 已观察到超阈值状态却拒绝 compact”的证据。下一步改为小步接近 60,800，使一轮成功结束时 active context 略超阈值，再用极小下一轮触发真正的 pre-turn auto-compact。
+因此 attempt 2 不再视为“Codex 已观察到超阈值状态却拒绝 compact”的证据。当前改为：先 coarse 增长到接近 57,600，再用约 2KB fine filler 让一轮成功结束时只略高于 57,600，下一轮用极小 trigger 验证真正的 pre-turn auto-compact。
 
 另一个独立事实仍然成立：当前 `Universal Web API` 自定义 provider 在 Codex 0.153.4 中被判定为 `RemoteCompactionSupport::Unsupported`，所以真实 auto-compact 触发后应先看到 local fallback；remote `/v1/responses/compact` capability 作为后续独立 gate 处理，暂不伪装 OpenAI/Azure provider。
 
