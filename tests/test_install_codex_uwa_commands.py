@@ -28,3 +28,8 @@ def test_start_wrapper_uses_verified_restart_not_health_reuse():
 
 def test_start_wrapper_disables_memories_automatically():
     assert 'codex_uwa_memory_guard.py" disable' in START_WRAPPER
+
+
+def test_start_wrapper_uses_repository_provider_switch_without_private_helper():
+    assert 'codex_provider_switch.py" uwa' in START_WRAPPER
+    assert "config_switch.py" not in START_WRAPPER
