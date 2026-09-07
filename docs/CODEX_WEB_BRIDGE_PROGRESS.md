@@ -35,130 +35,73 @@ P1.2 non-zero usage macOS smoke             PASS
 
 Evidence note: the final Stage E/F runs were audited primarily through `codex exec` / `codex exec resume`. They close the protocol/CLI continuity gate but do not close actual ChatGPT Desktop UI acceptance. A mandatory Desktop D1-D5 gate is tracked in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
 
-## Aggregate checker false failure: CLOSED
-
-The repaired full checker in the existing workspace passed every scenario plus `ACCEPTANCE_PASS`.
-
 ## P1 compact protocol: CLOSED PASS
 
-P1.0 confirmed `/v1/responses/compact` was initially absent. P1.1 implemented the route. The first live HTTP 500 was traced to stdlib-style multi-argument logging against UWA's one-argument `SecureLogger`; the repair and route-level regressions passed CI.
+P1.1 implemented `/v1/responses/compact` and direct macOS validation returned HTTP 200 with valid compact output after the stale-listener lifecycle defect was repaired.
 
-The apparent recurrence was stale runtime state: the real TCP 8199 listener predated the repair. After proving the port empty, starting a different UWA PID and rerunning the unchanged probe, the real macOS runtime returned HTTP 200 with valid assistant `output`, preserving both the marker and compact task semantics.
+## Lifecycle/provider switch: CLOSED PASS
 
-## UWA lifecycle hardening: CLOSED PASS
-
-The old local scripts were inspected and their failure mode was reproduced from source:
-
-1. old `codex-uwa-stop` did not prove TCP 8199 was empty after TERM and had no required KILL escalation;
-2. old `codex-uwa` reused a healthy listener rather than requiring a fresh process, allowing stale loaded bytecode after repository updates.
-
-The lifecycle implementation is repository-tracked in `tools/codex_uwa_lifecycle.py`, while `tools/install_codex_uwa_commands.py` installs thin `~/bin/codex-uwa*` wrappers that always delegate to the current checkout.
-
-Regression/CI and real macOS validation passed. Detailed record: `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`.
-
-## Versioned provider switch: CLOSED PASS
-
-The former private executable helper `~/.uwa/config_switch.py uwa` was inspected and its contract migrated into `tools/codex_provider_switch.py uwa`.
-
-The normal `codex-uwa` wrapper now uses only repository-managed provider/lifecycle/memory tooling and no longer references the private helper.
-
-Security hardening CI #289 completed successfully. The real macOS validation then proved:
-
-```text
-PRIVATE_HELPER_REFERENCE=NO
-UNRELATED_CONFIG_PRESERVED=YES
-UWA_ROOT_CONTRACT=PASS
-UWA_PROVIDER_CONTRACT=PASS
-MODEL_SPECIFIC_OVERRIDES_CLEARED=YES
-RESTORE_STATE=PRESENT
-OLD_PID=67555
-NEW_PID=29522
-LISTENER_REPLACED=YES
-SERVICE=healthy
-BROWSER_CONNECTED=True
-HEALTH_PASS=YES
-VERSIONED_PROVIDER_SWITCH_LIVE_PASS
-```
-
-Operator-script caveat: the local venv lacked pytest, so the focused local pytest command did not execute even though a later unconditional echo printed `FOCUSED_TESTS=PASS`. That echo is ignored. Regression evidence comes from successful CI #289; live provider/restart/health evidence comes from the macOS run.
-
-Detailed record: `docs/CODEX_UWA_PROVIDER_SWITCH_MIGRATION_2026-09-08.md`.
+Lifecycle, Memories handling, and UWA provider switching are repository-managed. The normal `codex-uwa` path no longer executes `~/.uwa/config_switch.py`. CI and macOS live validation proved listener replacement, provider contract preservation, restore state, and healthy UWA/browser state.
 
 ## WebCodex architecture review
 
-`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 reference. Official Codex remains the local executor; WebCodex's Server/Runner execution layer is not copied.
+`yyjeqhc/webcodex` was reviewed as an Apache-2.0 design reference. Official Codex remains the local executor. Reliability lessons incorporated into later gates include request-loss versus execution-loss separation, uncertain-effect reconciliation, identity/generation fencing, bounded diagnostics and distinct concurrency planes.
 
-High-value reliability lessons incorporated into later acceptance design include request-loss versus execution-loss separation, uncertain-effect reconciliation before retry, stable identity versus process/browser generation, bounded diagnostics, fail-closed capability compatibility and distinct concurrency planes.
+## P1.2 live history
 
-Detailed audit: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
+### Attempt 1
 
-## Current gate: P1.2 real macOS large-context run
+Seed plus seven filler continuations succeeded. Round 8 failed with SSE idle timeout. Successful turns exposed all-zero Responses token usage.
 
-P1.2 is current. The automated acceptance runner is implemented in `tools/codex_large_context_acceptance.py`; `tools/codex_large_context_live.py` preserves UWA log evidence even when a Codex turn exits non-zero.
+Repairs:
 
-The first real macOS run completed the seed plus seven exact filler continuations, then round 8 failed with `idle timeout waiting for SSE`. Diagnostics showed completed turns had real usage objects whose token fields were all zero. Upstream Codex inspection confirmed two compatibility gaps: comment-only heartbeats do not reset its parsed-event idle timer, and native auto-compaction depends on accumulated session token usage.
+- comment heartbeat -> parseable `response.in_progress` SSE heartbeat;
+- conservative fallback usage only when real non-zero usage is unavailable;
+- failed-turn UWA evidence harvesting.
 
-The bridge now emits parseable `response.in_progress` heartbeats during long browser-backed work and supplies a conservative bounded usage estimate only when real non-zero usage is unavailable. Security hardening CI #313 completed successfully for the final stream-compat + failed-turn evidence wrapper head.
+Security hardening CI #313 passed. A real macOS smoke then proved the repaired runtime was loaded and Codex received non-zero usage (`input_tokens=7113`, `output_tokens=54`).
 
-A real macOS smoke after replacing the UWA listener then proved the repair is active:
+### Attempt 2
 
-```text
-LISTENER_REPLACED=YES
-SERVICE=healthy
-BROWSER_CONNECTED=True
-CODEX_RC=0
-REPLY_EXACT=YES
-INPUT_TOKENS=7113
-OUTPUT_TOKENS=54
-NONZERO_USAGE=YES
-ERROR_COUNT=0
-USAGE_SMOKE_PASS=YES
-CODEX_USAGE_MARKERS=1
-P1_STREAM_USAGE_SMOKE_PASS
-```
-
-Therefore the zero-usage blocker is closed and the next action is the full same-thread large-context rerun. This smoke does not itself prove compaction.
-
-The live runner protocol is:
+The repaired full run produced monotonically growing input usage:
 
 ```text
-seed ORBIT-5921 in conversation only
-→ same Codex thread via exec/resume JSONL
-→ deterministic ~20 KB filler rounds
-→ record input-token usage
-→ scan only newly appended UWA log bytes
-→ require explicit compact success marker
-→ one post-compact filler turn
-→ final token recovery without restating it
-→ real local tool write/read of exact result bytes
-→ independent checker
+21230 -> 42219 -> 70125 -> 104948 -> 146688 -> 195345 -> 250919
 ```
 
-Raw Codex JSONL is private under `~/.uwa/p1-large-context/`; public/synthetic evidence records only bounded counters and booleans. The final prompt prohibits searching `~/.codex`, `~/.uwa`, logs, SQLite, rollout/session history or `PROMPTS.md` for the token.
+Rounds 1-7 returned exact filler ACKs with zero tool effects, but every current-run remote compact counter remained zero. Round 8 failed the filler contract.
 
-Important classification rule: byte volume plus successful recovery proves large-context stress/recovery. Actual compaction is only claimed when the current run has explicit successful `/v1/responses/compact` lifecycle evidence. A recovery-only run is classified `STRESS_PASS_COMPACTION_UNPROVEN` rather than PASS.
+Detailed record: `docs/CODEX_P1_LARGE_CONTEXT_SECOND_LIVE_FAILURE_2026-09-08.md`.
 
-Detailed records:
+## Exact Codex 0.153.4 upstream diagnosis
 
-- `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`
-- `docs/CODEX_P1_LARGE_CONTEXT_LIVE_FAILURE_2026-09-08.md`
-- `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
-- `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
+The installed client version is `0.153.4`. Upstream tag `rust-v0.153.4` resolves to commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
+
+That exact release advertises remote compaction only when a configured provider is recognized as OpenAI or Azure. The current UWA provider is named `Universal Web API` and uses a localhost base URL, so Codex classifies it as `RemoteCompactionSupport::Unsupported`.
+
+This explains why the auto-compaction selector cannot choose the remote `/v1/responses/compact` implementation under the current provider identity. Codex 0.153.4 does retain a local summary-compaction fallback for unsupported providers.
+
+Before changing provider identity, the current diagnostic must determine:
+
+1. the context window actually used by the live Codex thread, not only the 64K value exposed by UWA `/v1/models`;
+2. whether local fallback compaction occurred but was invisible to the remote-route-only acceptance counters;
+3. whether `~/.codex/models_cache.json` differs from the current UWA model catalog;
+4. whether a top-level Codex config override changes context/auto-compact behavior.
+
+Do not repeat the full stress run until these facts are known.
 
 ## Current gate
 
 ```text
-Stage A-F protocol/CLI acceptance           PASS
-aggregate A-F checker                       PASS
-P1.1 compact endpoint + live protocol       PASS
-versioned lifecycle implementation/live     PASS
-versioned provider switch implementation    PASS
-versioned provider switch macOS live        PASS
-P1.2 automated runner implementation/CI     PASS
-P1.2 stream/usage compatibility CI/live     PASS
-P1.2 full macOS large-context live rerun    CURRENT
-P1.3 affinity/restart/uncertain-effect       pending / expanded by WebCodex review
-Desktop UI live gate D1-D5                  pending / mandatory before main
+Stage A-F protocol/CLI acceptance                PASS
+aggregate A-F checker                            PASS
+P1.1 compact endpoint + live protocol            PASS
+versioned lifecycle/provider switch              PASS
+P1.2 stream/usage compatibility                  PASS
+P1.2 second full live                            FAIL
+P1.2 provider capability / model-cache diagnosis CURRENT
+P1.3 affinity/restart/uncertain-effect            pending
+Desktop UI live gate D1-D5                       pending / mandatory
 ```
 
 ## Production-hardening roadmap
@@ -170,7 +113,7 @@ Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
 P2 per-continuation serialization / queue planes / controlled-tab stale-result hardening
 P3 MCP/plugin namespace + capability fidelity + multi-agent/tool fan-out
-P4 successful Responses SSE slimming + bounded trace/transcript hygiene
+P4 Responses SSE slimming + bounded trace/transcript hygiene
 P5 runtime/build identity + compatibility preflight + final regression/release checklist
 ```
 
@@ -180,4 +123,4 @@ Every live result, failure, repair and disruptive checkpoint must be committed b
 
 ## Final merge plan
 
-Merge `codex-web-bridge-v2` into `main` only after compact/large-context/restart hardening, actual Desktop UI acceptance, the real-project pilot, final regression, CI and repository-safety checks are green and the handoff documentation is current.
+Merge `codex-web-bridge-v2` into `main` only after P1 hardening, actual Desktop UI acceptance, the real-project pilot, final regression, CI, documentation and repository-safety checks are green and the handoff documentation is current.
