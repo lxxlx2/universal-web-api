@@ -75,22 +75,28 @@ POST /v1/responses/compact
 
 首次本机 runtime probe 已确认旧版本 UWA 的实际行为：OpenAPI 没有该 route，直接 POST 返回 `404 Not Found`。
 
-P1.1 现在已经完成 compact endpoint 实现和回归覆盖：
+P1.1 已实现 compact endpoint 并通过单元/回归测试与 GitHub Actions Security hardening #220。随后进行的首个 post-implementation macOS live probe 得到：
 
 ```text
-app/api/codex_compact.py
-tests/test_codex_responses_compact.py
+COMPACT_ROUTE_REGISTERED=YES
+COMPACT_HTTP_CODE=500
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=NO
+OUTPUT_COUNT=0
+MARKER_PRESERVED=NO
+TASK_PRESERVED=NO
 ```
 
-实现保持 compaction 期间不调用客户端工具，不额外固定模型或 reasoning，通过现有 ChatGPT Web 路径生成可继续任务的 replacement-history assistant summary，并以 `{"output": [...]}` 返回。GitHub Actions Security hardening #220 已对实现/测试 head `5cccbcf4...` 验证为 `success`。
+因此当前结论是：route registration PASS，CI/regression PASS，但真实 compact handler 仍存在未覆盖的运行时异常，P1.1 不能判定 PASS，P1.2 large-context 继续阻塞。当前先提取本机 traceback，补 route-level 回归后再修复，不盲改。
 
 当前顺序：
 
 ```text
 P1.0 首次 /v1/responses/compact runtime probe       DONE: 404 confirmed
-P1.1 compact endpoint 实现 + regression + CI        PASS
-P1.1 post-implementation 本机 direct compact probe  NEXT
-P1.2 synthetic large-context compaction / recovery   pending
+P1.1 compact endpoint 实现 + regression + CI        DONE, CI PASS
+P1.1 post-implementation direct compact probe        FAIL: HTTP 500
+P1.1 traceback + route-level reproduction + repair   CURRENT
+P1.2 synthetic large-context compaction / recovery   BLOCKED
 P1.3 lost-affinity / restart fallback 深化验证       pending
 Desktop live gate D1-D5                              required before real-project/final merge
 P1.4 真实项目长任务 pilot                            pending
@@ -105,6 +111,7 @@ P5   final regression / operator docs / release checklist
 - `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
 - `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
 - `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
+- `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## 连续性设计
