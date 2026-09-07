@@ -19,7 +19,7 @@ versioned UWA lifecycle CI/live            PASS
 versioned UWA provider switch CI/live      PASS
 P1.2 stream compatibility CI #313          PASS
 P1.2 non-zero usage macOS smoke            PASS
-P1.2 second full large-context run         FAIL
+P1.2 second full large-context run         FAIL / runner threshold defect identified
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
@@ -47,7 +47,7 @@ Security hardening CI #313 passed. A real macOS smoke then proved non-zero usage
 
 ### Attempt 2
 
-The repaired run produced growing usage:
+The repaired run produced growing CLI cumulative usage:
 
 ```text
 21230 -> 42219 -> 70125 -> 104948 -> 146688 -> 195345 -> 250919
@@ -55,7 +55,7 @@ The repaired run produced growing usage:
 
 Rounds 1-7 returned exact filler ACKs with zero tool effects, but `/v1/responses/compact` route/success counters remained zero. Round 8 failed the filler contract.
 
-### Model catalog/cache diagnosis
+### Catalog/config/rollout diagnosis
 
 Read-only live inspection proved:
 
@@ -67,27 +67,46 @@ cached truncation limit          57600
 live UWA truncation limit        57600
 model_context_window override    none
 model_auto_compact override      none
-visible compact lifecycle 1-7    none
+persisted TokenCount events      9
+persisted model context window   60800
 ```
 
-Therefore stale catalog, larger cached context, and top-level context/compact overrides are closed hypotheses.
+The actual rollout preserved token usage across resume. Safe `last_tokens` values progressed:
 
-The exact installed Codex release was checked against upstream tag `rust-v0.153.4`, commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
+```text
+7213 -> 14130 -> 21047 -> 27964 -> 34881 -> 41798 -> 48715 -> 55632
+```
 
-Two source facts are now established:
+So stale catalog, missing TokenCount persistence, and resume token-loss are closed hypotheses.
 
-1. the custom UWA provider is classified `RemoteCompactionSupport::Unsupported`, because Codex 0.153.4 only enables remote compaction for recognized OpenAI/Azure providers;
-2. Codex 0.153.4 already restores token usage on resume/fork from the latest persisted `EventMsg::TokenCount`. Normal `response.completed` handling records token usage, emits `TokenCount`, and ordinary events are persisted into rollout storage.
+### Exact Codex 0.153.4 behavior
 
-Therefore a fresh `codex exec resume` process does not inherently discard prior usage. The previous hypothesis that process restart alone explained the missing compact trigger is rejected.
+The installed release was checked against upstream tag `rust-v0.153.4`, commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
 
-### Current diagnostic boundary
+Confirmed facts:
 
-The next fact to establish is whether the actual P1.2 thread rollout contains the expected persisted `TokenCount` events and safe numeric token totals before the later resumed filler turns.
+1. `context_window_token_status()` uses active-context usage derived from `last_token_usage.total_tokens` plus any items added after the last model-generated item; it does not use lifetime cumulative `total_token_usage.total_tokens` as the active context size.
+2. The hard effective context limit is `64000 * 95% = 60800`.
+3. Round 7 therefore ended at about `55,632`, still below the hard limit.
+4. `run_turn()` executes pre-turn compaction before context updates and before the new user message are recorded. The exact release source contains a TODO noting that pending incoming items are not yet estimated for this decision.
+5. The old runner then injected another 20KB filler after that pre-turn check, allowing round 8 to jump across the window boundary before a later turn could observe an already-over-limit previous context.
 
-If the rollout has no usable TokenCount state, the usage persistence/restoration chain remains the blocker. If it contains over-threshold usage before a later turn, the fault moves to pre-turn token-limit/compaction selection.
+Therefore attempt 2 is now classified primarily as an acceptance-runner threshold-crossing defect. It is not evidence that Codex failed to run a pre-turn compact after observing an already-over-limit active context.
 
-Do not rerun the stress test and do not change provider identity until this is known.
+A separate provider-capability fact remains: the UWA custom provider is `RemoteCompactionSupport::Unsupported` in Codex 0.153.4, so a genuine auto-compact trigger should currently select the local fallback path rather than remote `/v1/responses/compact`.
+
+### Next live gate
+
+Do not change provider identity yet. First rerun with a much smaller filler step near the effective window so one successful response can finish slightly above 60,800. The following turn must be tiny, allowing Codex's next pre-turn check to observe the over-limit persisted state and exercise auto-compaction deterministically.
+
+This probe will distinguish:
+
+```text
+threshold trigger works -> local fallback observed under current provider
+threshold trigger still absent -> investigate Codex trigger/persistence mismatch
+```
+
+Only after the trigger is proven should the project introduce or reject a narrow remote-compaction capability shim.
 
 Detailed records:
 
@@ -104,8 +123,9 @@ Detailed records:
 P1.1 compact endpoint + direct live             PASS
 versioned lifecycle/provider switch             PASS
 P1.2 stream/usage compatibility CI/live         PASS
-P1.2 second full large-context live             FAIL
-P1.2 rollout TokenCount persistence diagnosis   CURRENT
+P1.2 rollout TokenCount persistence             PASS
+P1.2 attempt-2 root cause                       runner threshold-crossing defect
+P1.2 small-step auto-compact trigger probe      CURRENT
 P1.3 lost-affinity/restart fallback             pending / expanded
 Desktop UI D1-D5                                pending / mandatory before main
 ```
