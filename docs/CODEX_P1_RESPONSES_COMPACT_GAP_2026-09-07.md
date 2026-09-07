@@ -65,7 +65,7 @@ Regression coverage checks route registration, model/reasoning preservation, too
 
 GitHub Actions `Security hardening` run #220 for implementation/test head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed with `success`.
 
-## Post-implementation live result: FAIL
+## Post-implementation live result: FAIL, root cause confirmed
 
 After pulling the implementation, restarting UWA and confirming health, the operator observed:
 
@@ -79,17 +79,28 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-The synthetic probe used harmless marker `ALPHA-42` and asked the compact path to preserve the current compact-protocol task.
+The traceback then identified the exact failure:
 
-This means registration and helper-level regression coverage are insufficient. The real FastAPI/backing-response path still has an unhandled runtime exception. P1.1 remains open and P1.2 large-context stress remains blocked.
+```text
+TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
+```
+
+The compact backing request and assistant replacement output had already succeeded. The request failed only when `app/api/codex_compact.py` tried to log success using stdlib logging interpolation arguments. UWA's `SecureLogger.info()` accepts exactly one message argument.
+
+The same incompatible pattern also existed on the backing-error `logger.warning()` branch and was repaired proactively.
 
 A dedicated incident record is in `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`.
 
-## Current diagnostic hypothesis
+## Repair
 
-In `app/api/codex_compact.py`, web-mode preparation and `_run_chat_completion_final()` are already inside an exception boundary that converts exceptions to structured `502` responses. The observed raw `500` therefore points more strongly to an exception before that block or after the backing request, such as request adaptation, payload sanitization, output conversion, or another route-level path.
+The narrow repair:
 
-This is explicitly a hypothesis until the local UWA traceback is inspected.
+- changes compact success/error logging to single preformatted messages;
+- adds full route-level success coverage with a one-argument logger;
+- adds full backing-error route coverage with a one-argument logger;
+- keeps all compaction protocol behavior otherwise unchanged.
+
+Repair commit: `2e1a1f36960a253d67e105e6a0da84d0a7b56fe5`.
 
 ## Classification
 
@@ -101,23 +112,23 @@ aggregate A-F checker                 PASS
 P1 compact contract inspection        DONE
 initial runtime compact probe         DONE: 404 confirmed
 compact endpoint implementation       DONE
-compact regression + CI               PASS
+pre-repair compact regression + CI    PASS
 post-implementation runtime probe     FAIL: HTTP 500
-traceback / route-level reproduction  CURRENT
+traceback root cause                  CONFIRMED: SecureLogger signature
+narrow repair + route regressions     DONE
+repair CI                             NEXT
+post-repair macOS live rerun          blocked on CI
 large-context stress/recovery         BLOCKED
 Desktop UI live gate                  required before main merge
 ```
 
 ## Next sequence
 
-1. extract only the relevant local UWA traceback around the compact request;
-2. reproduce the exact failing route-level path in regression coverage;
-3. implement the smallest repair;
-4. require CI green;
-5. rerun the same direct compact call and require HTTP 200 plus an assistant message inside `output`;
-6. add the synthetic large-context workload;
-7. require an observable compaction lifecycle item plus post-compaction context recovery;
-8. deepen lost-affinity/restart validation;
-9. run the mandatory Desktop UI live gate before the real-project/final merge gate.
+1. require repair CI green;
+2. rerun the exact same direct compact call and require HTTP 200 plus an assistant message inside `output`;
+3. add the synthetic large-context workload;
+4. require an observable compaction lifecycle item plus post-compaction context recovery;
+5. deepen lost-affinity/restart validation;
+6. run the mandatory Desktop UI live gate before the real-project/final merge gate.
 
 No private runtime state, conversation identifiers, cookies, logs or Responses SQLite contents are included in this record.
