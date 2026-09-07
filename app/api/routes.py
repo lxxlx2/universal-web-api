@@ -22,10 +22,14 @@ from app.api.provider import router as provider_router
 from app.services.codex_required_tool_language_patch import (
     install_codex_required_tool_language_patch,
 )
+from app.services.codex_workspace_refusal_language_patch import (
+    install_codex_workspace_refusal_language_patch,
+)
 from app.services.codex_v2_runtime_hardening import install_codex_v2_runtime_hardening
 
 
 install_codex_required_tool_language_patch()
+install_codex_workspace_refusal_language_patch()
 
 # Install the transport boundary after the V2 module is imported and before the
 # first request can reach its router. Optional tracing/persistence/affinity
