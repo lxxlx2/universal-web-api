@@ -39,22 +39,23 @@ Responses tool round trip                 PASS
 P1.1 Responses compact direct live        PASS
 versioned lifecycle/provider switch       PASS
 P1.2 stream/usage compatibility           PASS
-P1.2 second full large-context live       FAIL
-P1.2 rollout TokenCount diagnosis         CURRENT
+P1.2 rollout TokenCount persistence       PASS
+P1.2 attempt-2 threshold diagnosis        PASS
+P1.2 small-step auto-compact trigger      CURRENT
 Codex Desktop UI live gate                REQUIRED BEFORE MAIN MERGE
 ```
 
 P1.2 第一次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼容缺口。修复后 Security hardening CI #313 与真实 macOS non-zero usage smoke 均 PASS。
 
-第二次完整实测中，同一 Codex thread 的 input usage 从 `21230` 连续增长到 `250919`，但 rounds 1-7 没有当前 run 的 `/v1/responses/compact` route/success marker，round 8 filler contract FAIL。
+第二次完整实测中，CLI 累计 input usage 从 `21230` 连续增长到 `250919`，但 rounds 1-7 没有当前 run 的 `/v1/responses/compact` marker，round 8 filler contract FAIL。
 
-只读诊断确认 cached/live model catalog 都是 64K context、57,600 truncation limit，且没有顶层 context-window 或 auto-compact override，因此 stale cache 与配置覆盖已排除。
+后续只读诊断确认 cached/live model catalog 都是 64K，真实 rollout 中有 9 个持久化 `TokenCount`，`model_context_window=60800`，并且 resume usage 恢复链路正常。
 
-精确核对实际安装版本：Codex `0.153.4` 对应 `rust-v0.153.4` / commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`。该版本只把 OpenAI 或 Azure identity 的 configured provider 标记为 remote compaction V2；当前 UWA provider 因此是 `RemoteCompactionSupport::Unsupported`，但仍保留 local auto-compaction fallback。
+精确核对 Codex `0.153.4` / `rust-v0.153.4` / commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a` 后，第二次失败已重新归因：Codex 的 active-context 判断使用最近一次 response 的 `last_token_usage`，round 7 结束时为 `55,632 < 60,800`；而 `run_turn()` 的 pre-turn compaction 在本轮新 user message 被记录之前执行。旧 runner 随后一次追加 20KB filler，导致 round 8 在 compact check 之后直接跨过窗口边界。
 
-同一版本源码还确认：resume/fork 会从 rollout 中最后一个 `EventMsg::TokenCount` 恢复 token usage；正常 `response.completed` 会记录 usage 并发送 `TokenCount`，普通 event 默认会持久化进 rollout。因此“每次 `codex exec resume` 都天然丢 usage”这一假设已被否定。
+因此当前不再把 attempt 2 视为“Codex 已观察到超阈值状态却拒绝 compact”的证据。下一步改为小步接近 60,800，使一轮成功结束时 active context 略超阈值，再用极小下一轮触发真正的 pre-turn auto-compact。
 
-当前唯一下一步是只读检查本次真实 P1.2 rollout 中是否存在 `TokenCount`，以及其安全的 numeric token totals / model context window。确认前不重复完整 stress run，也不手工把 provider 改成 `OpenAI`/`Azure`。
+另一个独立事实仍然成立：当前 `Universal Web API` 自定义 provider 在 Codex 0.153.4 中被判定为 `RemoteCompactionSupport::Unsupported`，所以真实 auto-compact 触发后应先看到 local fallback；remote `/v1/responses/compact` capability 作为后续独立 gate 处理，暂不伪装 OpenAI/Azure provider。
 
 ## 当前 P1.2 证据文档
 
@@ -112,7 +113,7 @@ python3 tools/codex_provider_switch.py official
 ## 后续路线
 
 ```text
-P1.2 rollout TokenCount diagnosis → native compact/recovery
+P1.2 small-step auto-compact trigger → remote capability/recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
