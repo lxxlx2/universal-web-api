@@ -51,12 +51,6 @@ Stage F 收口后的第一次完整 checker 曾出现 `git_diff: FAIL`。当时 
 
 修复后在同一个真实 acceptance workspace 中直接重跑：
 
-```bash
-python3 tools/codex_desktop_acceptance.py check
-```
-
-最终结果：
-
 ```text
 multi_file: PASS
 failure_recovery: PASS
@@ -66,26 +60,37 @@ context: PASS
 ACCEPTANCE_PASS
 ```
 
-这确认 Stage C checker 修复有效，同时 A-F 现有机器证据在 aggregate 模式下保持一致。
+因此 A-F aggregate regression 已正式关闭为 PASS。
+
+## P1 large-context 当前入口
+
+P1 开始前检查了当前 Codex 的 compaction transport contract。上游 Codex 在 remote compaction 时会调用：
+
+```text
+POST /v1/responses/compact
+```
+
+当前 `codex-web-bridge-v2` 的 V2、legacy Codex Responses adapter 和通用 Responses 路由代码中尚未注册这个 endpoint。P1 因此先处理 compaction 协议兼容，再生成大量 synthetic context。这样可以要求真实 `contextCompaction` 证据和压缩后的上下文恢复，而不是只验证“对话足够长”。
+
+当前顺序：
+
+```text
+P1.0 本机 /v1/responses/compact runtime probe
+P1.1 compact endpoint 实现 + regression + CI
+P1.2 synthetic large-context compaction / stress / recovery
+P1.3 lost-affinity / restart fallback 深化验证
+P1.4 真实项目长任务 pilot
+P2   并发请求 / queue / controlled-tab 稳定性
+P3   MCP / plugin namespace 与 multi-agent / tool fan-out
+P4   Responses SSE slimming 与 ChatGPT Web transcript hygiene
+P5   final regression / operator docs / release checklist
+```
 
 详细记录：
 
 - `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
 - `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
-
-## 当前推进顺序
-
-A-F 基础验收和 aggregate regression 已关闭。下一阶段进入生产化稳定性验证：
-
-```text
-P1 large-context compaction / stress / recovery
-P1 lost-affinity / restart fallback 深化验证
-P1 真实项目长任务 pilot
-P2 并发请求 / queue / controlled-tab 稳定性
-P3 MCP / plugin namespace 与 multi-agent / tool fan-out
-P4 Responses SSE slimming 与 ChatGPT Web transcript hygiene
-P5 final regression / operator docs / release checklist
-```
+- `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
 
 ## 连续性设计
 
