@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from tools import codex_large_context_acceptance as base
+import codex_large_context_acceptance as base
 
 
 _ORIGINAL_RUN_CODEX_TURN = base._run_codex_turn
@@ -39,9 +39,12 @@ def run_turn_preserving_failure_evidence(
         return original(**kwargs)
     except RuntimeError:
         trace_path = Path(kwargs["trace_path"])
-        text = trace_path.read_text(encoding="utf-8", errors="replace") if trace_path.exists() else ""
-        observation = base.parse_exec_jsonl(text, _returncode_from_trace(text))
-        return observation
+        text = (
+            trace_path.read_text(encoding="utf-8", errors="replace")
+            if trace_path.exists()
+            else ""
+        )
+        return base.parse_exec_jsonl(text, _returncode_from_trace(text))
 
 
 def _live_run_codex_turn(**kwargs: Any):
