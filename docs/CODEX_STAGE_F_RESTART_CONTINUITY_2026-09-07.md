@@ -22,11 +22,11 @@ context/result.txt after turn 1: ABSENT
 
 The Stage F context token therefore remained conversation-only before restart. The public repository intentionally does not record the live Codex thread identifier.
 
-The turn was executed through `codex exec`. That client process exited after turn 1, so the later `codex exec resume` invocation also exercises Codex CLI process restart.
+The turn was executed through `codex exec`. That client process exited after turn 1, so the later `codex exec resume` invocation also exercised Codex CLI process restart.
 
 ## UWA restart checkpoint
 
-The disruptive UWA restart boundary has been verified.
+The disruptive UWA restart boundary was verified.
 
 Observed evidence:
 
@@ -49,7 +49,7 @@ This proves that Stage F crossed a real UWA process restart and that the process
 
 ## Post-restart same-thread resume checkpoint
 
-The same Codex thread was resumed successfully after the UWA restart.
+The same Codex thread resumed successfully after the UWA restart.
 
 Observed evidence:
 
@@ -71,24 +71,22 @@ The token was therefore recovered across a real UWA restart from the surviving c
 
 No live process id, thread id, browser conversation id, local log content, SQLite content, or other private runtime identifier is committed.
 
-## Final gate
+## Independent checker
 
-Run the independent acceptance checker:
+The final independent acceptance checker was run without resetting the fixture:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py check --scenario context
 ```
 
-Required result:
+Observed result:
 
 ```text
 context: PASS
 ACCEPTANCE_PASS
 ```
 
-Do not prepare or reset the context fixture before this checker.
-
-## Status
+## Final status
 
 ```text
 Stage F turn 1 pre-restart baseline   PASS
@@ -97,10 +95,16 @@ process-local web affinity cleared     PASS
 same-thread post-restart resume        PASS
 real local tool execution              PASS
 CONTEXT_PASS                            PASS
-independent context checker            NEXT
-Stage F overall                        IN PROGRESS
+independent context checker            PASS
+Stage F overall                        PASS
 ```
+
+Stage F is closed. This is the first completed live proof that the Codex + UWA workflow can survive a real UWA restart, lose process-local affinity, recover the same Codex thread without repeating the context token, resume real local tool execution, and still pass an independent checker.
+
+## Next engineering phase
+
+Proceed to production-hardening validation: long-context stress/recovery, deeper lost-affinity fallback coverage, and a real-project long-task pilot before final regression and merge to `main`.
 
 ## Recording rule
 
-Every disruptive Stage F checkpoint is committed before the next step so another collaborator can recover project state without relying on the current chat.
+Every disruptive checkpoint and final acceptance result is committed before the next step so another collaborator can recover project state without relying on the current chat.
