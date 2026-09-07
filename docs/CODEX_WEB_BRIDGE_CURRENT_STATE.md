@@ -23,169 +23,120 @@ real exec_command / native cwd             PASS
 Responses tool round trip                  PASS
 required-tool enforcement                  PASS
 call-id / web-session continuation         PASS
-P1.1 Responses compact live                PASS
-versioned UWA lifecycle CI                 PASS
-versioned UWA lifecycle live               PASS
-versioned UWA provider switch CI           PASS
-versioned UWA provider switch live         PASS
+P1.1 Responses compact direct live         PASS
+versioned UWA lifecycle CI/live            PASS
+versioned UWA provider switch CI/live      PASS
 P1.2 stream compatibility CI #313          PASS
 P1.2 non-zero usage macOS smoke            PASS
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
-Stage F crossed a real UWA restart. Process-local affinity was confirmed destroyed (`binding_count=4 -> 0`), then the same Codex thread resumed without repeating the token, executed a real local command, restored `EMBER-7319\n`, returned `CONTEXT_PASS`, and passed the independent checker.
-
-Important evidence boundary: the final Stage E/F runs were machine-audited primarily via `codex exec` / `codex exec resume`. They prove the Responses/thread/local-tool/restart chain, but they do not close the Desktop UI gate. The additional cases are defined in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
-
-## Aggregate A-F regression incident: CLOSED
-
-The first post-Stage-F aggregate run hit a Stage C harness false failure caused by unrelated `PROMPTS.md`, `__pycache__` and `.pyc` artifacts. The checker was narrowed to tracked diffs under `git_diff/`, regression coverage was added, and the unchanged existing workspace then passed every scenario plus `ACCEPTANCE_PASS`.
-
 ## P1.1 compact protocol: PASS
 
-P1.1 implemented `POST /v1/responses/compact`. The first live HTTP 500 was traced to an incompatible stdlib-style logger call. That defect and the equivalent warning branch were repaired with single-argument preformatted messages plus route-level regressions. Security hardening CI #239 passed.
+`POST /v1/responses/compact` is implemented and direct macOS live validation returned HTTP 200 with valid compact output after the stale-listener incident was repaired. Detailed records remain in the P1.1 incident and lifecycle documents.
 
-A later rerun still returned the old logger signature error because TCP 8199 was still served by a process that predated the repair. After verifying listener ownership, clearing the port, starting a different UWA PID and rerunning the unchanged compact probe, the direct macOS runtime returned HTTP 200 with valid assistant `output` while preserving both the marker and task semantics.
+## Versioned lifecycle/provider switch: PASS
 
-P1.1 compact is closed as PASS.
-
-## Versioned UWA lifecycle: PASS
-
-The old local lifecycle scripts had two defects:
-
-1. stop sent TERM and reported success without proving TCP 8199 was empty;
-2. start reused any already-healthy listener, so `git pull` could leave stale loaded bytecode active.
-
-The authoritative implementation is repository-tracked in `tools/codex_uwa_lifecycle.py`, with thin user commands installed by `tools/install_codex_uwa_commands.py`.
-
-Real macOS evidence included a clean stop, a different listener PID, matching repository cwd, healthy service and connected browser. Detailed record: `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`.
-
-## Versioned UWA provider switch: PASS
-
-The former private helper `~/.uwa/config_switch.py uwa` was inspected and its UWA contract migrated into `tools/codex_provider_switch.py uwa`.
-
-The installed `codex-uwa` wrapper now depends only on repository-managed logic:
-
-```text
-codex_uwa_memory_guard.py disable
-codex_provider_switch.py uwa
-codex_uwa_lifecycle.py restart
-```
-
-Real macOS validation proved:
-
-```text
-PRIVATE_HELPER_REFERENCE=NO
-UNRELATED_CONFIG_PRESERVED=YES
-UWA_ROOT_CONTRACT=PASS
-UWA_PROVIDER_CONTRACT=PASS
-MODEL_SPECIFIC_OVERRIDES_CLEARED=YES
-RESTORE_STATE=PRESENT
-OLD_PID=67555
-NEW_PID=29522
-LISTENER_REPLACED=YES
-SERVICE=healthy
-BROWSER_CONNECTED=True
-HEALTH_PASS=YES
-VERSIONED_PROVIDER_SWITCH_LIVE_PASS
-```
-
-Security hardening CI #289 completed successfully for the provider/wrapper implementation.
-
-One operator-script caveat is recorded explicitly: local focused pytest did not execute because the local venv lacked pytest, while an unconditional echo printed `FOCUSED_TESTS=PASS`. That line is not counted as test evidence. CI #289 supplies regression evidence; the live macOS run supplies real configuration/restart/health evidence.
-
-Detailed record: `docs/CODEX_UWA_PROVIDER_SWITCH_MIGRATION_2026-09-08.md`.
+UWA lifecycle, provider switching and Memories handling are repository-managed. The normal `codex-uwa` path no longer executes `~/.uwa/config_switch.py`. Real macOS validation proved listener replacement, provider contract preservation, restore state and healthy UWA/browser state.
 
 ## Current gate: P1.2 native Codex large-context compaction / recovery
 
-The final known Git-external executable dependency in the normal UWA entry path is closed. P1.2 is a synthetic, machine-auditable long-context test that exercises native Codex continuation and `/v1/responses/compact` behavior rather than merely proving that a large file can be read.
+### First full live attempt
 
-The first full macOS attempt seeded the conversation-only token and completed seven exact filler continuations, then round 8 failed with `stream disconnected before completion: idle timeout waiting for SSE`. Bounded private diagnostics showed successful turns contained real `turn.completed.usage` objects whose token fields were all zero.
+The first macOS P1.2 run completed the seed and seven filler turns, then round 8 failed with `idle timeout waiting for SSE`. Successful turns also reported all-zero Responses usage.
 
-Upstream Codex inspection confirmed two protocol gaps:
+Two protocol repairs followed:
 
-1. its idle timer waits for parsed SSE events, so UWA's previous comment-only heartbeat did not reset that timer;
-2. native auto-compaction depends on accumulated session token usage, so all-zero usage prevented the threshold from ever becoming reachable.
+1. comment-only heartbeats were replaced with real `response.in_progress` SSE events so Codex's parsed-event idle timer sees activity;
+2. when real non-zero usage is unavailable, UWA supplies a bounded conservative local usage estimate so Codex can observe context growth.
 
-The repair in `app/services/codex_stream_compat.py` now emits semantically inert `response.in_progress` events as real heartbeats and supplies a conservative bounded local usage estimate only when real non-zero Responses usage is unavailable. `tools/codex_large_context_live.py` also preserves failed-turn UWA evidence before classification. Security hardening CI #313 passed for the final implementation.
-
-A real macOS smoke then restarted onto the repaired code and proved non-zero usage reaches Codex:
+The failed-turn evidence path was also repaired. Security hardening CI #313 passed, and a real macOS smoke then proved:
 
 ```text
 LISTENER_REPLACED=YES
 SERVICE=healthy
 BROWSER_CONNECTED=True
-HEALTH_PASS=YES
-CODEX_RC=0
-REPLY_EXACT=YES
 INPUT_TOKENS=7113
 OUTPUT_TOKENS=54
 NONZERO_USAGE=YES
-ERROR_COUNT=0
 USAGE_SMOKE_PASS=YES
 CODEX_USAGE_MARKERS=1
 P1_STREAM_USAGE_SMOKE_PASS
 ```
 
-The zero-usage blocker is therefore closed. This smoke does not prove compaction; the current gate is now the full same-thread P1.2 rerun requiring explicit successful `/v1/responses/compact` evidence plus final conversation-only token recovery through a real local tool and independent checker.
+### Second full live attempt: FAIL / diagnosis current
 
-P1.2 must distinguish:
+With the repaired runtime, the same-thread filler run produced positive growing input usage:
 
-- large-context stress from actual compaction evidence;
-- conversation-memory recovery from local-file memory;
-- native Codex thread continuity from UWA web-session affinity;
-- exact success from prose-only claims.
+```text
+round 01   21230
+round 02   42219
+round 03   70125
+round 04  104948
+round 05  146688
+round 06  195345
+round 07  250919
+```
 
-The acceptance shape is:
+All seven completed filler turns had zero local tool effects. Yet every current-run compact counter remained zero:
 
-1. seed a synthetic token only in the conversation;
-2. send deterministic large filler across the same Codex thread without repeating the token;
-3. gather machine-auditable evidence that the compact route was used;
-4. final turn must recover the token without the user restating it, write exact bytes to a result file, read them back and return a fixed pass marker;
-5. independent checker verifies exact bytes and required evidence.
+```text
+COMPACT_ROUTE_DELTA=0
+COMPACT_SUCCESS_DELTA=0
+```
 
-If explicit compaction evidence cannot be proven, classify the run as large-context stress/recovery rather than claiming compaction PASS.
+Round 8 then failed the filler contract (`ACK_EXACT=NO`, no tool effects, no compact marker).
 
-Detailed records:
+The important new upstream finding is confirmed against the exact installed Codex release source, not only upstream `main`: `rust-v0.153.4` resolves to commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
+
+In Codex 0.153.4, configured providers advertise remote compaction only when either:
+
+```text
+provider.name == "OpenAI"
+OR
+is_azure_responses_provider(provider.name, provider.base_url)
+```
+
+The current UWA provider is named `Universal Web API` at localhost, so Codex classifies it as `RemoteCompactionSupport::Unsupported`. That directly explains why native auto-compaction cannot select the remote `/v1/responses/compact` implementation under the current provider identity.
+
+Codex 0.153.4 does have a local summary-compaction fallback for unsupported providers, and its pre-turn logic should invoke an auto-compaction path once the active context reaches the model token limit. Before changing provider identity, the next diagnostic must determine:
+
+1. the model context window actually used by the running Codex thread, not merely the 64K value returned by UWA's `/v1/models` endpoint;
+2. whether any local fallback compaction occurred but was invisible to the current remote-route-only evidence counters;
+3. whether the on-disk/in-memory Codex model catalog cache differs from the current UWA model catalog.
+
+Do not blindly rerun the 24-round stress test before these are resolved.
+
+Detailed P1.2 records:
 
 - `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`
 - `docs/CODEX_P1_LARGE_CONTEXT_LIVE_FAILURE_2026-09-08.md`
+- `docs/CODEX_P1_LARGE_CONTEXT_SECOND_LIVE_FAILURE_2026-09-08.md`
 - `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
 - `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
 
-Current status:
+## Current status
 
 ```text
-P1.1 compact endpoint + direct live         PASS
-versioned lifecycle implementation/live     PASS
-versioned provider switch implementation    PASS
-versioned provider switch macOS live        PASS
-P1.2 stream/usage compatibility CI/live     PASS
-P1.2 full large-context compaction/recovery CURRENT
-P1.3 lost-affinity/restart fallback         pending / expanded
-Desktop UI D1-D5                            pending / mandatory before main
+P1.1 compact endpoint + direct live             PASS
+versioned lifecycle/provider switch             PASS
+P1.2 stream/usage compatibility CI/live         PASS
+P1.2 second full large-context live             FAIL
+P1.2 Codex provider capability/cache diagnosis  CURRENT
+P1.3 lost-affinity/restart fallback             pending / expanded
+Desktop UI D1-D5                                pending / mandatory before main
 ```
-
-## Official-account escape hatch: automated
-
-`python3 tools/codex_provider_switch.py official` is a one-command macOS switch. It automatically quits ChatGPT Desktop/Codex, stops the verified UWA TCP 8199 listener only when its cwd matches this checkout, restores saved Codex Memories settings, removes top-level provider/model/reasoning pins, preserves authentication, and reopens ChatGPT Desktop. No account model or reasoning level is hard-coded in official mode.
 
 ## WebCodex design review
 
-`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 design reference. It does not replace the V2 architecture: official Codex remains the local filesystem/shell/Git/sandbox/approval owner.
-
-Useful reliability lessons incorporated into later gates include request-loss versus execution-loss separation, uncertain-effect reconciliation before retry, stable identity versus process/browser generation fencing, fail-closed capability compatibility, bounded diagnostics and distinct concurrency planes.
-
-Detailed audit: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
+`yyjeqhc/webcodex` remains an Apache-2.0 design reference. Official Codex stays the local execution authority. Reliability lessons incorporated into later gates include uncertain-effect reconciliation, separate identity domains, generation fencing, bounded diagnostics and distinct concurrency planes.
 
 ## Continuity layers
 
 1. Codex Desktop / CLI thread history.
 2. Private UWA Responses persistence at `~/.uwa/codex_responses.sqlite3`.
 3. Process-local ChatGPT web-session / call-id affinity.
-4. Git tracked handoff documents as long-term project truth.
-
-P1.3 will formalize the identity boundary further: Codex thread, Responses `response_id`, tool `call_id`, ChatGPT `/c/...` affinity, UWA process generation, controlled-tab generation and Codex-owned local process state are separate domains and must never be inferred from one another.
+4. Git-tracked handoff documents as long-term project truth.
 
 ## Production-hardening order
 
@@ -206,7 +157,7 @@ Every completed stage, important failure, repair and disruptive checkpoint is co
 
 ## Merge policy
 
-Do not merge into `main` yet. Merge only after compact/large-context/restart hardening, the Desktop UI gate, real-project pilot, final regression, CI, documentation and public repository safety checks are green.
+Do not merge into `main` yet. Merge only after P1 hardening, Desktop UI acceptance, the real-project pilot, final regression, CI, documentation and public-repository safety checks are green.
 
 ## Public repository safety
 
