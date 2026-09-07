@@ -23,6 +23,7 @@ real exec_command / native cwd             PASS
 Responses tool round trip                  PASS
 required-tool enforcement                  PASS
 call-id / web-session continuation         PASS
+P1.1 Responses compact live                PASS
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
@@ -32,55 +33,42 @@ Important evidence boundary: the final Stage E/F runs were machine-audited prima
 
 ## Aggregate A-F regression incident: CLOSED
 
-The first post-Stage-F aggregate run hit a Stage C harness false failure caused by unrelated `PROMPTS.md`, `__pycache__` and `.pyc` artifacts. The checker was narrowed to tracked diffs under `git_diff/`, regression coverage was added, and the unchanged existing workspace then passed:
+The first post-Stage-F aggregate run hit a Stage C harness false failure caused by unrelated `PROMPTS.md`, `__pycache__` and `.pyc` artifacts. The checker was narrowed to tracked diffs under `git_diff/`, regression coverage was added, and the unchanged existing workspace then passed every scenario plus `ACCEPTANCE_PASS`.
 
-```text
-multi_file: PASS
-failure_recovery: PASS
-git_diff: PASS
-interactive: PASS
-context: PASS
-ACCEPTANCE_PASS
-```
-
-Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
-
-## Current P1 gate: stale UWA runtime confirmed
+## P1.1 compact protocol: PASS
 
 P1.1 implemented `POST /v1/responses/compact`. The first live HTTP 500 was traced to an incompatible stdlib-style logger call. That defect and the equivalent warning branch were repaired with single-argument preformatted messages plus route-level regressions. Security hardening CI #239 for repair code commit `7c6d7ff` passed.
 
-The post-repair probe still returned the same old logger signature error. Listener and fresh-import inspection has now proven why:
+A later rerun still returned the old logger signature error even though the repaired source and fresh interpreter bytecode were correct. Listener inspection proved the reason: TCP 8199 was still served by an old process that predated the repair. The normal stop/start workflow had reported success without replacing the real listener.
+
+The operator then terminated the verified repository listener, proved TCP 8199 was empty, started UWA again, required a different listener PID, confirmed `/health`, and reran the unchanged compact probe. Final live evidence:
 
 ```text
-TCP 8199 listener PID          19974
-listener start time            2026-09-07 18:00:52 local
-listener cwd                   /Users/jerson/universal-web-api
-fresh module path              repaired checkout
-fresh logger.info signature    (msg: str)
-fresh source                   one-argument f-string call
-fresh bytecode                 CALL 1
+PORT_8199_EMPTY=YES
+LISTENER_REPLACED=YES
+COMPACT_HTTP_CODE=200
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=YES
+OUTPUT_COUNT=1
+OUTPUT_0_TYPE=message ROLE=assistant
+MARKER_PRESERVED=YES
+TASK_PRESERVED=YES
 ```
 
-The listener started before the repair was deployed, while a fresh interpreter imports the repaired one-argument bytecode. The post-repair 500 was therefore served by stale loaded bytecode in the old UWA process. This is now CONFIRMED and is not evidence of a second compact-handler defect.
+P1.1 is therefore closed as PASS. The stale-runtime incident is not a second compact-handler defect; it is a separate UWA process-lifecycle defect that must be hardened before restart-heavy P1.2/P1.3 testing.
 
 Current status:
 
 ```text
-route registration                         PASS
-first live 500 root cause                  CONFIRMED: SecureLogger signature
-first repair + route regressions           DONE
-first repair CI                            PASS: #239
-fresh source/import                        PASS
-fresh logger bytecode                      PASS: CALL 1
-actual 8199 listener freshness             FAIL: predates repair
-stale UWA runtime                          CONFIRMED
-current blocker                            process lifecycle / real restart
-P1.1 live compact acceptance               BLOCKED on fresh listener
-P1.2 large-context                         BLOCKED until P1.1 PASS
-Desktop UI D1-D5                           pending / mandatory before main
+P1.1 compact endpoint implementation        PASS
+P1.1 route-level regressions                PASS
+P1.1 repair CI                              PASS
+P1.1 fresh-listener macOS direct probe      PASS: HTTP 200
+UWA stop/start listener lifecycle           CURRENT
+P1.2 large-context compaction/recovery      NEXT after lifecycle hardening
+P1.3 lost-affinity/restart fallback         pending
+Desktop UI D1-D5                            pending / mandatory before main
 ```
-
-Immediate path: terminate the verified repository listener on 8199, prove the port is empty, start UWA from the updated checkout, require a new PID/start time, rerun the unchanged compact probe, then harden `codex-uwa-stop` so it cannot silently leave an old listener alive.
 
 Detailed records:
 
@@ -88,9 +76,11 @@ Detailed records:
 - `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
-## Official-account escape hatch
+## Official-account escape hatch: automated
 
-`tools/codex_provider_switch.py official` backs up `~/.codex/config.toml`, removes only top-level provider/model/reasoning pins, keeps the UWA provider definition, and leaves authentication untouched. After fully restarting ChatGPT Desktop, the signed-in ChatGPT account/workspace controls model availability; no model or reasoning level is hard-coded by the restore procedure.
+`python3 tools/codex_provider_switch.py official` is now designed as a one-command macOS switch. It automatically quits ChatGPT Desktop/Codex, stops the verified UWA TCP 8199 listener only when its cwd matches this checkout, restores the saved Codex Memories settings, removes only top-level provider/model/reasoning pins, preserves authentication and the `[model_providers.uwa]` definition, then reopens ChatGPT Desktop. No model or reasoning level is hard-coded.
+
+The script fails closed if it cannot prove the listener belongs to this repository or cannot reopen a supported Desktop application. Manual quit/reopen is fallback only, not the normal documented workflow.
 
 ## Continuity layers
 
@@ -102,8 +92,7 @@ Detailed records:
 ## Production-hardening order
 
 ```text
-P1 replace stale UWA listener + close direct compact live gate
-P1 harden codex-uwa-stop restart lifecycle
+P1 harden real UWA stop/start listener lifecycle
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 Desktop UI live acceptance D1-D5
