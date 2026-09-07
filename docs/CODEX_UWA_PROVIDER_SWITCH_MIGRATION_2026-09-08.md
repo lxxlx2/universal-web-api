@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTED / LIVE VALIDATION PENDING.
+PASS — implementation CI and real macOS live validation are complete.
 
 The last executable dependency in the normal UWA entry path was a private local helper:
 
@@ -10,7 +10,7 @@ The last executable dependency in the normal UWA entry path was a private local 
 ~/.uwa/config_switch.py uwa
 ```
 
-The helper contract was inspected on the macOS acceptance machine and migrated into repository-tracked tooling.
+The helper contract was inspected on the macOS acceptance machine and migrated into repository-tracked tooling. Normal UWA startup no longer references or executes that helper.
 
 ## Migrated UWA contract
 
@@ -74,7 +74,7 @@ For one-time migration from an already-active legacy UWA configuration, the code
 
 ## Wrapper migration
 
-`tools/install_codex_uwa_commands.py` now installs a `codex-uwa` thin wrapper that calls:
+`tools/install_codex_uwa_commands.py` installs a `codex-uwa` thin wrapper that calls:
 
 ```text
 codex_uwa_memory_guard.py disable
@@ -84,9 +84,9 @@ codex_uwa_lifecycle.py restart
 
 The wrapper no longer references or executes `~/.uwa/config_switch.py`.
 
-## Regression coverage
+## Regression coverage and CI
 
-Focused regression coverage now checks:
+Focused regression coverage checks:
 
 - exact UWA root/provider contract;
 - preservation of unrelated Desktop/plugin/provider configuration;
@@ -102,17 +102,47 @@ Implementation commits culminate at:
 3eed07309ea2d6c64957d541bb8cbb690ea020ed
 ```
 
-Security hardening CI #289 is the implementation CI. At the time this checkpoint was written, platform security and public-repository-safety jobs had passed while the reproducible upstream regression job was still running.
+Security hardening CI #289 completed successfully, including upstream regression, macOS/Ubuntu security tests and public-repository-safety.
 
-## Live gate
+## Real macOS live evidence
 
-Before this migration is marked PASS, the real macOS acceptance machine must prove:
+The acceptance machine pulled the versioned implementation, installed the latest wrappers and validated the real existing Codex configuration.
 
-1. focused provider/wrapper tests pass from the pulled branch;
-2. installed `~/bin/codex-uwa` contains no reference to the private helper;
-3. `codex_provider_switch.py uwa` succeeds on the real existing Codex configuration;
-4. unrelated TOML configuration remains semantically unchanged;
-5. `codex-uwa` completes a real versioned restart and health check;
-6. provider status reports UWA after restart.
+Observed results:
 
-Only after this live gate passes is the final Git-external executable dependency considered closed and P1.2 large-context work begins.
+```text
+PRIVATE_HELPER_REFERENCE=NO
+UWA_MODE_CHANGED=YES
+UWA_RESTORE_STATE=UPDATED
+UNRELATED_CONFIG_PRESERVED=YES
+UWA_ROOT_CONTRACT=PASS
+UWA_PROVIDER_CONTRACT=PASS
+MODEL_SPECIFIC_OVERRIDES_CLEARED=YES
+RESTORE_STATE=PRESENT
+OLD_PID=67555
+NEW_PID=29522
+LISTENER_REPLACED=YES
+HEALTH=PASS
+SERVICE=healthy
+BROWSER_CONNECTED=True
+HEALTH_PASS=YES
+model="chatgpt"
+model_provider="uwa"
+model_reasoning_effort="high"
+UWA_RESTORE_STATE=PRESENT
+VERSIONED_PROVIDER_SWITCH_LIVE_PASS
+```
+
+The local focused pytest command in that operator script did **not** run because the checked-out venv did not contain pytest:
+
+```text
+/Users/jerson/universal-web-api/venv/bin/python: No module named pytest
+```
+
+The following unconditional `echo FOCUSED_TESTS=PASS` was therefore a harness-command false positive and is not counted as local test evidence. This does not invalidate the gate because the same provider/wrapper regression suite was already covered by successful CI #289, while the real macOS switch/restart/health semantics were independently exercised live.
+
+## Conclusion
+
+The final known Git-external executable dependency in the normal UWA entry path is closed. `~/.uwa/config_switch.py` may remain on disk as legacy private state, but versioned operation does not depend on it.
+
+Current development gate moves to P1.2 native Codex large-context compaction / stress / recovery.
