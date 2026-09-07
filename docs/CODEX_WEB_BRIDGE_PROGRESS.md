@@ -27,16 +27,7 @@ single-tool / single-web-conversation gate  PASS
 
 ## Aggregate checker false failure: CLOSED
 
-The first aggregate checker run after Stage F returned only `git_diff: FAIL`. The Stage C implementation evidence was still healthy (`values_ok=True`, `diff_check=0`), and the unexpected paths were generated `PROMPTS.md`, `__pycache__`, and `.pyc` artifacts outside Stage C.
-
-Repair commits:
-
-```text
-b9235d9  Scope git diff acceptance to Stage C tracked files
-d9543b5  Cover aggregate Stage C checker artifacts
-```
-
-The repaired checker now audits tracked diffs only under `git_diff/` and still requires `git_diff/config.py` to be the sole tracked Stage C modification.
+The first aggregate checker run after Stage F returned only `git_diff: FAIL`; the checker repair now scopes Stage C change auditing to tracked diffs under `git_diff/` while still rejecting tracked edits to Stage C tests or requirements.
 
 The operator reran the full checker in the existing workspace without cleaning generated artifacts and obtained:
 
@@ -49,28 +40,41 @@ context: PASS
 ACCEPTANCE_PASS
 ```
 
-This closes the incident and proves the fix addresses the real aggregate-workspace shape rather than a freshly cleaned fixture.
+Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-Detailed record:
+## P1 discovery: compact endpoint prerequisite
 
-`docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
+Before generating large synthetic context, the current upstream Codex compaction path was inspected. Remote compaction posts to:
+
+```text
+/v1/responses/compact
+```
+
+and the current Codex client consumes a JSON `output` array of Responses items. Compaction is also observable through context-compaction lifecycle items.
+
+Current UWA branch inspection found no `/v1/responses/compact` route in the V2 adapter, legacy Codex Responses adapter, or generic Responses adapter. This is classified as a P1 protocol blocker, not an A-F regression.
+
+Detailed record: `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`.
 
 ## Current gate
 
 ```text
 Stage A-F live acceptance                 PASS
-post-Stage-F aggregate checker            PASS
-harness repair implementation             DONE
-regression coverage                        DONE
-P1 large-context acceptance                NEXT
+aggregate A-F checker                     PASS
+P1 compact contract inspection            DONE
+local /v1/responses/compact runtime probe  NEXT
+compact endpoint implementation           pending
+large-context compaction stress            blocked on protocol support
 ```
 
 ## Production-hardening roadmap
 
 ```text
-P1 large-context compaction / stress / recovery
-P1 lost-affinity / restart fallback deeper validation
-P1 real-project long-task pilot
+P1.0 compact runtime probe
+P1.1 compact endpoint + regression + CI
+P1.2 large-context compaction / stress / recovery
+P1.3 lost-affinity / restart fallback deeper validation
+P1.4 real-project long-task pilot
 P2 concurrent request / queue / controlled-tab hardening
 P3 advanced MCP/plugin namespace coverage
 P3 multi-agent/tool fan-out coverage
