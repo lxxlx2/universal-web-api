@@ -9,99 +9,98 @@
 ## Verified macOS milestones
 
 ```text
-single-file coding loop                     PASS
-Stage A multi-file coding loop              PASS
-Stage B failure recovery                    PASS
-Stage C Git diff discipline                 PASS
-Stage D long process + write_stdin          PASS
-Stage E same-thread context continuity      PASS
-Stage F Codex + UWA restart continuity      PASS
+Stage A-F protocol/CLI acceptance           PASS
 aggregate A-F checker                       PASS
-real exec_command / native cwd              PASS
-Responses function_call round trip          PASS
-required-tool repair                        PASS
-duplicate required-tool suppression         PASS
-call-id continuation affinity               PASS
-single-tool / single-web-conversation gate  PASS
+Responses tool/call-id continuity           PASS
 P1.1 Responses compact direct live          PASS
-versioned UWA lifecycle CI                  PASS
-versioned UWA lifecycle macOS live          PASS
-versioned UWA provider switch CI            PASS
-versioned UWA provider switch macOS live    PASS
+versioned lifecycle/provider switch CI/live PASS
 P1.2 automated runner CI                    PASS
 P1.2 stream compatibility CI #313           PASS
 P1.2 non-zero usage macOS smoke             PASS
+P1.2 second full large-context live         FAIL
 ```
 
-Evidence note: the final Stage E/F runs were audited primarily through `codex exec` / `codex exec resume`. They close the protocol/CLI continuity gate but do not close actual ChatGPT Desktop UI acceptance. A mandatory Desktop D1-D5 gate is tracked in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
-
-## P1 compact protocol: CLOSED PASS
-
-P1.1 implemented `/v1/responses/compact` and direct macOS validation returned HTTP 200 with valid compact output after the stale-listener lifecycle defect was repaired.
-
-## Lifecycle/provider switch: CLOSED PASS
-
-Lifecycle, Memories handling, and UWA provider switching are repository-managed. The normal `codex-uwa` path no longer executes `~/.uwa/config_switch.py`. CI and macOS live validation proved listener replacement, provider contract preservation, restore state, and healthy UWA/browser state.
-
-## WebCodex architecture review
-
-`yyjeqhc/webcodex` was reviewed as an Apache-2.0 design reference. Official Codex remains the local executor. Reliability lessons incorporated into later gates include request-loss versus execution-loss separation, uncertain-effect reconciliation, identity/generation fencing, bounded diagnostics and distinct concurrency planes.
+Stage E/F remain protocol/CLI evidence and do not close the mandatory Desktop D1-D5 gate.
 
 ## P1.2 live history
 
 ### Attempt 1
 
-Seed plus seven filler continuations succeeded. Round 8 failed with SSE idle timeout. Successful turns exposed all-zero Responses token usage.
+Seed plus seven filler continuations succeeded; round 8 failed with SSE idle timeout. Successful turns exposed all-zero Responses usage.
 
 Repairs:
 
-- comment heartbeat -> parseable `response.in_progress` SSE heartbeat;
-- conservative fallback usage only when real non-zero usage is unavailable;
-- failed-turn UWA evidence harvesting.
+- parseable `response.in_progress` heartbeat;
+- bounded fallback usage when real usage is absent/zero;
+- failed-turn evidence harvesting.
 
-Security hardening CI #313 passed. A real macOS smoke then proved the repaired runtime was loaded and Codex received non-zero usage (`input_tokens=7113`, `output_tokens=54`).
+CI #313 passed, followed by a real non-zero-usage macOS smoke.
 
 ### Attempt 2
 
-The repaired full run produced monotonically growing input usage:
+The repaired full run reported:
 
 ```text
 21230 -> 42219 -> 70125 -> 104948 -> 146688 -> 195345 -> 250919
 ```
 
-Rounds 1-7 returned exact filler ACKs with zero tool effects, but every current-run remote compact counter remained zero. Round 8 failed the filler contract.
+Rounds 1-7 returned exact filler ACKs with zero tool effects and zero remote compact counters. Round 8 failed the filler contract.
 
-Detailed record: `docs/CODEX_P1_LARGE_CONTEXT_SECOND_LIVE_FAILURE_2026-09-08.md`.
+## Read-only catalog/config diagnosis
 
-## Exact Codex 0.153.4 upstream diagnosis
+Live inspection established:
 
-The installed client version is `0.153.4`. Upstream tag `rust-v0.153.4` resolves to commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
+```text
+Codex version                 0.153.4
+cache client version          0.153.4
+cache context window          64000
+live context window           64000
+cache truncation limit        57600
+live truncation limit         57600
+context override              none
+auto-compact override         none
+visible compact lifecycle     none
+```
 
-That exact release advertises remote compaction only when a configured provider is recognized as OpenAI or Azure. The current UWA provider is named `Universal Web API` and uses a localhost base URL, so Codex classifies it as `RemoteCompactionSupport::Unsupported`.
+So stale model cache, a larger effective catalog window, and explicit top-level overrides are closed hypotheses.
 
-This explains why the auto-compaction selector cannot choose the remote `/v1/responses/compact` implementation under the current provider identity. Codex 0.153.4 does retain a local summary-compaction fallback for unsupported providers.
+## Exact Codex 0.153.4 source diagnosis
 
-Before changing provider identity, the current diagnostic must determine:
+`rust-v0.153.4` resolves to upstream commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
 
-1. the context window actually used by the live Codex thread, not only the 64K value exposed by UWA `/v1/models`;
-2. whether local fallback compaction occurred but was invisible to the remote-route-only acceptance counters;
-3. whether `~/.codex/models_cache.json` differs from the current UWA model catalog;
-4. whether a top-level Codex config override changes context/auto-compact behavior.
+Confirmed source facts:
 
-Do not repeat the full stress run until these facts are known.
+1. UWA's custom provider identity is `RemoteCompactionSupport::Unsupported`; remote compact is enabled only for recognized OpenAI/Azure providers.
+2. Unsupported providers retain a local auto-compaction fallback.
+3. Resume/fork already restores token state from the latest persisted `EventMsg::TokenCount`.
+4. Normal `response.completed` handling records token usage, emits `TokenCount`, and ordinary events are persisted into rollout storage.
+
+Therefore the earlier hypothesis that each fresh `codex exec resume` inherently loses token accounting is rejected.
 
 ## Current gate
 
+The next read-only check is the actual P1.2 rollout. We need only bounded event-type and numeric token evidence:
+
 ```text
-Stage A-F protocol/CLI acceptance                PASS
-aggregate A-F checker                            PASS
-P1.1 compact endpoint + live protocol            PASS
-versioned lifecycle/provider switch              PASS
-P1.2 stream/usage compatibility                  PASS
-P1.2 second full live                            FAIL
-P1.2 provider capability / model-cache diagnosis CURRENT
-P1.3 affinity/restart/uncertain-effect            pending
-Desktop UI live gate D1-D5                       pending / mandatory
+Does the rollout contain TokenCount events?
+If yes, what are total/last token values and model_context_window?
+Did an over-threshold TokenCount exist before a later resumed turn?
+```
+
+Do not print prompts, IDs, response bodies, tool payloads or the full rollout. Do not rerun the large-context test or change provider identity before this is known.
+
+Detailed record: `docs/CODEX_P1_MODEL_CACHE_RESUME_DIAG_2026-09-08.md`.
+
+## Current status
+
+```text
+P1.1 compact endpoint + live protocol             PASS
+versioned lifecycle/provider switch               PASS
+P1.2 stream/usage compatibility                    PASS
+P1.2 second full live                              FAIL
+P1.2 rollout TokenCount persistence diagnosis      CURRENT
+P1.3 affinity/restart/uncertain-effect              pending
+Desktop UI live gate D1-D5                         pending / mandatory
 ```
 
 ## Production-hardening roadmap
@@ -123,4 +122,4 @@ Every live result, failure, repair and disruptive checkpoint must be committed b
 
 ## Final merge plan
 
-Merge `codex-web-bridge-v2` into `main` only after P1 hardening, actual Desktop UI acceptance, the real-project pilot, final regression, CI, documentation and repository-safety checks are green and the handoff documentation is current.
+Merge `codex-web-bridge-v2` into `main` only after P1 hardening, actual Desktop UI acceptance, the real-project pilot, final regression, CI, documentation and repository-safety checks are green.
