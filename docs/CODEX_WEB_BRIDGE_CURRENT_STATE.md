@@ -45,23 +45,23 @@ ACCEPTANCE_PASS
 
 Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-## Current P1 gate: verify actual 8199 runtime process
+## Current P1 gate: stale UWA runtime confirmed
 
-Upstream Codex remote compaction uses `POST /v1/responses/compact`.
+P1.1 implemented `POST /v1/responses/compact`. The first live HTTP 500 was traced to an incompatible stdlib-style logger call. That defect and the equivalent warning branch were repaired with single-argument preformatted messages plus route-level regressions. Security hardening CI #239 for repair code commit `7c6d7ff` passed.
 
-P1.1 implemented the route. The first live HTTP 500 was traced to an incompatible stdlib-style logger call. That defect and the equivalent warning branch were repaired with single-argument preformatted messages plus route-level regressions. Security hardening CI #239 for repair code commit `7c6d7ff` passed.
-
-After pulling through `b3f37ac`, verifying the repaired source line, restarting UWA and rerunning the unchanged probe, the request still returned HTTP 500. The fresh traceback again reported:
+The post-repair probe still returned the same old logger signature error. Listener and fresh-import inspection has now proven why:
 
 ```text
-File ".../app/api/codex_compact.py", line 179, in codex_responses_compact
-    logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
-TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
+TCP 8199 listener PID          19974
+listener start time            2026-09-07 18:00:52 local
+listener cwd                   /Users/jerson/universal-web-api
+fresh module path              repaired checkout
+fresh logger.info signature    (msg: str)
+fresh source                   one-argument f-string call
+fresh bytecode                 CALL 1
 ```
 
-The displayed source has one explicit argument, while the exception requires two explicit arguments to have been passed. Those facts cannot both describe the same loaded function bytecode.
-
-Current evidence therefore points to stale runtime state: the TCP 8199 listener may still be executing the pre-repair `codex_responses_compact` function object while traceback line rendering reads the updated source file from disk. This is a hypothesis, not yet a confirmed root cause.
+The listener started before the repair was deployed, while a fresh interpreter imports the repaired one-argument bytecode. The post-repair 500 was therefore served by stale loaded bytecode in the old UWA process. This is now CONFIRMED and is not evidence of a second compact-handler defect.
 
 Current status:
 
@@ -70,15 +70,17 @@ route registration                         PASS
 first live 500 root cause                  CONFIRMED: SecureLogger signature
 first repair + route regressions           DONE
 first repair CI                            PASS: #239
-post-repair direct compact request         FAIL: HTTP 500
-fresh traceback                            SAME OLD SIGNATURE ERROR
-stale-runtime hypothesis                   STRONG / UNCONFIRMED
-listener PID/start-time/import inspection  NEXT
-P1.2 large-context                         BLOCKED until live compact PASS
+fresh source/import                        PASS
+fresh logger bytecode                      PASS: CALL 1
+actual 8199 listener freshness             FAIL: predates repair
+stale UWA runtime                          CONFIRMED
+current blocker                            process lifecycle / real restart
+P1.1 live compact acceptance               BLOCKED on fresh listener
+P1.2 large-context                         BLOCKED until P1.1 PASS
 Desktop UI D1-D5                           pending / mandatory before main
 ```
 
-Do not add another compact protocol code change until the actual 8199 process boundary is proven fresh.
+Immediate path: terminate the verified repository listener on 8199, prove the port is empty, start UWA from the updated checkout, require a new PID/start time, rerun the unchanged compact probe, then harden `codex-uwa-stop` so it cannot silently leave an old listener alive.
 
 Detailed records:
 
@@ -100,8 +102,8 @@ Detailed records:
 ## Production-hardening order
 
 ```text
-P1 verify compact listener process freshness
-P1 rerun direct compact protocol acceptance
+P1 replace stale UWA listener + close direct compact live gate
+P1 harden codex-uwa-stop restart lifecycle
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 Desktop UI live acceptance D1-D5
