@@ -86,7 +86,7 @@ OUTPUT_IS_LIST=NO
 
 随后 traceback 已锁定根因：compact 的 backing 请求和 assistant replacement output 已成功，最后一行成功日志使用了 stdlib logging 的多参数插值调用，而本项目 `SecureLogger.info()` 只接受一个 message 参数。相同问题也存在于 backing-error 的 `logger.warning()` 分支。
 
-当前窄修复已经完成：compact 的 `info/warning` 都改为单参数预格式化消息，并补充 route-level success/error regression，专门用只接受一个参数的 logger 复现这类兼容性问题。下一步等待修复 CI，再运行同一条 macOS direct compact probe；在拿到 HTTP 200 和有效 `output` 前，P1.2 large-context 仍保持 blocked。
+窄修复已经完成：compact 的 `info/warning` 都改为单参数预格式化消息，并补充 route-level success/error regression，专门用只接受一个参数的 logger 覆盖这类兼容性问题。修复代码 commit `7c6d7ff` 的 Security hardening CI #239 已 `success`。下一步是在 macOS 上重跑完全相同的 direct compact probe；在拿到 HTTP 200 和有效 `output` 前，P1.2 large-context 仍保持 blocked。
 
 当前顺序：
 
@@ -96,8 +96,8 @@ P1.1 compact endpoint 实现                           DONE
 P1.1 首次 post-implementation live probe             FAIL: HTTP 500
 P1.1 traceback root cause                            CONFIRMED
 P1.1 SecureLogger repair + route regressions         DONE
-P1.1 repair CI                                       NEXT
-P1.1 post-repair macOS live rerun                    blocked on CI
+P1.1 repair CI                                       PASS: #239
+P1.1 post-repair macOS live rerun                    NEXT
 P1.2 synthetic large-context compaction / recovery   blocked on live compact acceptance
 P1.3 lost-affinity / restart fallback 深化验证       pending
 Desktop live gate D1-D5                              required before real-project/final merge
