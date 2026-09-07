@@ -28,6 +28,7 @@ versioned UWA lifecycle CI                  PASS
 versioned UWA lifecycle macOS live          PASS
 versioned UWA provider switch CI            PASS
 versioned UWA provider switch macOS live    PASS
+P1.2 automated runner CI                    PASS
 ```
 
 Evidence note: the final Stage E/F runs were audited primarily through `codex exec` / `codex exec resume`. They close the protocol/CLI continuity gate but do not close actual ChatGPT Desktop UI acceptance. A mandatory Desktop D1-D5 gate is tracked in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
@@ -83,31 +84,38 @@ Detailed record: `docs/CODEX_UWA_PROVIDER_SWITCH_MIGRATION_2026-09-08.md`.
 
 ## WebCodex architecture review
 
-`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 reference. Official Codex remains the local executor; WebCodex's Server/Runner execution layer is not copied.
+`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 reference. Official Codex remains the local executor; WebCodex's Server/Runner execution layer is not copied.
 
 High-value reliability lessons incorporated into later acceptance design include request-loss versus execution-loss separation, uncertain-effect reconciliation before retry, stable identity versus process/browser generation, bounded diagnostics, fail-closed capability compatibility and distinct concurrency planes.
 
 Detailed audit: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
 
-## Current gate: P1.2 large-context compaction / recovery
+## Current gate: P1.2 real macOS large-context run
 
-P1.2 is now current.
+P1.2 is current. The automated acceptance runner is now implemented in `tools/codex_large_context_acceptance.py`, covered by `tests/test_codex_large_context_acceptance.py`, and compiled/regressed by CI.
 
-The test must exercise conversation context growth and native Codex compaction/recovery, not just reading a large file. The current design direction is:
+Security hardening CI #300 (`34151173565`) completed successfully on `ab5a857c353530aced4a907a61e46f74ef8b46b1`, including upstream regression, macOS/Ubuntu security matrices and public-repository-safety.
+
+The live runner protocol is:
 
 ```text
-seed synthetic token in conversation only
-→ same Codex thread
-→ deterministic multi-turn large filler with token absent
-→ machine-auditable compact-route evidence when available
-→ final turn recovers original token without restating it
-→ writes exact token bytes to result file
-→ reads them back
-→ fixed LARGE_CONTEXT_PASS marker
+seed ORBIT-5921 in conversation only
+→ same Codex thread via exec/resume JSONL
+→ deterministic ~20 KB filler rounds
+→ record input-token usage
+→ scan only newly appended UWA log bytes
+→ require explicit compact success marker
+→ one post-compact filler turn
+→ final token recovery without restating it
+→ real local tool write/read of exact result bytes
 → independent checker
 ```
 
-Important classification rule: byte volume plus successful recovery proves large-context stress/recovery. Actual compaction is only claimed when the run has explicit route/lifecycle evidence that `/v1/responses/compact` was used.
+Raw Codex JSONL is private under `~/.uwa/p1-large-context/`; public/synthetic evidence records only bounded counters and booleans. The final prompt prohibits searching `~/.codex`, `~/.uwa`, logs, SQLite, rollout/session history or `PROMPTS.md` for the token.
+
+Important classification rule: byte volume plus successful recovery proves large-context stress/recovery. Actual compaction is only claimed when the current run has explicit successful `/v1/responses/compact` lifecycle evidence. A recovery-only run is classified `STRESS_PASS_COMPACTION_UNPROVEN` rather than PASS.
+
+Detailed design and evidence contract: `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`.
 
 ## Current gate
 
@@ -118,7 +126,8 @@ P1.1 compact endpoint + live protocol       PASS
 versioned lifecycle implementation/live     PASS
 versioned provider switch implementation    PASS
 versioned provider switch macOS live        PASS
-P1.2 large-context compaction/recovery       CURRENT
+P1.2 automated runner implementation/CI     PASS
+P1.2 real macOS large-context live          CURRENT
 P1.3 affinity/restart/uncertain-effect       pending / expanded by WebCodex review
 Desktop UI live gate D1-D5                  pending / mandatory before main
 ```
