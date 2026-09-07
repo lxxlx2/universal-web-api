@@ -45,37 +45,23 @@ ACCEPTANCE_PASS
 
 Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-## Current P1 gate: second compact traceback
+## Current P1 gate: verify actual 8199 runtime process
 
-Upstream Codex remote compaction uses:
+Upstream Codex remote compaction uses `POST /v1/responses/compact`.
 
-```text
-POST /v1/responses/compact
-```
+P1.1 implemented the route. The first live HTTP 500 was traced to an incompatible stdlib-style logger call. That defect and the equivalent warning branch were repaired with single-argument preformatted messages plus route-level regressions. Security hardening CI #239 for repair code commit `7c6d7ff` passed.
 
-The initial code/runtime gap was confirmed by `COMPACT_ROUTE_REGISTERED=NO` and HTTP 404. P1.1 then added the route and helper regressions.
-
-The first post-implementation macOS probe reached the route but returned HTTP 500. The first traceback proved the compact backing request and assistant replacement output had already succeeded; the failure occurred on the final success log:
+After pulling through `b3f37ac`, verifying the repaired source line, restarting UWA and rerunning the unchanged probe, the request still returned HTTP 500. The fresh traceback again reported:
 
 ```text
+File ".../app/api/codex_compact.py", line 179, in codex_responses_compact
+    logger.info(f"[CODEX_COMPACT] compacted history into {len(output)} assistant item(s)")
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
 ```
 
-That logger incompatibility and the equivalent latent warning branch were repaired with single-argument preformatted messages. Route-level one-argument logger regressions were added. Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
+The displayed source has one explicit argument, while the exception requires two explicit arguments to have been passed. Those facts cannot both describe the same loaded function bytecode.
 
-The operator then pulled through `b3f37ac`, verified the repaired logger line locally, restarted UWA, confirmed `/health` and compact route registration, and reran the exact same direct compact probe. The result remained:
-
-```text
-COMPACT_ROUTE_REGISTERED=YES
-COMPACT_HTTP_CODE=500
-JSON_PARSE=PASS
-OUTPUT_IS_LIST=NO
-OUTPUT_COUNT=0
-MARKER_PRESERVED=NO
-TASK_PRESERVED=NO
-```
-
-This second live result establishes that the first logger defect is fixed and deployed, while another unhandled runtime path still exists. The second root cause is intentionally unclassified until a fresh post-repair traceback is inspected.
+Current evidence therefore points to stale runtime state: the TCP 8199 listener may still be executing the pre-repair `codex_responses_compact` function object while traceback line rendering reads the updated source file from disk. This is a hypothesis, not yet a confirmed root cause.
 
 Current status:
 
@@ -84,13 +70,15 @@ route registration                         PASS
 first live 500 root cause                  CONFIRMED: SecureLogger signature
 first repair + route regressions           DONE
 first repair CI                            PASS: #239
-post-repair service restart                PASS
-post-repair route registration             PASS
 post-repair direct compact request         FAIL: HTTP 500
-second traceback / root cause              CURRENT / UNKNOWN
+fresh traceback                            SAME OLD SIGNATURE ERROR
+stale-runtime hypothesis                   STRONG / UNCONFIRMED
+listener PID/start-time/import inspection  NEXT
 P1.2 large-context                         BLOCKED until live compact PASS
 Desktop UI D1-D5                           pending / mandatory before main
 ```
+
+Do not add another compact protocol code change until the actual 8199 process boundary is proven fresh.
 
 Detailed records:
 
@@ -112,7 +100,8 @@ Detailed records:
 ## Production-hardening order
 
 ```text
-P1 capture second compact traceback and repair exact path
+P1 verify compact listener process freshness
+P1 rerun direct compact protocol acceptance
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 Desktop UI live acceptance D1-D5
