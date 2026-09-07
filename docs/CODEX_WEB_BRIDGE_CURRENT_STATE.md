@@ -16,9 +16,8 @@ P1.1 Responses compact direct live                PASS
 versioned UWA lifecycle/provider switch CI/live   PASS
 P1.2 stream/usage compatibility                   PASS
 P1.2 rollout TokenCount persistence               PASS
-P1.2 attempt-2 threshold diagnosis                PASS
-P1.2 small-step trigger implementation/CI #340    PASS
-P1.2 native auto-compact trigger macOS live       PASS
+P1.2 native auto-compact trigger/local fallback   PASS
+P1.2 remote-capability shim implementation/CI     PASS (#351)
 Codex Desktop UI live gate                        REQUIRED / pending
 ```
 
@@ -30,34 +29,13 @@ Attempt 2 used fixed 20KB filler. The private rollout preserved `TokenCount`, bu
 
 ## Native auto-compact trigger: PASS
 
-A dedicated versioned probe approached the threshold correctly. Safe live evidence:
-
-```text
-active last tokens
-14205
-21122
-28039
-34956
-41873
-48790
-55707
-56568
-57429
-58290
-```
-
-Decisive transition:
+The dedicated small-step probe crossed the threshold safely:
 
 ```text
 57429 < 57600
 58290 > 57600
 PRE_TRIGGER_OVER_HARD_CAP=NO
 PRE_TRIGGER_ROLLOUT_COMPACT_MARKERS=0
-```
-
-The following tiny turn produced:
-
-```text
 TRIGGER_REPLY_EXACT=YES
 TRIGGER_TOOL_EFFECTS=0
 ROLLOUT_COMPACT_MARKER_DELTA=1
@@ -72,11 +50,50 @@ This proves the Codex 0.153.4 threshold trigger, TokenCount persistence/resume r
 
 Detailed live record: `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`.
 
-## Current gate: remote compaction capability
+## Remote compaction capability audit / implementation
 
-P1.1 already proves UWA's `POST /v1/responses/compact` endpoint directly works. The remaining P1.2 compatibility blocker is that Codex 0.153.4 classifies the normal `Universal Web API` custom provider as `RemoteCompactionSupport::Unsupported`, so native auto-compact chooses local fallback instead of the remote endpoint.
+Exact Codex 0.153.4 source shows configured providers get remote compaction V2 only when `is_openai()` or `is_azure_responses_provider(...)` is true.
 
-Do not blindly rename the provider to `OpenAI`. The next gate is exact-release capability analysis: identify the narrowest safe way to enable remote compaction without enabling unrelated provider-specific behavior. Inspect the provider classifier and all relevant Azure/provider-name branches first; then implement regression coverage before live validation.
+Using the broad `OpenAI` identity is rejected because `is_openai()` controls unrelated backend behavior. The narrow compatibility choice is the configured UWA provider display name `Azure`, while keeping:
+
+```text
+provider id                   uwa
+base_url                      http://127.0.0.1:8199/v1
+wire_api                      responses
+requires_openai_auth          false
+supports_websockets           false
+is_openai()                   false
+remote_compaction             V2
+```
+
+Remote V2 still targets the same provider-relative `responses/compact` route. Known side effect: `codex doctor` skips its own `/models` reachability probe for Azure-classified providers; normal runtime models management remains provider-backed.
+
+Versioned fail-closed implementation:
+
+- `tools/codex_remote_compaction_compat.py`
+- `tests/test_codex_remote_compaction_compat.py`
+
+The helper changes only the managed UWA provider `name` after verifying the full loopback/auth/wire contract. Security hardening #351 / run `34164070091`, head `127ed09fbb1f8941ff4332db72bf498fb9f80287`, completed `success`.
+
+Detailed audit: `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`.
+
+## Current gate
+
+Real macOS remote-compaction live validation is CURRENT. Apply the versioned compatibility helper to the managed UWA config, verify the safe contract, then rerun the small-step threshold probe.
+
+Required evidence:
+
+```text
+THRESHOLD_CROSSED=YES
+PRE_TRIGGER_OVER_HARD_CAP=NO
+REMOTE_COMPACT_ROUTE_DELTA>=1
+REMOTE_COMPACT_SUCCESS_DELTA>=1
+ROLLOUT_COMPACT_MARKER_DELTA>=1
+AUTO_COMPACT_MODE=REMOTE
+AUTO_COMPACT_TRIGGER_PROBE_PASS
+```
+
+After that passes, P1.2 still requires same-thread post-remote-compact recovery of the original conversation-only synthetic token through a real local write/read before closure.
 
 ## Current status
 
@@ -85,8 +102,9 @@ P1.1 compact endpoint + direct live                PASS
 versioned lifecycle/provider switch                PASS
 P1.2 stream/usage compatibility                    PASS
 P1.2 TokenCount persistence                        PASS
-P1.2 native auto-compact trigger/local fallback    PASS
-P1.2 remote compact capability                     CURRENT
+P1.2 native trigger/local fallback                 PASS
+P1.2 remote capability shim CI                     PASS
+P1.2 native remote compact macOS live              CURRENT
 P1.3 lost-affinity/restart + identity fencing      pending
 Desktop UI D1-D5                                   pending / mandatory
 ```
@@ -94,7 +112,7 @@ Desktop UI D1-D5                                   pending / mandatory
 ## Production-hardening order
 
 ```text
-P1.2 remote compact capability + compact/recovery proof
+P1.2 native remote compact live + same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop UI live acceptance D1-D5
 P1.4 real-project long-task pilot
