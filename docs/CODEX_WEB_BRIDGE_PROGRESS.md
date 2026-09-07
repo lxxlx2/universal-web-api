@@ -112,13 +112,13 @@ Important classification rule: byte volume plus successful recovery proves large
 ## Current gate
 
 ```text
-Stage A-F protocol/CLI acceptance          PASS
-aggregate A-F checker                      PASS
-P1.1 compact endpoint + live protocol      PASS
+Stage A-F protocol/CLI acceptance           PASS
+aggregate A-F checker                       PASS
+P1.1 compact endpoint + live protocol       PASS
 versioned lifecycle implementation/live     PASS
 versioned provider switch implementation    PASS
 versioned provider switch macOS live        PASS
-P1.2 large-context compaction/recovery      CURRENT
+P1.2 large-context compaction/recovery       CURRENT
 P1.3 affinity/restart/uncertain-effect       pending / expanded by WebCodex review
 Desktop UI live gate D1-D5                  pending / mandatory before main
 ```
