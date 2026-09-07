@@ -17,6 +17,7 @@
 - Stage A multi-file coding loop: PASS
 - Stage B failure recovery: PASS
 - Stage C Git diff discipline: PASS
+- Stage D long process + `write_stdin`: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -110,24 +111,38 @@ failure_recovery/.run_history
 git_diff/config.py
 ```
 
-## Current gate
+## Stage D verified
 
-Stage D `interactive` is NEXT.
+Stage D `interactive` passed both the independent checker and the metadata wire-evidence gate.
 
-The harness expects a real long-lived local process plus stdin continuation:
+Observed live sequence:
 
 ```text
-workspace guard
-→ start python3 interactive/worker.py
-→ observe READY while process remains alive
-→ use client write_stdin / persistent-process tool on the same process
-→ send GO plus newline
-→ process exits with INTERACTIVE_PASS
-→ interactive/result.txt contains INTERACTIVE_PASS
-→ independent checker passes
+workspace guard: real exec_command
+worker launch: exec_command
+worker remained alive waiting for stdin
+wire trace: write_stdin function_call observed
+write_stdin continuation reused the same ChatGPT Web conversation
+worker produced INTERACTIVE_PASS
+interactive/result.txt contained INTERACTIVE_PASS
+checker: ACCEPTANCE_PASS
 ```
 
-A one-shot shell command that pipes `GO` at process launch does not prove Stage D. The goal is to validate that Codex can keep a process handle/session alive across tool turns and then use `write_stdin` against that same process.
+The terminal UI collapsed the persistent-process interaction into the original `exec` block, so the visible CLI transcript alone was ambiguous. Private metadata trace resolved that ambiguity: a real `write_stdin` function call occurred between the worker launch and the final file check. A one-shot `echo GO | python3 ...` substitution was not used as acceptance evidence.
+
+## Current gate
+
+Stage E same-thread context is NEXT.
+
+The harness uses two prompts that must be delivered in the same Codex thread:
+
+```text
+turn 1: remember EMBER-7319 only in conversation context; do not write it; reply CONTEXT_READY
+turn 2: without asking for the token again, write the remembered token to context/result.txt and verify it
+checker: context/result.txt must equal EMBER-7319 plus one newline
+```
+
+Stage E validates thread-level context continuity separately from project files, UWA SQLite continuation, and Git checkpoints.
 
 ## Remaining acceptance matrix
 
@@ -135,12 +150,12 @@ A one-shot shell command that pipes `GO` at process launch does not prove Stage 
 Stage A multi-file read/edit/test         PASS
 Stage B failure recovery                  PASS
 Stage C Git diff discipline               PASS
-Stage D long process + write_stdin        NEXT
-Stage E same-thread context               pending
+Stage D long process + write_stdin        PASS
+Stage E same-thread context               NEXT
 Stage F UWA/Codex restart                 pending
 ```
 
-## Remaining engineering roadmap after D-F
+## Remaining engineering roadmap after E-F
 
 ```text
 successful Responses SSE payload slimming
