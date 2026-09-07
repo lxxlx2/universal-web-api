@@ -17,16 +17,13 @@ import json
 import os
 import re
 import time
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Dict, List
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.chat import ResponsesRequest, _build_responses_object, _new_response_id, verify_auth
-from app.api.codex_responses import (
-    _require_loopback,
-    codex_aware_responses,
-)
+from app.api.codex_responses import _require_loopback, codex_aware_responses
 from app.services.chatgpt_web_mode import web_mode_enabled
 from app.services.codex_wire_observability import (
     new_trace_id,
@@ -38,14 +35,6 @@ from app.services.codex_wire_observability import (
 
 
 router = APIRouter()
-
-_WORKSPACE_TOOL_NAMES = {
-    "exec_command",
-    "shell_command",
-    "local_shell",
-    "apply_patch",
-    "write_stdin",
-}
 
 _REQUIRED_TOOL_PATTERNS = (
     re.compile(
@@ -274,7 +263,8 @@ async def _strict_required_tool_stream(
             authenticated=authenticated,
         )
         if not isinstance(response, StreamingResponse):
-            yield from _required_tool_failed_events(body, required_tool)
+            for text in _required_tool_failed_events(body, required_tool):
+                yield text
             return
 
         buffered: List[str] = []
@@ -377,8 +367,4 @@ async def codex_responses_v2(
     )
 
 
-__all__ = [
-    "codex_responses_v2",
-    "required_declared_tool",
-    "router",
-]
+__all__ = ["codex_responses_v2", "required_declared_tool", "router"]
