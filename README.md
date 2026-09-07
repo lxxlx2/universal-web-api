@@ -43,7 +43,7 @@ macOS 已验证：
 - Stage C Git diff discipline：PASS
 - Stage D long process + `write_stdin`：PASS
 - Stage E same-thread context：PASS
-- Stage F restart continuity：IN PROGRESS，pre-restart turn 1 PASS
+- Stage F restart continuity：IN PROGRESS，pre-restart turn 1 PASS，UWA restart PASS
 - Responses `function_call -> function_call_output`：PASS
 - required-tool 真 function call：PASS
 - duplicate required-tool suppression：PASS
@@ -52,7 +52,7 @@ macOS 已验证：
 
 Stage E 最终实测中，两轮 Codex thread id 完全一致。第二轮没有再次提供 `EMBER-7319`，Codex 仍从同一 thread 上下文恢复令牌，真实调用本地 `exec_command`，创建并读取 `context/result.txt`，最终返回 `CONTEXT_PASS`。独立 checker 返回 `context: PASS` 和 `ACCEPTANCE_PASS`。
 
-Stage F 已进入实机执行。重启前基线已经确认：fresh context fixture 和 preflight 均通过，新 Codex thread 第一轮返回 `CONTEXT_READY`，且 `context/result.txt` 保持不存在，因此 token 仍只存在于对话上下文。下一步将停止并重启 UWA，清除进程内 web affinity，然后通过 `codex exec resume` 恢复同一 thread，且第二轮不会再次提供 token。
+Stage F 已跨过真实 UWA 重启边界。重启前 fresh context fixture 和 preflight 均通过，新 Codex thread 第一轮返回 `CONTEXT_READY`，且 `context/result.txt` 保持不存在。随后 UWA 真实停止并以新进程启动，健康检查通过，web affinity 从重启前 `binding_count=4` 变为重启后 `binding_count=0`，且接口明确报告 `persistent=false` 与 `fallback=fresh_chat_plus_reconstructed_history`。这确认进程内 affinity 已清空。下一步只验证重启后恢复同一 Codex thread，第二轮不会再次提供 token。
 
 详细记录：
 
@@ -81,7 +81,9 @@ Stage D long process + write_stdin     PASS
 Stage E same-thread context            PASS
 Stage F Codex + UWA restart            IN PROGRESS
   turn 1 pre-restart baseline          PASS
-  UWA restart                          NEXT
+  UWA restart                          PASS
+  process-local affinity cleared       PASS
+  same-thread post-restart resume      NEXT
 真实 exec_command cwd                  PASS
 V2 metadata wire trace                 PASS
 V2 required-tool 真 function_call       PASS
