@@ -80,25 +80,33 @@ same ChatGPT conversation for tool-result continuation
 clean final completion
 ```
 
-## Current next gate
+## Current gate
 
-Stage B: `failure_recovery`.
+Stage B `failure_recovery` is now IN PROGRESS.
 
-Expected sequence:
+The harness requires this exact behavior:
 
 ```text
-initial implementation/test failure
-→ Codex observes real failure
-→ edits implementation only
-→ reruns tests
-→ final success
-→ preserves run evidence required by the acceptance harness
+workspace guard succeeds
+→ audited test command runs and fails for real
+→ first non-zero exit code is appended to failure_recovery/.run_history
+→ Codex reads the real failure
+→ only failure_recovery/parser.py is modified
+→ the identical audited command is rerun until green
+→ final zero exit code is appended to .run_history
+→ checker independently confirms tests green, first history code non-zero, last history code zero, and no unexpected tracked file changes
+```
+
+Audited command used by the harness:
+
+```text
+python3 -m unittest discover -s failure_recovery/tests -v; rc=$?; printf '%s\n' "$rc" >> failure_recovery/.run_history; exit "$rc"
 ```
 
 ## Remaining acceptance matrix
 
 ```text
-Stage B failure recovery              NEXT
+Stage B failure recovery              IN PROGRESS
 Stage C Git diff discipline           pending
 Stage D long process + write_stdin    pending
 Stage E same-thread context           pending
@@ -124,6 +132,7 @@ final operator docs and release checklist
 1f26fae Stop repeated required tools after Codex tool output
 9d38ec1 Cover call-id affinity and one-shot required tools
 60689d2 Record V2 call-id continuation fix
+ec0e60b Mark V2 single-web tool loop verified
 ```
 
 The live PASS is recorded in current-state/README/PR documentation on the same V2 branch.
