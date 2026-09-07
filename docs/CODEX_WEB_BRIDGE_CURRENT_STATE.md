@@ -1,120 +1,110 @@
 # Codex Web Bridge current state
 
-Canonical handoff for the `codex-web-bridge-v2` branch.
+Canonical handoff for `codex-web-bridge-v2`.
 
 ## Goal
 
-Run official Codex Desktop / Codex CLI as the local coding agent while routing model inference through UWA to logged-in ChatGPT Web. Codex remains the local executor for filesystem, shell, edits, tests, Git, sandbox and approval.
+Run official Codex Desktop / Codex CLI as the local coding agent while routing model inference through UWA to logged-in ChatGPT Web. Codex remains authoritative for filesystem, shell, edits, tests, Git, sandbox and approval.
 
-## Verified live capabilities
-
-- ordinary UWA / ChatGPT Web inference: PASS
-- Codex custom provider: PASS
-- GPT-5.6 Sol / High target path: PASS
-- real Codex `exec_command`: PASS
-- Codex native turn cwd inheritance: PASS
-- single-file read/edit/test: PASS
-- Stage A multi-file read/edit/test: PASS
-- Stage B failure recovery: PASS
-- Stage C Git diff discipline: PASS
-- Stage D long process + `write_stdin`: PASS
-- Stage E same-thread context continuity: PASS
-- Stage F Codex + UWA restart continuity: PASS
-- Responses `function_call -> function_call_output`: PASS
-- V2 metadata wire trace: PASS
-- strict required-tool repair to a real client tool call: PASS
-- duplicate required-tool suppression after `function_call_output`: PASS
-- call-id tool-result continuation affinity: PASS
-- single-tool / single-web-conversation gate: PASS
-- client-prefixed Chinese required-tool wording: PASS
-- path-oriented client workspace refusal repair: PASS live rerun
-
-## Latest completed live acceptance
-
-Stage F completed successfully across a real UWA restart.
-
-Verified sequence:
+## Verified live acceptance
 
 ```text
-fresh context fixture prepared: PASS
-context preflight: PASS
-fresh Codex thread created: PASS
-turn 1 reply: CONTEXT_READY
-context/result.txt after turn 1: ABSENT
-real UWA stop: PASS
-UWA listener absent after stop: PASS
-UWA restarted as a different process: PASS
-health after restart: healthy
-web affinity before restart: binding_count=4
-web affinity after restart: binding_count=0
-web affinity persistence: false
-fallback: fresh_chat_plus_reconstructed_history
-same Codex thread resumed after restart: PASS
-THREAD_MATCH=YES
-context_2 did not repeat the token
-real local command execution after restart: PASS
-context/result.txt content: EMBER-7319\n
-assistant reply: CONTEXT_PASS
-web affinity after resume: binding_count=2
-independent checker: context: PASS
-independent checker: ACCEPTANCE_PASS
+single-file coding loop                    PASS
+Stage A multi-file read/edit/test          PASS
+Stage B failure recovery                   PASS
+Stage C Git diff discipline                PASS
+Stage D long process + write_stdin         PASS
+Stage E same-thread context                PASS
+Stage F Codex + UWA restart continuity     PASS
+real exec_command / native cwd             PASS
+Responses tool round trip                  PASS
+required-tool enforcement                  PASS
+call-id / web-session continuation         PASS
 ```
 
-This proves the workflow survived a real UWA process boundary after process-local affinity was destroyed. Recovery still reached the same Codex thread, recovered conversation-only context, and continued with real client-side local execution.
+Stage F crossed a real UWA restart. Process-local affinity was confirmed destroyed (`binding_count=4 -> 0`), then the same Codex thread resumed without repeating the token, executed a real local command, restored `EMBER-7319\n`, returned `CONTEXT_PASS`, and passed the independent checker.
 
-The live thread identifier and runtime process identifiers remain private and are intentionally excluded from Git.
+## Aggregate A-F regression incident
 
-Detailed records:
+After Stage F closure, the operator ran:
 
-- `docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
-- `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
+```bash
+python3 tools/codex_desktop_acceptance.py check
+```
 
-## Acceptance order
+Results:
 
 ```text
-Stage A multi-file read/edit/test        PASS
-Stage B failure recovery                 PASS
-Stage C Git diff discipline              PASS
-Stage D long process + write_stdin       PASS
-Stage E same-thread context              PASS
-Stage F Codex + UWA restart              PASS
+multi_file: PASS
+failure_recovery: PASS
+git_diff: FAIL
+interactive: PASS
+context: PASS
+ACCEPTANCE_FAIL count=1
 ```
+
+The Stage C evidence inside the failure was still healthy:
+
+```text
+values_ok=True
+diff_check=0
+```
+
+The only unexpected paths were harness/runtime artifacts outside the Stage C scope: regenerated `PROMPTS.md`, Python `__pycache__`, and `.pyc` files. This is classified as a harness false failure, not a bridge or Stage C regression.
+
+Detailed record:
+
+`docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
+
+## Repair applied
+
+`tools/codex_desktop_acceptance.py` now evaluates Stage C tracked changes only under `git_diff/` and still allows only:
+
+```text
+git_diff/config.py
+```
+
+A tracked edit to `git_diff/tests/*`, `git_diff/REQUIREMENTS.txt`, or another Stage C path still fails the checker. Other scenarios' artifacts and runtime cache files no longer contaminate the Stage C verdict.
+
+Regression coverage was added for both cases:
+
+1. aggregate workspace artifacts outside `git_diff/` must not fail Stage C;
+2. tracked Stage C test edits must still be rejected.
+
+Current code head containing the repair: `d9543b5`.
+
+CI run #195 is validating that head. A local aggregate rerun is required after CI passes before P1 begins.
 
 ## Continuity layers
 
-Current continuity mechanisms are:
-
 1. Codex Desktop / CLI thread history.
-2. private UWA Responses persistence at `~/.uwa/codex_responses.sqlite3`.
-3. process-local ChatGPT web-session / call-id affinity.
-4. Git tracked handoff documents as the long-term project truth.
+2. Private UWA Responses persistence at `~/.uwa/codex_responses.sqlite3`.
+3. Process-local ChatGPT web-session / call-id affinity.
+4. Git tracked handoff documents as long-term project truth.
 
-Stage F verified that layer 3 disappears across UWA restart while the workflow can still recover through the surviving continuity path and resume real local tools.
-
-## Current engineering priority
-
-The live acceptance foundation is now closed through Stage F. Production hardening continues in this order:
+## Current priority
 
 ```text
-P1 long-context stress and recovery
+P0 finish aggregate A-F checker repair and local rerun
+P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 P1 real-project long-task pilot
 P2 concurrent request / queue / controlled-tab hardening
-P3 MCP/plugin namespace coverage
-P3 multi-agent/tool fan-out coverage
-P4 successful Responses SSE payload slimming
-P4 ChatGPT Web transcript hygiene
-P5 full regression, operator docs and release checklist
+P3 MCP/plugin namespace and multi-agent/tool fan-out
+P4 Responses SSE slimming and transcript hygiene
+P5 final regression, operator docs and release checklist
 ```
 
-## Collaboration recording rule
+Large-context validation is intentionally blocked until the aggregate A-F checker is clean again.
 
-Every completed live stage, important live failure, design change, repair and disruptive-stage checkpoint must be synchronized to Git before the next step. At minimum update README, this canonical handoff, progress tracking, and the stage-specific record.
+## Collaboration rule
+
+Every completed stage, important failure, repair and disruptive checkpoint is committed before moving on. README, this canonical state, progress tracking, stage/failure records and Draft PR should remain aligned.
 
 ## Merge policy
 
-Keep `codex-web-bridge-v2` as the active development branch until required stability coverage, real-project pilot, final regression, CI, documentation and public-repository safety checks pass. Then merge the verified branch into `main`.
+Do not merge into `main` yet. Merge only after production-hardening gates, real-project pilot, final regression, CI, documentation and public-repository safety checks are green.
 
 ## Public repository safety
 
-Do not commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, SQLite continuation state, live Codex thread identifiers, local process identifiers, Codex memory workspace content, or private project source captured during acceptance.
+Never commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, Responses SQLite contents, live thread/process/browser identifiers, Codex memory workspace content, or private project source captured during acceptance.
