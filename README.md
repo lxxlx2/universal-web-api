@@ -43,7 +43,7 @@ macOS 已验证：
 - Stage C Git diff discipline：PASS
 - Stage D long process + `write_stdin`：PASS
 - Stage E same-thread context：PASS
-- Stage F restart continuity：IN PROGRESS，pre-restart turn 1 PASS，UWA restart PASS
+- Stage F restart continuity：IN PROGRESS，restart + post-restart same-thread resume PASS，独立 checker NEXT
 - Responses `function_call -> function_call_output`：PASS
 - required-tool 真 function call：PASS
 - duplicate required-tool suppression：PASS
@@ -52,7 +52,7 @@ macOS 已验证：
 
 Stage E 最终实测中，两轮 Codex thread id 完全一致。第二轮没有再次提供 `EMBER-7319`，Codex 仍从同一 thread 上下文恢复令牌，真实调用本地 `exec_command`，创建并读取 `context/result.txt`，最终返回 `CONTEXT_PASS`。独立 checker 返回 `context: PASS` 和 `ACCEPTANCE_PASS`。
 
-Stage F 已跨过真实 UWA 重启边界。重启前 fresh context fixture 和 preflight 均通过，新 Codex thread 第一轮返回 `CONTEXT_READY`，且 `context/result.txt` 保持不存在。随后 UWA 真实停止并以新进程启动，健康检查通过，web affinity 从重启前 `binding_count=4` 变为重启后 `binding_count=0`，且接口明确报告 `persistent=false` 与 `fallback=fresh_chat_plus_reconstructed_history`。这确认进程内 affinity 已清空。下一步只验证重启后恢复同一 Codex thread，第二轮不会再次提供 token。
+Stage F 已完成核心重启恢复链路。重启前 context fixture 与 preflight 通过，第一轮返回 `CONTEXT_READY`，`context/result.txt` 不存在。UWA 随后真实停止并以新进程启动，web affinity 从 `binding_count=4` 清空到 `binding_count=0`，确认旧进程内 affinity 已消失。之后恢复同一个 Codex thread，thread id 匹配，第二轮没有再次提供 token，真实本地命令仍成功执行，`context/result.txt` 被恢复为 `EMBER-7319\n`，assistant 返回 `CONTEXT_PASS`。当前只剩独立 context checker。
 
 详细记录：
 
@@ -68,7 +68,7 @@ Stage F 已跨过真实 UWA 重启边界。重启前 fresh context fixture 和 p
 3. V2 进程内 web-session / call-id affinity。
 4. Git tracked checkpoint，作为跨对话、跨协作者的长期事实来源。
 
-正常工具循环优先复用 `previous_response_id` 或 `call_id` 找回同一 ChatGPT Web conversation。UWA 重启后进程内 affinity 会消失，系统需要依靠持久化 Responses 历史和 Codex thread history 恢复。Stage F 专门验证这个真实长期使用场景。
+Stage F 已验证第 3 层会在 UWA restart 后真实消失，同时同一 Codex thread 仍可恢复上下文并继续真实本地工具执行。最终独立 checker 用于关闭该阶段。
 
 ## 实机验收矩阵
 
@@ -83,7 +83,10 @@ Stage F Codex + UWA restart            IN PROGRESS
   turn 1 pre-restart baseline          PASS
   UWA restart                          PASS
   process-local affinity cleared       PASS
-  same-thread post-restart resume      NEXT
+  same-thread post-restart resume      PASS
+  real local tool execution            PASS
+  CONTEXT_PASS                         PASS
+  independent checker                  NEXT
 真实 exec_command cwd                  PASS
 V2 metadata wire trace                 PASS
 V2 required-tool 真 function_call       PASS
