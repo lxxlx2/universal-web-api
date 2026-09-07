@@ -44,28 +44,19 @@ Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md
 
 ## P1 compact protocol
 
-Initial inspection and live runtime evidence showed:
+P1.0 confirmed the compact endpoint was initially absent. P1.1 then implemented `POST /v1/responses/compact`.
 
-```text
-COMPACT_ROUTE_REGISTERED=NO
-HTTP/1.1 404 Not Found
-```
-
-P1.0 therefore closed with the endpoint confirmed absent.
-
-P1.1 implementation added `app/api/codex_compact.py` plus `tests/test_codex_responses_compact.py`. GitHub Actions Security hardening run #220 at the original implementation/test head completed with `success`.
-
-The first post-implementation macOS live probe then produced HTTP 500. The first local traceback identified:
+The first post-implementation macOS probe returned HTTP 500. Its first traceback root cause was:
 
 ```text
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
 ```
 
-The backing compact request and assistant replacement output had already succeeded. The request failed only on the final success log because `app/api/codex_compact.py` used stdlib logging interpolation arguments against UWA's one-argument `SecureLogger`. The backing-error `logger.warning()` branch had the same latent incompatibility.
+The backing compact request and assistant replacement output had already succeeded. The endpoint used stdlib logging interpolation arguments against UWA's one-argument `SecureLogger`; the backing-error warning branch had the same latent issue.
 
-The first narrow repair changed compact success/error logging to single preformatted messages and added route-level success/error regressions. Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
+The first narrow repair changed success/error logging to single preformatted messages and added route-level success/error regressions. Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
 
-The operator then pulled through branch head `b3f37ac`, verified the repaired logger line locally, restarted UWA, confirmed health and route registration, and reran the exact same direct probe. The result was still:
+The operator then pulled through `b3f37ac`, verified the repaired logger line locally, restarted UWA, confirmed health and route registration, and reran the exact same direct probe. It still returned:
 
 ```text
 COMPACT_ROUTE_REGISTERED=YES
@@ -77,7 +68,7 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-This proves the first logger defect is repaired and deployed, while P1.1 still has a second unhandled runtime path. No second root cause is assigned until a fresh traceback is captured.
+The first logger defect is repaired and deployed. A second unhandled runtime path remains, and its root cause is intentionally unknown until the fresh post-repair traceback is captured.
 
 Detailed records:
 
@@ -96,11 +87,11 @@ aggregate A-F checker                      PASS
 P1 initial compact runtime probe           DONE: 404 confirmed
 compact endpoint implementation            DONE
 first compact runtime probe                FAIL: HTTP 500
-first root cause                            CONFIRMED: SecureLogger signature
+first root cause                           CONFIRMED: SecureLogger signature
 first repair + route regressions           DONE
 first repair CI                            PASS: #239
-post-repair compact runtime probe           FAIL: HTTP 500
-second traceback / root cause               CURRENT / UNKNOWN
+post-repair compact runtime probe          FAIL: HTTP 500
+second traceback / root cause              CURRENT / UNKNOWN
 large-context compaction stress            BLOCKED until live compact PASS
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
