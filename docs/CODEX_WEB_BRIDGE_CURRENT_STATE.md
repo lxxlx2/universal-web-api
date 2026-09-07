@@ -27,18 +27,7 @@ Stage F crossed a real UWA restart. Process-local affinity was confirmed destroy
 
 ## Aggregate A-F regression incident: CLOSED
 
-The first post-Stage-F aggregate run returned only `git_diff: FAIL`, while the Stage C evidence itself remained healthy:
-
-```text
-values_ok=True
-diff_check=0
-```
-
-Root cause was the Stage C checker auditing whole-workspace status, which allowed `PROMPTS.md`, `__pycache__` and `.pyc` artifacts from unrelated scenarios/runtime activity to contaminate the verdict.
-
-The repair scopes Stage C change auditing to tracked diffs under `git_diff/` and still allows only `git_diff/config.py`. Regression tests preserve the negative case for tracked edits to Stage C tests or requirements.
-
-The operator then reran the unchanged acceptance workspace and obtained:
+The first post-Stage-F aggregate run hit a Stage C harness false failure caused by unrelated `PROMPTS.md`, `__pycache__` and `.pyc` artifacts. The checker was narrowed to tracked diffs under `git_diff/`, regression coverage was added, and the unchanged existing workspace then passed:
 
 ```text
 multi_file: PASS
@@ -49,11 +38,42 @@ context: PASS
 ACCEPTANCE_PASS
 ```
 
-Therefore the aggregate incident is closed and Stage A-F machine evidence is clean again.
+Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-Detailed record:
+## Current P1 gate: Responses compact protocol
 
-`docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
+Current upstream Codex remote compaction uses:
+
+```text
+POST /v1/responses/compact
+```
+
+The compact request carries canonical Responses input plus model/instructions and applicable tool/reasoning/text controls. Codex parses the returned JSON `output` items and exposes context compaction as an observable lifecycle item.
+
+Code inspection of the current UWA branch found normal `/v1/responses` handling in:
+
+```text
+app/api/codex_responses_v2.py
+app/api/codex_responses.py
+app/api/chat.py
+```
+
+but no registered `/v1/responses/compact` route in those adapters.
+
+This is the current P1 blocker. A long-context stress test should not be started until the compact transport path exists, because an otherwise healthy Codex thread can fail exactly when remote compaction becomes necessary.
+
+Next sequence:
+
+```text
+1. local synthetic runtime probe for POST /v1/responses/compact
+2. record HTTP status/body class
+3. implement minimal compatible compact endpoint + regression tests
+4. CI + direct compact protocol acceptance
+5. synthetic large-context workload
+6. require observable contextCompaction plus post-compaction recovery
+```
+
+Detailed record: `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`.
 
 ## Continuity layers
 
@@ -62,9 +82,10 @@ Detailed record:
 3. Process-local ChatGPT web-session / call-id affinity.
 4. Git tracked handoff documents as long-term project truth.
 
-## Current priority
+## Production-hardening order
 
 ```text
+P1 compact protocol compatibility
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 P1 real-project long-task pilot
@@ -73,8 +94,6 @@ P3 MCP/plugin namespace and multi-agent/tool fan-out
 P4 Responses SSE slimming and transcript hygiene
 P5 final regression, operator docs and release checklist
 ```
-
-The next live gate must remain synthetic/disposable until the large-context acceptance harness itself is reviewed and CI-backed.
 
 ## Collaboration rule
 
