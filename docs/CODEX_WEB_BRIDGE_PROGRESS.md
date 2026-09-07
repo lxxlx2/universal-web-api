@@ -67,7 +67,20 @@ MARKER_PRESERVED=NO
 TASK_PRESERVED=NO
 ```
 
-This keeps P1.1 open. Route registration PASS and CI PASS are insufficient because the real handler still fails. Large-context compaction remains blocked.
+The local traceback has now closed the diagnostic uncertainty:
+
+```text
+TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
+```
+
+The backing compact request and assistant replacement output had already succeeded. The request failed only on the final success log because `app/api/codex_compact.py` used stdlib logging interpolation arguments against UWA's one-argument `SecureLogger`. The backing-error `logger.warning()` branch had the same latent incompatibility.
+
+The narrow repair is now on the active branch:
+
+- compact success/error logging uses single preformatted messages;
+- route-level success regression uses an `info(message)` logger;
+- route-level backing-error regression uses a `warning(message)` logger;
+- compact protocol behavior itself is unchanged.
 
 Detailed records:
 
@@ -85,9 +98,12 @@ Stage A-F protocol/CLI acceptance          PASS
 aggregate A-F checker                      PASS
 P1 initial compact runtime probe           DONE: 404 confirmed
 compact endpoint implementation            DONE
-compact regression + CI                    PASS
+pre-repair compact regression + CI         PASS
 post-implementation compact runtime probe  FAIL: HTTP 500
-compact traceback / route-level repro      CURRENT
+compact traceback root cause               CONFIRMED: SecureLogger signature
+SecureLogger repair + route regressions    DONE
+repair CI                                  NEXT
+post-repair macOS direct compact rerun      blocked on CI
 large-context compaction stress            BLOCKED
 Desktop UI live gate D1-D5                 pending / mandatory before main
 ```
@@ -95,7 +111,7 @@ Desktop UI live gate D1-D5                 pending / mandatory before main
 ## Production-hardening roadmap
 
 ```text
-P1.1 diagnose + repair direct compact live failure
+P1.1 repair CI + direct compact live rerun
 P1.2 large-context compaction / stress / recovery
 P1.3 lost-affinity / restart fallback deeper validation
 Desktop D1-D5 actual UI acceptance
