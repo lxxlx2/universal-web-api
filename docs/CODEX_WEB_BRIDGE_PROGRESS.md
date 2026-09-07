@@ -16,78 +16,70 @@ P1.1 Responses compact direct live                   PASS
 versioned lifecycle/provider switch CI/live          PASS
 P1.2 stream compatibility CI/live                    PASS
 P1.2 rollout TokenCount persistence                  PASS
-P1.2 attempt-2 threshold diagnosis                   PASS
-P1.2 small-step trigger implementation/CI #340       PASS
 P1.2 native auto-compact trigger/local fallback live PASS
+P1.2 remote-capability shim implementation/CI #351   PASS
 ```
 
 Stage E/F remain protocol/CLI evidence and do not close the mandatory Desktop D1-D5 gate.
 
 ## P1.2 live history
 
-### Attempt 1
+Attempt 1 exposed SSE idle heartbeat and all-zero usage compatibility gaps; both are repaired and live-validated.
 
-Seed plus seven filler continuations succeeded; round 8 failed with SSE idle timeout. Successful turns exposed all-zero Responses usage.
+Attempt 2 used a fixed 20KB step and was reclassified as an acceptance threshold-crossing defect after exact Codex 0.153.4 source/rollout analysis.
 
-Repairs:
-
-- parseable `response.in_progress` heartbeat;
-- bounded fallback usage when real usage is absent/zero;
-- failed-turn evidence harvesting.
-
-CI #313 passed, followed by a real non-zero-usage macOS smoke.
-
-### Attempt 2
-
-The fixed 20KB stress runner ended its last successful turn at active context `55,632`, below the 57,600 native auto-compact threshold. Exact Codex 0.153.4 source showed pre-turn compaction runs before the next user message is recorded, so the next fixed 20KB filler jumped across the threshold after the compact check. This attempt is classified as a runner threshold-crossing defect.
-
-## Small-step native trigger probe
-
-Tracked files:
-
-- `tools/codex_auto_compact_trigger_probe.py`
-- `tests/test_codex_auto_compact_trigger_probe.py`
-
-Security hardening #340 / run `34161703429` passed before live validation.
-
-The real macOS probe then produced:
+The dedicated small-step live probe then proved native threshold triggering and local fallback:
 
 ```text
 57429 < 57600
 58290 > 57600
 PRE_TRIGGER_OVER_HARD_CAP=NO
-PRE_TRIGGER_ROLLOUT_COMPACT_MARKERS=0
-TRIGGER_REPLY_EXACT=YES
-TRIGGER_TOOL_EFFECTS=0
 ROLLOUT_COMPACT_MARKER_DELTA=1
 REMOTE_COMPACT_ROUTE_DELTA=0
 REMOTE_COMPACT_SUCCESS_DELTA=0
-TOKEN_LEAK_WORKSPACE=NO
 AUTO_COMPACT_MODE=LOCAL_FALLBACK
 AUTO_COMPACT_TRIGGER_PROBE_PASS
 ```
 
-Conclusion: native threshold detection, persisted TokenCount/resume restoration and Codex local fallback compaction are all live-PASS under UWA.
+Detailed live record: `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`.
 
-Detailed record: `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`.
+## Remote capability gate
 
-## Current gate: remote compact capability
+Exact `rust-v0.153.4` source established that configured providers get remote V2 compaction when recognized as OpenAI or Azure. `OpenAI` is too broad. The chosen narrow shim changes only the managed provider display name to `Azure`, while preserving provider id `uwa`, loopback base URL, Responses wire API, disabled OpenAI auth and all unrelated config.
 
-Direct UWA `/v1/responses/compact` is already P1.1 PASS, but native Codex auto-compact still selects local fallback because the current custom provider is `RemoteCompactionSupport::Unsupported` in Codex 0.153.4.
+Tracked implementation:
 
-Next work:
+- `tools/codex_remote_compaction_compat.py`
+- `tests/test_codex_remote_compaction_compat.py`
+- `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
+
+The helper fails closed unless the complete managed UWA provider contract matches. Security hardening #351 / run `34164070091`, head `127ed09fbb1f8941ff4332db72bf498fb9f80287`, completed `success`.
+
+Known compatibility tradeoff: `codex doctor` treats the provider as Azure and skips its own `/models` reachability probe. Normal runtime models management still uses the configured UWA endpoint.
+
+## Current gate
+
+Real macOS native remote-compaction validation:
 
 ```text
-exact 0.153.4 provider capability audit
-→ identify narrow remote-compaction enablement
-→ add regression coverage
-→ CI
-→ live threshold crossing
-→ prove POST /v1/responses/compact route/success
-→ compacted same-thread recovery
+enable versioned compatibility shim
+→ verify provider id/base URL/auth/wire remain exact
+→ small-step threshold crossing
+→ native Codex calls /v1/responses/compact
+→ remote compact success marker
+→ rollout compact lifecycle marker
 ```
 
-Do not rename the provider to `OpenAI` or `Azure` without first proving the full behavioral impact of those identities.
+Required immediate PASS markers include:
+
+```text
+REMOTE_COMPACT_ROUTE_DELTA>=1
+REMOTE_COMPACT_SUCCESS_DELTA>=1
+AUTO_COMPACT_MODE=REMOTE
+AUTO_COMPACT_TRIGGER_PROBE_PASS
+```
+
+After this gate, run same-thread post-compact synthetic-token recovery with real local write/read before closing P1.2.
 
 ## Current status
 
@@ -97,7 +89,8 @@ versioned lifecycle/provider switch                PASS
 P1.2 stream/usage compatibility                    PASS
 P1.2 TokenCount persistence                        PASS
 P1.2 native trigger/local fallback                 PASS
-P1.2 remote compaction capability                  CURRENT
+P1.2 remote capability shim implementation/CI      PASS
+P1.2 native remote compact macOS live              CURRENT
 P1.3 affinity/restart/uncertain-effect              pending
 Desktop UI live gate D1-D5                         pending / mandatory
 ```
@@ -105,7 +98,7 @@ Desktop UI live gate D1-D5                         pending / mandatory
 ## Production-hardening roadmap
 
 ```text
-P1.2 remote compact capability + large-context recovery
+P1.2 native remote compact + same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
