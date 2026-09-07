@@ -28,6 +28,8 @@ versioned UWA lifecycle CI                 PASS
 versioned UWA lifecycle live               PASS
 versioned UWA provider switch CI           PASS
 versioned UWA provider switch live         PASS
+P1.2 stream compatibility CI #313          PASS
+P1.2 non-zero usage macOS smoke            PASS
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
@@ -96,7 +98,36 @@ Detailed record: `docs/CODEX_UWA_PROVIDER_SWITCH_MIGRATION_2026-09-08.md`.
 
 ## Current gate: P1.2 native Codex large-context compaction / recovery
 
-The final known Git-external executable dependency in the normal UWA entry path is closed. The current gate is now a synthetic, machine-auditable long-context test that exercises native Codex continuation and `/v1/responses/compact` behavior rather than merely proving that a large file can be read.
+The final known Git-external executable dependency in the normal UWA entry path is closed. P1.2 is a synthetic, machine-auditable long-context test that exercises native Codex continuation and `/v1/responses/compact` behavior rather than merely proving that a large file can be read.
+
+The first full macOS attempt seeded the conversation-only token and completed seven exact filler continuations, then round 8 failed with `stream disconnected before completion: idle timeout waiting for SSE`. Bounded private diagnostics showed successful turns contained real `turn.completed.usage` objects whose token fields were all zero.
+
+Upstream Codex inspection confirmed two protocol gaps:
+
+1. its idle timer waits for parsed SSE events, so UWA's previous comment-only heartbeat did not reset that timer;
+2. native auto-compaction depends on accumulated session token usage, so all-zero usage prevented the threshold from ever becoming reachable.
+
+The repair in `app/services/codex_stream_compat.py` now emits semantically inert `response.in_progress` events as real heartbeats and supplies a conservative bounded local usage estimate only when real non-zero Responses usage is unavailable. `tools/codex_large_context_live.py` also preserves failed-turn UWA evidence before classification. Security hardening CI #313 passed for the final implementation.
+
+A real macOS smoke then restarted onto the repaired code and proved non-zero usage reaches Codex:
+
+```text
+LISTENER_REPLACED=YES
+SERVICE=healthy
+BROWSER_CONNECTED=True
+HEALTH_PASS=YES
+CODEX_RC=0
+REPLY_EXACT=YES
+INPUT_TOKENS=7113
+OUTPUT_TOKENS=54
+NONZERO_USAGE=YES
+ERROR_COUNT=0
+USAGE_SMOKE_PASS=YES
+CODEX_USAGE_MARKERS=1
+P1_STREAM_USAGE_SMOKE_PASS
+```
+
+The zero-usage blocker is therefore closed. This smoke does not prove compaction; the current gate is now the full same-thread P1.2 rerun requiring explicit successful `/v1/responses/compact` evidence plus final conversation-only token recovery through a real local tool and independent checker.
 
 P1.2 must distinguish:
 
@@ -105,15 +136,22 @@ P1.2 must distinguish:
 - native Codex thread continuity from UWA web-session affinity;
 - exact success from prose-only claims.
 
-The intended acceptance shape is:
+The acceptance shape is:
 
 1. seed a synthetic token only in the conversation;
 2. send deterministic large filler across the same Codex thread without repeating the token;
-3. gather machine-auditable evidence that the compact route was used if available;
+3. gather machine-auditable evidence that the compact route was used;
 4. final turn must recover the token without the user restating it, write exact bytes to a result file, read them back and return a fixed pass marker;
 5. independent checker verifies exact bytes and required evidence.
 
 If explicit compaction evidence cannot be proven, classify the run as large-context stress/recovery rather than claiming compaction PASS.
+
+Detailed records:
+
+- `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`
+- `docs/CODEX_P1_LARGE_CONTEXT_LIVE_FAILURE_2026-09-08.md`
+- `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
+- `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
 
 Current status:
 
@@ -122,7 +160,8 @@ P1.1 compact endpoint + direct live         PASS
 versioned lifecycle implementation/live     PASS
 versioned provider switch implementation    PASS
 versioned provider switch macOS live        PASS
-P1.2 large-context compaction/recovery      CURRENT
+P1.2 stream/usage compatibility CI/live     PASS
+P1.2 full large-context compaction/recovery CURRENT
 P1.3 lost-affinity/restart fallback         pending / expanded
 Desktop UI D1-D5                            pending / mandatory before main
 ```
@@ -167,7 +206,7 @@ Every completed stage, important failure, repair and disruptive checkpoint is co
 
 ## Merge policy
 
-Do not merge into `main` yet. Merge only after compact/large-context/restart hardening, the Desktop UI gate, real-project pilot, final regression, CI, documentation and public-repository safety checks are green.
+Do not merge into `main` yet. Merge only after compact/large-context/restart hardening, the Desktop UI gate, real-project pilot, final regression, CI, documentation and public repository safety checks are green.
 
 ## Public repository safety
 
