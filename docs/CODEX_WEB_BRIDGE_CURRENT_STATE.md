@@ -11,29 +11,21 @@ The production target explicitly includes normal use from ChatGPT Desktop in Cod
 ## Verified live acceptance
 
 ```text
-single-file coding loop                    PASS
-Stage A multi-file read/edit/test          PASS
-Stage B failure recovery                   PASS
-Stage C Git diff discipline                PASS
-Stage D long process + write_stdin         PASS
-Stage E same-thread context                PASS
-Stage F Codex + UWA restart continuity     PASS
+Stage A-F protocol/CLI acceptance          PASS
 aggregate A-F checker                      PASS
-real exec_command / native cwd             PASS
-Responses tool round trip                  PASS
-required-tool enforcement                  PASS
-call-id / web-session continuation         PASS
+Responses tool / call-id continuity        PASS
 P1.1 Responses compact direct live         PASS
 versioned UWA lifecycle CI/live            PASS
 versioned UWA provider switch CI/live      PASS
 P1.2 stream compatibility CI #313          PASS
 P1.2 non-zero usage macOS smoke            PASS
+P1.2 second full large-context run         FAIL
 Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
 ## P1.1 compact protocol: PASS
 
-`POST /v1/responses/compact` is implemented and direct macOS live validation returned HTTP 200 with valid compact output after the stale-listener incident was repaired. Detailed records remain in the P1.1 incident and lifecycle documents.
+`POST /v1/responses/compact` is implemented and direct macOS validation returned HTTP 200 with valid compact output after the stale-listener incident was repaired.
 
 ## Versioned lifecycle/provider switch: PASS
 
@@ -41,79 +33,70 @@ UWA lifecycle, provider switching and Memories handling are repository-managed. 
 
 ## Current gate: P1.2 native Codex large-context compaction / recovery
 
-### First full live attempt
+### Attempt 1
 
-The first macOS P1.2 run completed the seed and seven filler turns, then round 8 failed with `idle timeout waiting for SSE`. Successful turns also reported all-zero Responses usage.
+The first full macOS run completed the seed plus seven filler turns, then round 8 failed with an SSE idle timeout. Successful turns also exposed all-zero Responses usage.
 
-Two protocol repairs followed:
+Repairs:
 
-1. comment-only heartbeats were replaced with real `response.in_progress` SSE events so Codex's parsed-event idle timer sees activity;
-2. when real non-zero usage is unavailable, UWA supplies a bounded conservative local usage estimate so Codex can observe context growth.
+1. comment-only heartbeat -> real `response.in_progress` SSE event;
+2. bounded fallback token usage when real non-zero usage is unavailable;
+3. failed-turn evidence preservation.
 
-The failed-turn evidence path was also repaired. Security hardening CI #313 passed, and a real macOS smoke then proved:
+Security hardening CI #313 passed. A real macOS smoke then proved non-zero usage reaches Codex.
 
-```text
-LISTENER_REPLACED=YES
-SERVICE=healthy
-BROWSER_CONNECTED=True
-INPUT_TOKENS=7113
-OUTPUT_TOKENS=54
-NONZERO_USAGE=YES
-USAGE_SMOKE_PASS=YES
-CODEX_USAGE_MARKERS=1
-P1_STREAM_USAGE_SMOKE_PASS
-```
+### Attempt 2
 
-### Second full live attempt: FAIL / diagnosis current
-
-With the repaired runtime, the same-thread filler run produced positive growing input usage:
+The repaired run produced growing usage:
 
 ```text
-round 01   21230
-round 02   42219
-round 03   70125
-round 04  104948
-round 05  146688
-round 06  195345
-round 07  250919
+21230 -> 42219 -> 70125 -> 104948 -> 146688 -> 195345 -> 250919
 ```
 
-All seven completed filler turns had zero local tool effects. Yet every current-run compact counter remained zero:
+Rounds 1-7 returned exact filler ACKs with zero tool effects, but `/v1/responses/compact` route/success counters remained zero. Round 8 failed the filler contract.
+
+### Model catalog/cache diagnosis
+
+Read-only live inspection proved:
 
 ```text
-COMPACT_ROUTE_DELTA=0
-COMPACT_SUCCESS_DELTA=0
+installed Codex                  0.153.4
+cached chatgpt context window    64000
+live UWA context window          64000
+cached truncation limit          57600
+live UWA truncation limit        57600
+model_context_window override    none
+model_auto_compact override      none
+visible compact lifecycle 1-7    none
 ```
 
-Round 8 then failed the filler contract (`ACK_EXACT=NO`, no tool effects, no compact marker).
+Therefore stale catalog, larger cached context, and top-level context/compact overrides are closed hypotheses.
 
-The important new upstream finding is confirmed against the exact installed Codex release source, not only upstream `main`: `rust-v0.153.4` resolves to commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
+The exact installed Codex release was checked against upstream tag `rust-v0.153.4`, commit `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
 
-In Codex 0.153.4, configured providers advertise remote compaction only when either:
+Two source facts are now established:
 
-```text
-provider.name == "OpenAI"
-OR
-is_azure_responses_provider(provider.name, provider.base_url)
-```
+1. the custom UWA provider is classified `RemoteCompactionSupport::Unsupported`, because Codex 0.153.4 only enables remote compaction for recognized OpenAI/Azure providers;
+2. Codex 0.153.4 already restores token usage on resume/fork from the latest persisted `EventMsg::TokenCount`. Normal `response.completed` handling records token usage, emits `TokenCount`, and ordinary events are persisted into rollout storage.
 
-The current UWA provider is named `Universal Web API` at localhost, so Codex classifies it as `RemoteCompactionSupport::Unsupported`. That directly explains why native auto-compaction cannot select the remote `/v1/responses/compact` implementation under the current provider identity.
+Therefore a fresh `codex exec resume` process does not inherently discard prior usage. The previous hypothesis that process restart alone explained the missing compact trigger is rejected.
 
-Codex 0.153.4 does have a local summary-compaction fallback for unsupported providers, and its pre-turn logic should invoke an auto-compaction path once the active context reaches the model token limit. Before changing provider identity, the next diagnostic must determine:
+### Current diagnostic boundary
 
-1. the model context window actually used by the running Codex thread, not merely the 64K value returned by UWA's `/v1/models` endpoint;
-2. whether any local fallback compaction occurred but was invisible to the current remote-route-only evidence counters;
-3. whether the on-disk/in-memory Codex model catalog cache differs from the current UWA model catalog.
+The next fact to establish is whether the actual P1.2 thread rollout contains the expected persisted `TokenCount` events and safe numeric token totals before the later resumed filler turns.
 
-Do not blindly rerun the 24-round stress test before these are resolved.
+If the rollout has no usable TokenCount state, the usage persistence/restoration chain remains the blocker. If it contains over-threshold usage before a later turn, the fault moves to pre-turn token-limit/compaction selection.
 
-Detailed P1.2 records:
+Do not rerun the stress test and do not change provider identity until this is known.
+
+Detailed records:
 
 - `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`
 - `docs/CODEX_P1_LARGE_CONTEXT_LIVE_FAILURE_2026-09-08.md`
 - `docs/CODEX_P1_LARGE_CONTEXT_SECOND_LIVE_FAILURE_2026-09-08.md`
 - `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
 - `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
+- `docs/CODEX_P1_MODEL_CACHE_RESUME_DIAG_2026-09-08.md`
 
 ## Current status
 
@@ -122,7 +105,7 @@ P1.1 compact endpoint + direct live             PASS
 versioned lifecycle/provider switch             PASS
 P1.2 stream/usage compatibility CI/live         PASS
 P1.2 second full large-context live             FAIL
-P1.2 Codex provider capability/cache diagnosis  CURRENT
+P1.2 rollout TokenCount persistence diagnosis   CURRENT
 P1.3 lost-affinity/restart fallback             pending / expanded
 Desktop UI D1-D5                                pending / mandatory before main
 ```
