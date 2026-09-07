@@ -19,12 +19,7 @@
 - Stage C Git diff discipline: PASS
 - Stage D long process + `write_stdin`: PASS
 - Stage E same-thread context continuity: PASS
-- Stage F pre-restart turn 1 baseline: PASS
-- Stage F real UWA process restart: PASS
-- Stage F process-local web affinity cleared: PASS
-- Stage F same-thread post-restart resume: PASS
-- Stage F real local tool execution after restart: PASS
-- Stage F assistant `CONTEXT_PASS`: PASS
+- Stage F Codex + UWA restart continuity: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -63,11 +58,11 @@ A generated `workdir="/"` is removed when the user did not explicitly request fi
 
 Stage E initially failed because the web model claimed that the current execution environment did not contain the local synthetic acceptance workspace before a real local tool check. The policy matcher was extended narrowly and the final live rerun passed.
 
-## Current gate
+## Stage F final result
 
-Stage F Codex + UWA restart continuity is IN PROGRESS with only the independent checker remaining.
+Stage F is closed as PASS.
 
-### Stage F verified chain
+Verified chain:
 
 ```text
 prepare context fixture: PASS
@@ -90,13 +85,15 @@ real local command execution after restart: PASS
 context/result.txt == EMBER-7319\n
 assistant: CONTEXT_PASS
 affinity after resume: binding_count=2
+independent checker: context: PASS
+independent checker: ACCEPTANCE_PASS
 ```
 
 The in-process web affinity layer was destroyed and recovery still succeeded through the surviving continuity path. The real thread identifier and process identifiers remain private and are not written into Git.
 
 Detailed record: `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`.
 
-## Remaining acceptance matrix
+## Acceptance matrix
 
 ```text
 Stage A multi-file read/edit/test         PASS
@@ -104,36 +101,29 @@ Stage B failure recovery                  PASS
 Stage C Git diff discipline              PASS
 Stage D long process + write_stdin        PASS
 Stage E same-thread context               PASS
-Stage F Codex + UWA restart               IN PROGRESS
-  pre-restart turn 1                      PASS
-  UWA restart                             PASS
-  process-local affinity cleared          PASS
-  same-thread post-restart resume         PASS
-  real local execution                    PASS
-  CONTEXT_PASS                             PASS
-  independent checker                     NEXT
+Stage F Codex + UWA restart               PASS
 ```
 
 ## Recording discipline
 
 Every live stage result and disruptive-stage checkpoint must be committed before the next step. README, canonical current state, this progress file, and the stage-specific record stay aligned.
 
-## Roadmap after Stage F
+## Production-hardening roadmap
 
 ```text
-successful Responses SSE payload slimming
-ChatGPT Web transcript hygiene
-concurrent request / queue / controlled-tab hardening
-long-context stress and recovery
-advanced MCP/plugin namespace coverage
-multi-agent/tool fan-out coverage
-lost-affinity fallback validation
-real-project long-task pilot
-full Stage A-F regression
-final operator docs
-release checklist
+P1 long-context stress and recovery
+P1 lost-affinity / restart fallback deeper validation
+P1 real-project long-task pilot
+P2 concurrent request / queue / controlled-tab hardening
+P3 advanced MCP/plugin namespace coverage
+P3 multi-agent/tool fan-out coverage
+P4 successful Responses SSE payload slimming
+P4 ChatGPT Web transcript hygiene
+P5 full Stage A-F regression
+P5 final operator docs
+P5 release checklist
 ```
 
 ## Final merge plan
 
-The active V2 branch will be merged into `main` only after the required live gates, stability checks, real-project pilot, final regression, CI and repository-safety checks are green and the handoff documentation is current.
+The active V2 branch will be merged into `main` only after required stability checks, real-project pilot, final regression, CI and repository-safety checks are green and the handoff documentation is current.
