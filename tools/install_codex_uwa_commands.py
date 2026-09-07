@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install thin ~/bin wrappers for the versioned Codex/UWA lifecycle tools.
 
-The wrappers intentionally contain almost no lifecycle logic.  Pulling a new
+The wrappers intentionally contain almost no lifecycle logic. Pulling a new
 repository revision therefore updates behavior without leaving stale copies in
 ``~/bin``.
 """
@@ -25,6 +25,8 @@ START_WRAPPER = '''#!/bin/zsh
 set -euo pipefail
 ROOT="${CODEX_UWA_ROOT:-$HOME/universal-web-api}"
 STATE="$HOME/.uwa"
+
+python3 "$ROOT/tools/codex_uwa_memory_guard.py" disable
 
 # Transitional compatibility: provider switching is still sourced from the
 # existing private helper until its exact config contract is migrated into Git.
