@@ -8,110 +8,81 @@
 
 ## Verified macOS milestones
 
-- ChatGPT Web inference through UWA: PASS
-- Codex custom provider: PASS
-- GPT-5.6 Sol / High: PASS
-- real `exec_command`: PASS
-- native Codex cwd inheritance: PASS
-- single-file coding loop: PASS
-- Stage A multi-file coding loop: PASS
-- Stage B failure recovery: PASS
-- Stage C Git diff discipline: PASS
-- Stage D long process + `write_stdin`: PASS
-- Stage E same-thread context continuity: PASS
-- Stage F Codex + UWA restart continuity: PASS
-- `function_call -> function_call_output`: PASS
-- V2 metadata wire observability: PASS
-- strict required-tool repair reaches a real function call: PASS
-- duplicate required-tool suppression after tool output: PASS
-- call-id affinity recovery for reconstructed Codex tool-result continuations: PASS
-- one real tool execution with one ChatGPT Web conversation: PASS
-- synthetic workspace marker/scenario probe: PASS
-
-## Problem sequence resolved so far
-
-### Plain-text simulated tool output
-
-The bridge now requires real Responses function calls when the client tool is explicitly required. Plausible assistant text cannot satisfy local-execution acceptance.
-
-### Web conversation churn during tool loops
-
-V2 added Responses-to-web affinity and incremental continuation so a client tool round can continue the already-bound ChatGPT conversation where possible.
-
-### Tool-result continuation without usable previous_response_id
-
-V2 supports the reconstructed-history shape through metadata-only `call_id -> response_id` recovery and reuses the corresponding web conversation when available.
-
-### Duplicate required-tool execution
-
-A matching `function_call + function_call_output` pair marks that obligation complete, preventing the original request from forcing the same tool repeatedly.
-
-### Client-prefixed required-tool language
-
-Acceptance wording such as `第一步必须通过客户端 exec_command ...` is treated as an explicit real-tool requirement.
-
-### Root workdir override
-
-A generated `workdir="/"` is removed when the user did not explicitly request filesystem root, preserving the native Codex turn cwd.
-
-### Same-thread path-oriented workspace refusal
-
-Stage E initially failed because the web model claimed that the current execution environment did not contain the local synthetic acceptance workspace before a real local tool check. The policy matcher was extended narrowly and the final live rerun passed.
-
-## Stage F final result
-
-Stage F is closed as PASS.
-
-Verified chain:
-
 ```text
-prepare context fixture: PASS
-preflight context fixture: PASS
-fresh Codex thread created: PASS
-turn 1 assistant reply: CONTEXT_READY
-context/result.txt after turn 1: ABSENT
-UWA stopped cleanly: PASS
-listener after stop: absent
-UWA restarted with a different process: PASS
-health after restart: healthy
-web affinity before restart: binding_count=4
-web affinity after restart: binding_count=0
-persistent=false
-fallback=fresh_chat_plus_reconstructed_history
-same-thread post-restart resume: PASS
-THREAD_MATCH=YES
-context_2 did not repeat token
-real local command execution after restart: PASS
-context/result.txt == EMBER-7319\n
-assistant: CONTEXT_PASS
-affinity after resume: binding_count=2
-independent checker: context: PASS
-independent checker: ACCEPTANCE_PASS
+single-file coding loop                     PASS
+Stage A multi-file coding loop              PASS
+Stage B failure recovery                    PASS
+Stage C Git diff discipline                 PASS
+Stage D long process + write_stdin          PASS
+Stage E same-thread context continuity      PASS
+Stage F Codex + UWA restart continuity      PASS
+real exec_command / native cwd              PASS
+Responses function_call round trip          PASS
+required-tool repair                        PASS
+duplicate required-tool suppression         PASS
+call-id continuation affinity               PASS
+single-tool / single-web-conversation gate  PASS
 ```
 
-The in-process web affinity layer was destroyed and recovery still succeeded through the surviving continuity path. The real thread identifier and process identifiers remain private and are not written into Git.
+## Latest incident: aggregate checker false failure
 
-Detailed record: `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`.
-
-## Acceptance matrix
+After Stage F passed, the full local checker returned:
 
 ```text
-Stage A multi-file read/edit/test         PASS
-Stage B failure recovery                  PASS
-Stage C Git diff discipline              PASS
-Stage D long process + write_stdin        PASS
-Stage E same-thread context               PASS
-Stage F Codex + UWA restart               PASS
+multi_file: PASS
+failure_recovery: PASS
+git_diff: FAIL
+interactive: PASS
+context: PASS
+ACCEPTANCE_FAIL count=1
 ```
 
-## Recording discipline
+The failing Stage C checker still reported:
 
-Every live stage result and disruptive-stage checkpoint must be committed before the next step. README, canonical current state, this progress file, and the stage-specific record stay aligned.
+```text
+values_ok=True
+diff_check=0
+```
+
+Unexpected paths consisted of `PROMPTS.md`, `__pycache__`, and `.pyc` artifacts outside the Stage C implementation scope. Classification: **harness false failure**, not a bridge regression.
+
+Detailed record:
+
+`docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
+
+## Repair
+
+The Stage C checker has been narrowed to tracked diffs under `git_diff/` only. It still requires `git_diff/config.py` to be the sole tracked Stage C modification.
+
+Regression tests now verify:
+
+- other scenario results, regenerated prompt metadata, and Python runtime caches do not invalidate Stage C;
+- tracked edits under `git_diff/tests/` are still rejected.
+
+Repair commits:
+
+```text
+b9235d9  Scope git diff acceptance to Stage C tracked files
+d9543b5  Cover aggregate Stage C checker artifacts
+```
+
+## Current gate
+
+```text
+Stage A-F live acceptance                 PASS
+post-Stage-F aggregate checker            FAIL, classified harness bug
+harness repair implementation             DONE
+regression tests added                     DONE
+CI on repaired branch                      RUNNING / verify latest head
+local aggregate checker rerun              NEXT
+P1 large-context acceptance                blocked until aggregate rerun PASS
+```
 
 ## Production-hardening roadmap
 
 ```text
-P1 long-context stress and recovery
+P0 aggregate A-F rerun clean
+P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 P1 real-project long-task pilot
 P2 concurrent request / queue / controlled-tab hardening
@@ -119,11 +90,14 @@ P3 advanced MCP/plugin namespace coverage
 P3 multi-agent/tool fan-out coverage
 P4 successful Responses SSE payload slimming
 P4 ChatGPT Web transcript hygiene
-P5 full Stage A-F regression
-P5 final operator docs
-P5 release checklist
+P5 final acceptance regression
+P5 operator docs / release checklist
 ```
+
+## Recording discipline
+
+Every live result, failure, repair and disruptive checkpoint must be committed before the next step. README, canonical current state, this file, stage/failure records and Draft PR must stay aligned.
 
 ## Final merge plan
 
-The active V2 branch will be merged into `main` only after required stability checks, real-project pilot, final regression, CI and repository-safety checks are green and the handoff documentation is current.
+Merge `codex-web-bridge-v2` into `main` only after the production-hardening gates, real-project pilot, final regression, CI, documentation and repository-safety checks are green.
