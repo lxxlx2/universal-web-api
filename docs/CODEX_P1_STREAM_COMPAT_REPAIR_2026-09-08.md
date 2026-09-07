@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTED / CI PASS / LIVE SMOKE CURRENT.
+IMPLEMENTED / CI PASS / LIVE SMOKE PASS. FULL P1.2 COMPACTION/RECOVERY STILL PENDING.
 
 This checkpoint follows the first real macOS P1.2 large-context run, which completed the seed and seven filler continuations before round 8 failed with:
 
@@ -114,21 +114,50 @@ conclusion success
 
 Both runs cover the macOS/Ubuntu security matrix, reproducible upstream regression suite and public-repository-safety gate.
 
-## Acceptance instrumentation gap: CLOSED IN CODE / CI
+## Acceptance instrumentation gap: CLOSED
 
 The original P1.2 runner raised immediately when a Codex turn exited non-zero, so the outer loop could not harvest the UWA log delta for that failed turn. `tools/codex_large_context_live.py` now preserves the already-written private JSONL observation and lets the unchanged outer protocol scan that turn's UWA log delta before the ACK/contract check fails.
 
 This changes evidence harvesting only; it does not weaken or alter P1.2 PASS criteria.
 
+## Real macOS live smoke: PASS
+
+After replacing the UWA listener so the repaired code was definitely active, a short Codex completion produced exact output and non-zero usage:
+
+```text
+LISTENER_REPLACED=YES
+SERVICE=healthy
+BROWSER_CONNECTED=True
+HEALTH_PASS=YES
+CODEX_RC=0
+REPLY_EXACT=YES
+INPUT_TOKENS=7113
+OUTPUT_TOKENS=54
+NONZERO_USAGE=YES
+ERROR_COUNT=0
+USAGE_SMOKE_PASS=YES
+CODEX_USAGE_MARKERS=1
+P1_STREAM_USAGE_SMOKE_PASS
+```
+
+The newly appended UWA log contained exactly one numeric-only `[CODEX_USAGE]` marker with the same estimate. The previous live blocker where Codex saw zero usage on every completion is therefore closed.
+
+Detailed smoke record: `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`.
+
 ## Current live gate
 
-Do not immediately repeat the full 24-round stress run.
+The next action is now the full P1.2 same-thread large-context run via:
 
-Required order:
+```bash
+python3 tools/codex_large_context_live.py run
+```
 
-1. restart UWA so the new stream compatibility code is actually loaded;
-2. run a small live Codex smoke proving a normal completion now reports non-zero usage;
-3. if that smoke passes, rerun the full native compact/recovery acceptance with the failed-turn evidence wrapper;
-4. require explicit current-run `/v1/responses/compact` success before claiming compaction PASS.
+The run must still prove all of the following before P1.2 can close:
 
-P1.2 remains open until real macOS evidence proves both stream survival and native `/v1/responses/compact` behavior.
+1. same-thread context growth survives long browser-backed turns;
+2. native Codex actually invokes `/v1/responses/compact` and UWA returns a successful compact result;
+3. the conversation-only token survives compaction without being restated;
+4. the final turn uses a real local tool to write/read exact result bytes;
+5. the independent checker returns PASS.
+
+P1.2 remains open until those real macOS criteria are satisfied.
