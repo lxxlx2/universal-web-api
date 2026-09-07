@@ -22,6 +22,9 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 - Stage F pre-restart turn 1 baseline: PASS
 - Stage F real UWA restart: PASS
 - Stage F process-local affinity cleared after restart: PASS
+- Stage F same-thread post-restart resume: PASS
+- Stage F real local tool execution after restart: PASS
+- Stage F assistant `CONTEXT_PASS`: PASS
 - Responses `function_call -> function_call_output`: PASS
 - V2 metadata wire trace: PASS
 - strict required-tool repair to a real client tool call: PASS
@@ -31,19 +34,11 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 - client-prefixed Chinese required-tool wording: PASS
 - path-oriented client workspace refusal repair: PASS live rerun
 
-## Latest completed live acceptance
-
-Stage E completed successfully in the synthetic acceptance workspace. Its final same-thread rerun recovered the conversation-only token without repeating it, performed real local tool calls, returned `CONTEXT_PASS`, and passed the independent checker.
-
-Detailed Stage E record:
-
-`docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
-
 ## Current live gate
 
-Stage F Codex + UWA restart continuity is IN PROGRESS.
+Stage F Codex + UWA restart continuity is IN PROGRESS with only the independent checker remaining.
 
-Verified so far:
+Verified sequence:
 
 ```text
 fresh context fixture prepared: PASS
@@ -59,32 +54,40 @@ web affinity before restart: binding_count=4
 web affinity after restart: binding_count=0
 web affinity persistence: false
 fallback: fresh_chat_plus_reconstructed_history
-private turn-1 JSONL remains present
-context/result.txt after restart: ABSENT
+same Codex thread resumed after restart: PASS
+THREAD_MATCH=YES
+context_2 did not repeat the token
+real local command execution after restart: PASS
+context/result.txt content: EMBER-7319\n
+assistant reply: CONTEXT_PASS
+web affinity after resume: binding_count=2
 ```
 
-This is the critical proof that Stage F crossed a real UWA process boundary. Process-local ChatGPT web-session and call-id affinity are gone in the new process, while the acceptance fixture remains untouched.
+This proves the task survived a real UWA process boundary after process-local affinity was destroyed. Recovery still reached the same Codex thread, recovered conversation-only context, and continued with real client-side local execution.
 
-The live thread identifier and runtime process identifiers are intentionally kept out of the public repository. They are recovered only from local private state when needed for the resume step.
+The live thread identifier and runtime process identifiers remain private and are intentionally excluded from Git.
 
-Next required sequence:
+## Final Stage F action
+
+Run:
+
+```bash
+python3 tools/codex_desktop_acceptance.py check --scenario context
+```
+
+Required result:
 
 ```text
-recover the same Stage F thread id locally
-generate context_2 from the acceptance harness
-send context_2 through codex exec resume without repeating the token
-require the same thread id on resume
-require real local tool execution
-require context/result.txt == EMBER-7319\n
-require CONTEXT_PASS
-require independent context checker ACCEPTANCE_PASS
+context: PASS
+ACCEPTANCE_PASS
 ```
 
-Do not reset or prepare the context fixture between Stage F turn 1 and turn 2.
+Do not reset the fixture before this checker.
 
-Detailed Stage F record:
+Detailed records:
 
-`docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
+- `docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
+- `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
 
 ## Acceptance order
 
@@ -98,8 +101,10 @@ Stage F Codex + UWA restart              IN PROGRESS
   pre-restart turn 1                     PASS
   UWA restart                            PASS
   process-local affinity cleared         PASS
-  same-thread post-restart resume        NEXT
-  independent checker                    pending
+  same-thread post-restart resume        PASS
+  real local execution                   PASS
+  CONTEXT_PASS                            PASS
+  independent checker                    NEXT
 ```
 
 ## Continuity layers
@@ -111,11 +116,11 @@ Current continuity mechanisms are:
 3. process-local ChatGPT web-session / call-id affinity.
 4. Git tracked handoff documents as the long-term project truth.
 
-Stage F has now verified that layer 3 really disappears across a UWA restart. The next resume must therefore succeed through the remaining continuity mechanisms and documented reconstructed-history fallback as needed.
+Stage F has verified that layer 3 disappears across UWA restart while the workflow can still recover through the remaining continuity path and resume real local tools.
 
 ## Collaboration recording rule
 
-Every completed live stage, important live failure, design change, repair and disruptive-stage checkpoint must be synchronized to Git before the next step. At minimum update README, this canonical handoff, progress tracking, and the stage-specific record. This allows another collaborator to continue solely from the repository when a chat session reaches its context limit.
+Every completed live stage, important live failure, design change, repair and disruptive-stage checkpoint must be synchronized to Git before the next step. At minimum update README, this canonical handoff, progress tracking, and the stage-specific record.
 
 ## Remaining engineering work after Stage F
 
