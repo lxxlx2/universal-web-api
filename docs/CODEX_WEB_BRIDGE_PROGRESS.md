@@ -17,7 +17,8 @@ versioned lifecycle/provider switch CI/live PASS
 P1.2 automated runner CI                    PASS
 P1.2 stream compatibility CI #313           PASS
 P1.2 non-zero usage macOS smoke             PASS
-P1.2 second full large-context live         FAIL
+P1.2 rollout TokenCount persistence         PASS
+P1.2 second full large-context live         FAIL / runner threshold defect identified
 ```
 
 Stage E/F remain protocol/CLI evidence and do not close the mandatory Desktop D1-D5 gate.
@@ -38,7 +39,7 @@ CI #313 passed, followed by a real non-zero-usage macOS smoke.
 
 ### Attempt 2
 
-The repaired full run reported:
+The repaired full run reported CLI cumulative usage:
 
 ```text
 21230 -> 42219 -> 70125 -> 104948 -> 146688 -> 195345 -> 250919
@@ -46,7 +47,7 @@ The repaired full run reported:
 
 Rounds 1-7 returned exact filler ACKs with zero tool effects and zero remote compact counters. Round 8 failed the filler contract.
 
-## Read-only catalog/config diagnosis
+## Read-only catalog/config/rollout diagnosis
 
 Live inspection established:
 
@@ -59,10 +60,15 @@ cache truncation limit        57600
 live truncation limit         57600
 context override              none
 auto-compact override         none
-visible compact lifecycle     none
+persisted TokenCount events   9
+TokenCount model window       60800
 ```
 
-So stale model cache, a larger effective catalog window, and explicit top-level overrides are closed hypotheses.
+The real rollout preserved usage. Safe per-response active-context values reached:
+
+```text
+7213 -> 14130 -> 21047 -> 27964 -> 34881 -> 41798 -> 48715 -> 55632
+```
 
 ## Exact Codex 0.153.4 source diagnosis
 
@@ -70,24 +76,31 @@ So stale model cache, a larger effective catalog window, and explicit top-level 
 
 Confirmed source facts:
 
-1. UWA's custom provider identity is `RemoteCompactionSupport::Unsupported`; remote compact is enabled only for recognized OpenAI/Azure providers.
-2. Unsupported providers retain a local auto-compaction fallback.
-3. Resume/fork already restores token state from the latest persisted `EventMsg::TokenCount`.
-4. Normal `response.completed` handling records token usage, emits `TokenCount`, and ordinary events are persisted into rollout storage.
+1. Resume/fork restores the latest persisted `EventMsg::TokenCount`.
+2. Normal `response.completed` usage is persisted and exposed through `TokenUsageInfo`.
+3. `context_window_token_status()` uses `last_token_usage.total_tokens` plus post-model history as active-context usage, not lifetime cumulative usage.
+4. The effective hard window is `64000 * 95% = 60800`.
+5. Round 7 ended at `55,632`, so the round-8 pre-turn check was still below the hard limit.
+6. `run_turn()` performs pre-turn compaction before context updates and before the new user message are recorded; the exact source explicitly notes that pending incoming items are not yet estimated for this check.
+7. The old runner then appended a 20KB filler after the check, jumping across the threshold inside round 8 and failing before a successful over-limit `TokenCount` could be persisted for a later turn.
 
-Therefore the earlier hypothesis that each fresh `codex exec resume` inherently loses token accounting is rejected.
+Therefore attempt 2 is now classified primarily as an acceptance-runner threshold-crossing defect, not proof of a broken Codex pre-turn compact trigger.
+
+A separate capability fact remains: the custom UWA provider is `RemoteCompactionSupport::Unsupported`, so when auto-compaction genuinely triggers it should currently choose the local fallback path rather than `/v1/responses/compact`.
 
 ## Current gate
 
-The next read-only check is the actual P1.2 rollout. We need only bounded event-type and numeric token evidence:
+Use a smaller filler step near 60,800 and then a tiny next-turn trigger. The purpose is to prove the native auto-compact trigger deterministically under the current provider before touching provider identity.
+
+Expected split:
 
 ```text
-Does the rollout contain TokenCount events?
-If yes, what are total/last token values and model_context_window?
-Did an over-threshold TokenCount exist before a later resumed turn?
-```
+small-step threshold crossed + next-turn local compact observed
+    -> trigger path PASS; remote-capability shim becomes separate next gate
 
-Do not print prompts, IDs, response bodies, tool payloads or the full rollout. Do not rerun the large-context test or change provider identity before this is known.
+no compact after persisted active context is already >60800
+    -> trigger/persistence mismatch remains
+```
 
 Detailed record: `docs/CODEX_P1_MODEL_CACHE_RESUME_DIAG_2026-09-08.md`.
 
@@ -97,8 +110,9 @@ Detailed record: `docs/CODEX_P1_MODEL_CACHE_RESUME_DIAG_2026-09-08.md`.
 P1.1 compact endpoint + live protocol             PASS
 versioned lifecycle/provider switch               PASS
 P1.2 stream/usage compatibility                    PASS
-P1.2 second full live                              FAIL
-P1.2 rollout TokenCount persistence diagnosis      CURRENT
+P1.2 TokenCount persistence                        PASS
+P1.2 attempt-2 threshold diagnosis                 PASS
+P1.2 small-step auto-compact trigger probe         CURRENT
 P1.3 affinity/restart/uncertain-effect              pending
 Desktop UI live gate D1-D5                         pending / mandatory
 ```
