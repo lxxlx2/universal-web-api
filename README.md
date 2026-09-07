@@ -33,28 +33,28 @@ continue task
 ## 当前实机状态
 
 ```text
-Stage A-F protocol/CLI                     PASS
-A-F aggregate checker                      PASS
-Responses tool round trip                  PASS
-P1.1 Responses compact direct live         PASS
-versioned lifecycle/provider switch        PASS
-P1.2 stream/usage compatibility            PASS
-P1.2 rollout TokenCount persistence        PASS
-P1.2 native auto-compact trigger/local     PASS
-P1.2 remote compaction capability          CURRENT
-Codex Desktop UI live gate                 REQUIRED BEFORE MAIN MERGE
+Stage A-F protocol/CLI                         PASS
+A-F aggregate checker                          PASS
+Responses tool round trip                      PASS
+P1.1 Responses compact direct live             PASS
+versioned lifecycle/provider switch            PASS
+P1.2 stream/usage compatibility                PASS
+P1.2 rollout TokenCount persistence            PASS
+P1.2 native auto-compact trigger/local         PASS
+P1.2 remote-capability shim implementation/CI  PASS (#351)
+P1.2 native remote compact macOS live          CURRENT
+Codex Desktop UI live gate                     REQUIRED BEFORE MAIN MERGE
 ```
 
-P1.2 首次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼容缺口，现已修复并通过 CI 与真实 macOS non-zero usage smoke。
+P1.2 首次完整实测暴露 SSE idle heartbeat 与 all-zero usage 两个兼容缺口，现已修复并通过 CI 与真实 macOS smoke。
 
-第二次固定 20KB stress run 后续被精确归因：Codex 0.153.4 的 native auto-compact 阈值是 `57,600`，hard effective cap 是 `60,800`，而 pre-turn compact check 在本轮新 user message 被记录之前执行。旧 runner 在上一轮 active context `55,632` 时一次追加 20KB，导致在 compact check 之后直接跨过阈值。
+第二次固定 20KB stress run 被精确归因为 acceptance threshold-crossing defect：Codex 0.153.4 的 native auto-compact 阈值是 `57,600`，hard effective cap 是 `60,800`，而 pre-turn compact check 在本轮新 user message 被记录之前执行。
 
-新的 versioned small-step probe 已通过 CI 与真实 macOS live。实测先到 `57,429`，再小步到 `58,290`；下一轮 tiny trigger 产生一个新的 Codex rollout compaction marker，同时没有 remote `/v1/responses/compact` 调用：
+随后 small-step probe 真实 macOS PASS：active context 从 `57,429` 小步到 `58,290`，下一轮 tiny trigger 产生 rollout compaction marker，证明 native threshold trigger、TokenCount 持久化/resume 和 local fallback 正常。
 
 ```text
 57429 < 57600
 58290 > 57600
-PRE_TRIGGER_OVER_HARD_CAP=NO
 ROLLOUT_COMPACT_MARKER_DELTA=1
 REMOTE_COMPACT_ROUTE_DELTA=0
 REMOTE_COMPACT_SUCCESS_DELTA=0
@@ -62,19 +62,23 @@ AUTO_COMPACT_MODE=LOCAL_FALLBACK
 AUTO_COMPACT_TRIGGER_PROBE_PASS
 ```
 
-这证明 native threshold trigger、TokenCount 持久化/resume 恢复和 local fallback 均正常。详细记录：`docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`。
+当前剩余 P1.2 工作是 native remote compaction。exact Codex 0.153.4 capability audit 确认：configured provider 只有被识别为 OpenAI/Azure 才启用 remote V2。`OpenAI` identity 影响面过大，因此采用最窄兼容 shim：只把 `[model_providers.uwa].name` 改为 `Azure`，仍保持 provider id `uwa`、loopback base URL、`wire_api=responses`、`requires_openai_auth=false`。remote request 仍指向本机 `/v1/responses/compact`。
 
-当前剩余 P1.2 blocker 是 remote capability：P1.1 已证明 UWA 的 `POST /v1/responses/compact` 端点可用，但 Codex 0.153.4 把普通 `Universal Web API` 自定义 provider 判定为 `RemoteCompactionSupport::Unsupported`，所以 auto-compact 仍走 local fallback。下一步只做 exact-release provider capability 审计，寻找最窄的 remote-compaction enablement；暂不把 provider 粗暴改成 `OpenAI`/`Azure`。
+版本化 fail-closed helper：
 
-## 当前 P1.2 证据文档
+- `tools/codex_remote_compaction_compat.py`
+- `tests/test_codex_remote_compaction_compat.py`
 
-- `docs/CODEX_P1_LARGE_CONTEXT_ACCEPTANCE_2026-09-08.md`
-- `docs/CODEX_P1_LARGE_CONTEXT_LIVE_FAILURE_2026-09-08.md`
-- `docs/CODEX_P1_LARGE_CONTEXT_SECOND_LIVE_FAILURE_2026-09-08.md`
-- `docs/CODEX_P1_STREAM_COMPAT_REPAIR_2026-09-08.md`
-- `docs/CODEX_P1_STREAM_USAGE_LIVE_SMOKE_2026-09-08.md`
-- `docs/CODEX_P1_MODEL_CACHE_RESUME_DIAG_2026-09-08.md`
+Security hardening #351 / run `34164070091` 已 PASS。当前只剩真实 macOS remote trigger：要求看到 `REMOTE_COMPACT_ROUTE_DELTA>=1`、`REMOTE_COMPACT_SUCCESS_DELTA>=1`、`AUTO_COMPACT_MODE=REMOTE`。之后还需要同 thread post-compact synthetic-token recovery 才能关闭 P1.2。
+
+已知 tradeoff：兼容名 `Azure` 会让 `codex doctor` 跳过它自己的 `/models` reachability probe；正常 runtime models manager 仍使用 UWA provider endpoint。
+
+详细记录：
+
 - `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`
+- `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
+- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
+- `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
 
 ## 连续性设计
 
@@ -116,14 +120,12 @@ python3 tools/codex_provider_switch.py official
 
 ## WebCodex 参考
 
-`yyjeqhc/webcodex` 已作为 Apache-2.0 设计参考审计。项目不采用其 Server + Runner 执行层；官方 Codex 继续拥有 filesystem/shell/Git/sandbox/approval。吸收重点是 request-loss/execution-loss 分离、uncertain-effect reconciliation、generation fencing、bounded diagnostics、MCP capability discipline 与并发 plane 分离。
-
-详细审计：`docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`。
+`yyjeqhc/webcodex` 已作为 Apache-2.0 设计参考审计。项目不采用其 Server + Runner 执行层；官方 Codex 继续拥有 filesystem/shell/Git/sandbox/approval。
 
 ## 后续路线
 
 ```text
-P1.2 remote compact capability + compact/recovery proof
+P1.2 native remote compact live + same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
