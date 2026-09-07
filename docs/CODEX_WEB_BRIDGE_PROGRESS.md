@@ -15,6 +15,7 @@
 - native Codex cwd inheritance: PASS
 - single-file coding loop: PASS
 - Stage A multi-file coding loop: PASS
+- Stage B failure recovery: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -59,61 +60,59 @@ function_call_output call_id
 → send only tool-result delta
 ```
 
-This path is verified live. The latest workspace probe executed exactly once and completed in the same ChatGPT Web conversation.
+This path is verified live.
 
-## Latest live PASS
+## Stage B verified
 
-```text
-/Users/jerson/uwa-codex-acceptance
-MARKER=YES
-SCENARIO=YES
-```
+Stage B `failure_recovery` passed the independent acceptance checker.
 
-Acceptance properties:
+Live evidence:
 
 ```text
-one real exec only
-correct Codex cwd
-no root workdir override
-no duplicate command
-same ChatGPT conversation for tool-result continuation
-clean final completion
+initial audited test exit: 1
+.run_history first entry: 1
+implementation edit: failure_recovery/parser.py only
+final audited test exit: 0
+.run_history last entry: 0
+checker: ACCEPTANCE_PASS
 ```
+
+The parser fix strips surrounding whitespace before digit/range validation. Test files were unchanged.
+
+A repeated block of Stage B text after completion was traced to the operator assigning the prompt text to zsh's special `PROMPT` variable. No `codex exec` process remained. Future commands must use `ACCEPTANCE_PROMPT` or another ordinary variable name.
 
 ## Current gate
 
-Stage B `failure_recovery` is now IN PROGRESS.
+Stage C `git_diff` is NEXT.
 
-The harness requires this exact behavior:
-
-```text
-workspace guard succeeds
-→ audited test command runs and fails for real
-→ first non-zero exit code is appended to failure_recovery/.run_history
-→ Codex reads the real failure
-→ only failure_recovery/parser.py is modified
-→ the identical audited command is rerun until green
-→ final zero exit code is appended to .run_history
-→ checker independently confirms tests green, first history code non-zero, last history code zero, and no unexpected tracked file changes
-```
-
-Audited command used by the harness:
+Expected sequence:
 
 ```text
-python3 -m unittest discover -s failure_recovery/tests -v; rc=$?; printf '%s\n' "$rc" >> failure_recovery/.run_history; exit "$rc"
+prepare synthetic git_diff fixture
+→ preflight confirms initial red
+→ workspace guard
+→ read git_diff/REQUIREMENTS.txt
+→ modify git_diff/config.py only for this scenario
+→ tests pass
+→ git diff --check passes
+→ git diff -- git_diff shows only intended implementation change
+→ independent checker passes
 ```
+
+Before Stage C, remove acceptance-workspace noise that the checker does not allow, specifically tracked `PROMPTS.md` drift and untracked `__pycache__` directories. Preserve Stage A/B implementation evidence and `failure_recovery/.run_history`.
 
 ## Remaining acceptance matrix
 
 ```text
-Stage B failure recovery              IN PROGRESS
-Stage C Git diff discipline           pending
-Stage D long process + write_stdin    pending
-Stage E same-thread context           pending
-Stage F UWA/Codex restart             pending
+Stage A multi-file read/edit/test         PASS
+Stage B failure recovery                  PASS
+Stage C Git diff discipline               NEXT
+Stage D long process + write_stdin        pending
+Stage E same-thread context               pending
+Stage F UWA/Codex restart                 pending
 ```
 
-## Remaining engineering roadmap after B-F
+## Remaining engineering roadmap after C-F
 
 ```text
 successful Responses SSE payload slimming
@@ -135,4 +134,4 @@ final operator docs and release checklist
 ec0e60b Mark V2 single-web tool loop verified
 ```
 
-The live PASS is recorded in current-state/README/PR documentation on the same V2 branch.
+Stage B PASS and the Stage C operator gate are recorded in current-state/README/PR documentation on the same V2 branch.
