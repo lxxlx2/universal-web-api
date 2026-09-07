@@ -16,6 +16,7 @@ Stage C Git diff discipline                PASS
 Stage D long process + write_stdin         PASS
 Stage E same-thread context                PASS
 Stage F Codex + UWA restart continuity     PASS
+aggregate A-F checker                      PASS
 real exec_command / native cwd             PASS
 Responses tool round trip                  PASS
 required-tool enforcement                  PASS
@@ -24,56 +25,35 @@ call-id / web-session continuation         PASS
 
 Stage F crossed a real UWA restart. Process-local affinity was confirmed destroyed (`binding_count=4 -> 0`), then the same Codex thread resumed without repeating the token, executed a real local command, restored `EMBER-7319\n`, returned `CONTEXT_PASS`, and passed the independent checker.
 
-## Aggregate A-F regression incident
+## Aggregate A-F regression incident: CLOSED
 
-After Stage F closure, the operator ran:
-
-```bash
-python3 tools/codex_desktop_acceptance.py check
-```
-
-Results:
-
-```text
-multi_file: PASS
-failure_recovery: PASS
-git_diff: FAIL
-interactive: PASS
-context: PASS
-ACCEPTANCE_FAIL count=1
-```
-
-The Stage C evidence inside the failure was still healthy:
+The first post-Stage-F aggregate run returned only `git_diff: FAIL`, while the Stage C evidence itself remained healthy:
 
 ```text
 values_ok=True
 diff_check=0
 ```
 
-The only unexpected paths were harness/runtime artifacts outside the Stage C scope: regenerated `PROMPTS.md`, Python `__pycache__`, and `.pyc` files. This is classified as a harness false failure, not a bridge or Stage C regression.
+Root cause was the Stage C checker auditing whole-workspace status, which allowed `PROMPTS.md`, `__pycache__` and `.pyc` artifacts from unrelated scenarios/runtime activity to contaminate the verdict.
+
+The repair scopes Stage C change auditing to tracked diffs under `git_diff/` and still allows only `git_diff/config.py`. Regression tests preserve the negative case for tracked edits to Stage C tests or requirements.
+
+The operator then reran the unchanged acceptance workspace and obtained:
+
+```text
+multi_file: PASS
+failure_recovery: PASS
+git_diff: PASS
+interactive: PASS
+context: PASS
+ACCEPTANCE_PASS
+```
+
+Therefore the aggregate incident is closed and Stage A-F machine evidence is clean again.
 
 Detailed record:
 
 `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
-
-## Repair applied
-
-`tools/codex_desktop_acceptance.py` now evaluates Stage C tracked changes only under `git_diff/` and still allows only:
-
-```text
-git_diff/config.py
-```
-
-A tracked edit to `git_diff/tests/*`, `git_diff/REQUIREMENTS.txt`, or another Stage C path still fails the checker. Other scenarios' artifacts and runtime cache files no longer contaminate the Stage C verdict.
-
-Regression coverage was added for both cases:
-
-1. aggregate workspace artifacts outside `git_diff/` must not fail Stage C;
-2. tracked Stage C test edits must still be rejected.
-
-Current code head containing the repair: `d9543b5`.
-
-CI run #195 is validating that head. A local aggregate rerun is required after CI passes before P1 begins.
 
 ## Continuity layers
 
@@ -85,7 +65,6 @@ CI run #195 is validating that head. A local aggregate rerun is required after C
 ## Current priority
 
 ```text
-P0 finish aggregate A-F checker repair and local rerun
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 P1 real-project long-task pilot
@@ -95,7 +74,7 @@ P4 Responses SSE slimming and transcript hygiene
 P5 final regression, operator docs and release checklist
 ```
 
-Large-context validation is intentionally blocked until the aggregate A-F checker is clean again.
+The next live gate must remain synthetic/disposable until the large-context acceptance harness itself is reviewed and CI-backed.
 
 ## Collaboration rule
 
