@@ -18,6 +18,8 @@ macOS 实机已经验证：
 - 单文件读 / 改 / 测：PASS
 - Stage A 多文件读 / 改 / 测：PASS，checker 返回 `ACCEPTANCE_PASS`
 - Stage B failure recovery：PASS，checker 返回 `ACCEPTANCE_PASS`
+- Stage C Git diff discipline：PASS，checker 返回 `ACCEPTANCE_PASS`
+- Stage D long process + `write_stdin`：PASS，checker 与 metadata wire evidence 均通过
 - Responses `function_call -> function_call_output`：PASS
 - V2 metadata wire trace：PASS
 - 显式 required-tool contract：PASS
@@ -26,7 +28,7 @@ macOS 实机已经验证：
 - V2 单次工具执行 + 单 ChatGPT Web conversation：PASS
 - workspace marker/scenario probe：PASS
 
-最近一次 Stage B 实机完成了完整 red-to-green 闭环：首次审计测试退出码为 `1`，Codex 只修改 `failure_recovery/parser.py`，随后用同一条审计命令跑绿，`.run_history` 为 `1 / 0`，独立 checker 返回 `ACCEPTANCE_PASS`。当前下一项正式验收是 Stage C `git_diff`。
+最近一次 Stage D 实机验证了真实持续进程链路：Codex 用 `exec_command` 启动等待 stdin 的 worker，V2 metadata trace 随后捕获到独立的 `write_stdin` function call，再继续到结果文件读取，最终 `interactive/result.txt` 为 `INTERACTIVE_PASS`，独立 checker 返回 `ACCEPTANCE_PASS`。当前下一项正式验收是 Stage E same-thread context。
 
 ## 架构
 
@@ -169,7 +171,13 @@ GET /v1/codex/wire-trace
 必须使用 exec_command 执行 pwd
 ```
 
-V2 要求 Responses 中真实出现对应 `function_call`。纯文本模拟结果、声称工具不可用、只写 `/path` 都不算成功。
+以及验收 harness 使用的：
+
+```text
+第一步必须通过客户端 exec_command ...
+```
+
+V2 都要求 Responses 中真实出现对应 `function_call`。纯文本模拟结果、声称工具不可用、只写 `/path` 都不算成功。
 
 首次结果没有真实工具调用时，V2 进行有限 repair。repair 使用前一次 response id 继续同一个 ChatGPT conversation。工具真实执行并有匹配 `function_call_output` 后，该 required-tool 已满足，不会因为重建历史里仍包含原始用户要求而再次强制同一工具。
 
@@ -243,18 +251,18 @@ curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
 单文件读/改/测                         PASS
 Stage A 多文件读/改/测                  PASS
 Stage B failure recovery               PASS
+Stage C Git diff discipline            PASS
+Stage D long process + write_stdin     PASS
 真实 exec_command cwd                  PASS
 V2 metadata wire trace                 PASS
 V2 required-tool 真 function_call       PASS
 V2 单次工具执行 + 单网页会话            PASS
 workspace marker/scenario probe        PASS
-Stage C Git diff discipline            NEXT
-Stage D long process + write_stdin     pending
-Stage E same-thread context            pending
+Stage E same-thread context            NEXT
 Stage F Codex + UWA restart            pending
 ```
 
-Stage C-F 通过后，还需要完成成功 Responses SSE 瘦身、网页 transcript hygiene、并发/queue/controlled-tab 稳定性、长上下文、MCP/plugin namespace、多 agent/tool fan-out、丢失 affinity fallback 和发布检查。
+Stage E-F 通过后，还需要完成成功 Responses SSE 瘦身、网页 transcript hygiene、并发/queue/controlled-tab 稳定性、长上下文、MCP/plugin namespace、多 agent/tool fan-out、丢失 affinity fallback 和发布检查。
 
 操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
 
