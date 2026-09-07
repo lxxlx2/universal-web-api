@@ -2,7 +2,7 @@
 
 ## Status
 
-LIVE BLOCKED / DIAGNOSIS CURRENT.
+LIVE BLOCKED / SSE IDLE-TIMEOUT DIAGNOSIS CURRENT.
 
 The first real macOS run of `tools/codex_large_context_acceptance.py run` did not reach the final recovery checker.
 
@@ -26,40 +26,74 @@ RUN_FAIL round=8 Codex turn failed rc=1
 
 The private trace remains only under `~/.uwa/p1-large-context/` and is not committed.
 
+## Redacted diagnosis
+
+A bounded diagnostic of one successful trace and the failed round produced:
+
+```text
+turn-07-filler.jsonl:
+  thread.started=1
+  turn.started=1
+  item.completed:agent_message=1
+  turn.completed=1
+  usage={
+    input_tokens: 0,
+    cached_input_tokens: 0,
+    cache_write_input_tokens: 0,
+    output_tokens: 0,
+    reasoning_output_tokens: 0
+  }
+  errors=NONE
+
+turn-08-filler.jsonl:
+  thread.started=1
+  turn.started=1
+  error=1
+  turn.failed=1
+  usage=NONE
+  error="stream disconnected before completion: idle timeout waiting for SSE"
+```
+
+Therefore the runner's JSONL parser is not the reason for the printed `INPUT_TOKENS=0`: the live Codex `turn.completed.usage` object itself contains zeros on this UWA provider path. Usage must be treated as unavailable instrumentation for this gate rather than as a measurement of context growth.
+
+The eighth turn's direct Codex failure is now classified as an SSE idle timeout, not as a proven context-limit or compaction error.
+
+## Compact evidence boundary
+
+The bounded UWA log keyword scan found compact lines, but those are historical lines from earlier P1.1 work, including the already-known stale-runtime logger traces and the earlier successful direct compact probe.
+
+No new run-scoped `/v1/responses/compact` success evidence was established for this P1.2 run.
+
+The acceptance runner also has a real failure-path evidence bug: `_run_codex_turn()` raises on non-zero exit status and the outer filler loop returns before `scan_log_delta()` runs for the failed turn. Thus rounds 1-7 have explicit zero compact deltas, while round 8 currently has no harvested run-scoped compact delta.
+
+Do not infer either of the following from the current evidence:
+
+- that round 8 definitely attempted compact;
+- that round 8 definitely did not attempt compact.
+
+Compaction remains unproven for this live run.
+
 ## What is proven
 
-- The seed contract passed.
-- Seven same-run filler turns returned their exact ACKs with zero observed tool effects.
-- The eighth Codex continuation failed with a non-zero client exit status.
-- P1.2 live is not PASS and no compaction claim is made.
+- Seed contract passed.
+- Seven filler continuations returned exact ACKs with zero observed local tool effects.
+- Successful Codex JSONL turns report a zeroed usage object on this provider path.
+- Round 8 failed with `stream disconnected before completion: idle timeout waiting for SSE`.
+- Current UWA listener remained healthy after the failure and reported browser connected.
+- No current-run compact success is proven.
+- P1.2 live remains BLOCKED and no compaction PASS is claimed.
 
-## Instrumentation gaps discovered
+## Current engineering gate
 
-Two observations from this output are not yet safe to interpret as protocol conclusions.
+Do not rerun the full 24-round acceptance yet.
 
-### Failure-turn compact evidence is currently dropped
+Next diagnosis must inspect the UWA-side request lifecycle for the failed turn and distinguish among:
 
-`_run_codex_turn()` raises immediately on a non-zero Codex exit status. The outer filler loop returns on that exception before `scan_log_delta()` runs for the failed turn.
+1. ChatGPT Web/model generation stalled long enough that Codex hit its configured SSE idle timeout;
+2. UWA received/generated a result but failed to emit SSE activity/completion downstream;
+3. a hidden compact/request transition occurred but the runner missed the failed-turn log delta;
+4. another browser/request-path failure caused the stream to go silent.
 
-Therefore the printed `COMPACT_ROUTE_DELTA=0` / `COMPACT_SUCCESS_DELTA=0` values only cover successful rounds 1-7. They do **not** prove that round 8 failed before `/v1/responses/compact` was attempted. Round 8 may have generated compact lifecycle evidence that the current runner failed to harvest.
+The next diagnostic should use a bounded run-time window or newly appended log slice rather than searching historical compact lines across the whole log.
 
-### `INPUT_TOKENS=0` is not yet classified
-
-Every successful filler round printed zero input tokens. This can mean either:
-
-1. the current Codex JSONL/provider path reports zero/missing usage for these UWA responses; or
-2. the runner's usage extraction assumption does not match the actual live JSONL shape.
-
-Until the private trace is inspected through a bounded redacted diagnostic, zero usage is treated as an instrumentation signal, not evidence that conversation context did not grow.
-
-## Current diagnostic gate
-
-Do not rerun the 24-round acceptance yet and do not change compact protocol code yet.
-
-Next evidence must be extracted without publishing raw private traces:
-
-1. event-type and failure-message summary from only `turn-08-filler.jsonl`, with thread/item ids and prompt/message bodies suppressed;
-2. actual `turn.completed` usage shape from one successful filler trace;
-3. bounded UWA log lines around the run containing only compact/error lifecycle keywords.
-
-After this diagnostic, decide whether the blocker is compact runtime behavior, Codex context handling, or acceptance-runner instrumentation.
+After the UWA-side failure path is identified, first repair acceptance instrumentation so failed turns harvest their log delta, then fix the actual runtime blocker before rerunning P1.2.
