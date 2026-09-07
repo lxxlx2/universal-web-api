@@ -36,6 +36,7 @@ Stage C Git diff discipline            PASS
 Stage D long process + write_stdin     PASS
 Stage E same-thread context            PASS
 Stage F Codex + UWA restart            PASS
+A-F aggregate checker                  PASS
 真实 exec_command / native cwd         PASS
 Responses tool round trip              PASS
 required-tool enforcement              PASS
@@ -44,29 +45,28 @@ call-id / web-session continuation     PASS
 
 Stage F 已验证真实 UWA 重启后的连续性：重启前进程内 affinity 存在，重启后 `binding_count=0`，同一 Codex thread 仍可恢复上下文并继续真实本地工具执行，最终独立 checker 返回 `ACCEPTANCE_PASS`。
 
-## 最新 aggregate regression 状态
+## Aggregate regression
 
-Stage F 收口后首次运行完整 checker：
+Stage F 收口后的第一次完整 checker 曾出现 `git_diff: FAIL`。当时 `values_ok=True`、`diff_check=0`，失败来源是 `PROMPTS.md`、`__pycache__` 和 `.pyc` 等 harness/runtime artifacts。该问题已确认是 Stage C aggregate checker 的假失败，并通过窄范围修复解决。
+
+修复后在同一个真实 acceptance workspace 中直接重跑：
 
 ```bash
 python3 tools/codex_desktop_acceptance.py check
 ```
 
-结果只有 `git_diff` 失败，其余 scenario 全部 PASS。失败详情同时显示：
+最终结果：
 
 ```text
-values_ok=True
-diff_check=0
+multi_file: PASS
+failure_recovery: PASS
+git_diff: PASS
+interactive: PASS
+context: PASS
+ACCEPTANCE_PASS
 ```
 
-异常项只有 acceptance harness 自己生成或 Python 运行产生的 `PROMPTS.md`、`__pycache__`、`.pyc`。因此该结果被分类为 **harness false failure**，Stage C 的 live PASS 结论不撤销。
-
-已完成窄范围修复：Stage C checker 现在只审计 `git_diff/` 下的 tracked diff，并继续要求唯一允许的 tracked 修改是 `git_diff/config.py`。同时已增加回归测试，确保：
-
-1. 其他 scenario 的结果、prompt metadata、Python cache 不会污染 Stage C；
-2. 修改 `git_diff/tests/*`、`REQUIREMENTS.txt` 或其他 Stage C tracked 文件仍会失败。
-
-当前状态：修复已提交，CI 正在验证最新分支，随后需要本地重跑 aggregate checker。large-context 暂时不启动，先把 aggregate checker 恢复为干净 PASS。
+这确认 Stage C checker 修复有效，同时 A-F 现有机器证据在 aggregate 模式下保持一致。
 
 详细记录：
 
@@ -75,8 +75,9 @@ diff_check=0
 
 ## 当前推进顺序
 
+A-F 基础验收和 aggregate regression 已关闭。下一阶段进入生产化稳定性验证：
+
 ```text
-P0 修复后的完整 A-F aggregate checker 重跑
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback 深化验证
 P1 真实项目长任务 pilot
