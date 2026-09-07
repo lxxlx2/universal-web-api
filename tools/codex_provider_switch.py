@@ -1,42 +1,75 @@
 #!/usr/bin/env python3
 """Switch Codex between UWA override and normal ChatGPT-account mode.
 
-The ``official`` action is intentionally operator-light on macOS:
+The repository owns both directions of the provider switch:
 
-1. quit ChatGPT Desktop / Codex if running;
-2. stop the UWA process actually listening on TCP 8199, but only when its cwd
-   matches this repository;
-3. restore the pre-UWA Codex Memories settings;
-4. remove only top-level provider/model/reasoning pins from config.toml;
-5. reopen ChatGPT Desktop automatically.
+* ``uwa`` updates only the small set of top-level Codex keys needed by the
+  bridge, replaces the managed ``[model_providers.uwa]`` table, preserves all
+  unrelated Desktop/plugin/MCP/project configuration, and records private
+  restore state for UWA-only policy/context overrides.
+* ``official`` is intentionally operator-light on macOS: quit ChatGPT Desktop /
+  Codex, stop only the verified UWA listener, restore saved Codex Memories and
+  pre-UWA non-model overrides, remove top-level provider/model/reasoning pins,
+  and reopen Desktop automatically.
 
-Authentication is never modified. The ``[model_providers.uwa]`` definition is
-kept so switching back to UWA remains cheap. A timestamped config backup is
-written before provider/model pins are changed.
+Authentication is never modified. The UWA provider definition is kept in
+``official`` mode so switching back remains cheap. Config backups and private
+restore state live outside the public repository.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import shutil
 import signal
 import subprocess
 import time
+import tomllib
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 try:
     from tools.codex_uwa_memory_guard import restore as restore_memories
 except ModuleNotFoundError:  # direct execution: python3 tools/codex_provider_switch.py
     from codex_uwa_memory_guard import restore as restore_memories
 
-ROOT_KEYS = {"model_provider", "model", "model_reasoning_effort"}
+OFFICIAL_PIN_KEYS = {"model_provider", "model", "model_reasoning_effort"}
+UWA_RESTORE_KEYS = {
+    "approval_policy",
+    "sandbox_mode",
+    "model_context_window",
+    "model_auto_compact_token_limit",
+    "model_catalog_json",
+}
+ROOT_KEYS = OFFICIAL_PIN_KEYS  # backward-compatible public constant/tests
+
+UWA_ROOT_VALUES: tuple[tuple[str, str], ...] = (
+    ("model", '"chatgpt"'),
+    ("model_provider", '"uwa"'),
+    ("model_reasoning_effort", '"high"'),
+    ("approval_policy", '"on-request"'),
+    ("sandbox_mode", '"workspace-write"'),
+)
+
+UWA_PROVIDER_TABLE = """[model_providers.uwa]
+name = "Universal Web API"
+base_url = "http://127.0.0.1:8199/v1"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+request_max_retries = 0
+stream_max_retries = 0
+stream_idle_timeout_ms = 300000
+"""
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 UWA_PORT = 8199
 DESKTOP_APPS = ("ChatGPT", "Codex")
+STATE_VERSION = 1
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 Sleeper = Callable[[float], None]
@@ -44,6 +77,14 @@ Sleeper = Callable[[float], None]
 
 def default_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
+
+
+def default_state_path() -> Path:
+    return Path.home() / ".uwa" / "codex-provider-restore.json"
+
+
+def default_legacy_official_path() -> Path:
+    return Path.home() / ".uwa" / "config.official.toml"
 
 
 def _split_root_and_sections(text: str) -> tuple[list[str], list[str]]:
@@ -61,26 +102,236 @@ def _key_name(line: str) -> str:
     return stripped.split("=", 1)[0].strip()
 
 
-def official_text(text: str) -> str:
+def _key_rhs(line: str) -> str:
+    return line.split("=", 1)[1].strip()
+
+
+def _top_provider(text: str) -> str | None:
+    root, _ = _split_root_and_sections(text)
+    for line in root:
+        if _key_name(line) != "model_provider":
+            continue
+        value = _key_rhs(line)
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            return value[1:-1]
+        return value
+    return None
+
+
+def _validate_toml(text: str) -> None:
+    if not text.strip():
+        return
+    tomllib.loads(text)
+
+
+def _table_header(line: str) -> str | None:
+    stripped = line.strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")):
+        return None
+    if stripped.startswith("[[") and stripped.endswith("]]" ):
+        return stripped[2:-2].strip()
+    return stripped[1:-1].strip()
+
+
+def _strip_table_prefix(lines: list[str], prefix: str) -> list[str]:
+    out: list[str] = []
+    skipping = False
+    for line in lines:
+        header = _table_header(line)
+        if header is not None:
+            skipping = header == prefix or header.startswith(prefix + ".")
+        if not skipping:
+            out.append(line)
+    return out
+
+
+def _build_root_override(
+    text: str,
+    *,
+    remove_keys: set[str],
+    values: Sequence[tuple[str, str]] = (),
+    remove_uwa_profile: bool = False,
+) -> tuple[str, list[str]]:
     root, sections = _split_root_and_sections(text)
-    cleaned = [line for line in root if _key_name(line) not in ROOT_KEYS]
-    return "".join(cleaned + sections)
+    cleaned: list[str] = []
+    for line in root:
+        key = _key_name(line)
+        if key in remove_keys:
+            continue
+        if remove_uwa_profile and key == "profile":
+            value = _key_rhs(line)
+            if value in {'"uwa"', "'uwa'"}:
+                continue
+        cleaned.append(line)
+
+    prefix = [f"{key} = {value}\n" for key, value in values]
+    if prefix and cleaned and any(line.strip() for line in cleaned):
+        prefix.append("\n")
+    return "".join(prefix + cleaned), sections
 
 
-def write_official(config_path: Path) -> tuple[Path | None, bool]:
+def _normalize_join(root_text: str, sections: list[str]) -> str:
+    combined = root_text + "".join(sections)
+    return combined.rstrip() + "\n" if combined.strip() else ""
+
+
+def _capture_restore_state(text: str) -> dict[str, object]:
+    root, _ = _split_root_and_sections(text)
+    entries: dict[str, dict[str, object]] = {
+        key: {"present": False, "rhs": None} for key in sorted(UWA_RESTORE_KEYS)
+    }
+    for line in root:
+        key = _key_name(line)
+        if key in UWA_RESTORE_KEYS:
+            entries[key] = {"present": True, "rhs": _key_rhs(line)}
+    return {"version": STATE_VERSION, "root": entries}
+
+
+def _write_state(path: Path, state: Mapping[str, object]) -> None:
+    path = path.expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.chmod(0o600)
+    os.replace(tmp, path)
+    path.chmod(0o600)
+
+
+def _load_state(path: Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    path = path.expanduser()
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("version") != STATE_VERSION or not isinstance(data.get("root"), dict):
+        raise RuntimeError(f"unsupported provider restore state: {path}")
+    return data
+
+
+def _restore_entries(state: Mapping[str, object] | None) -> dict[str, dict[str, object]] | None:
+    if state is None:
+        return None
+    root = state.get("root")
+    if not isinstance(root, dict):
+        raise RuntimeError("provider restore state is missing root entries")
+    result: dict[str, dict[str, object]] = {}
+    for key in UWA_RESTORE_KEYS:
+        entry = root.get(key)
+        if not isinstance(entry, dict) or not isinstance(entry.get("present"), bool):
+            raise RuntimeError(f"provider restore state is invalid for {key}")
+        present = bool(entry["present"])
+        rhs = entry.get("rhs")
+        if present and not isinstance(rhs, str):
+            raise RuntimeError(f"provider restore state is missing value for {key}")
+        result[key] = {"present": present, "rhs": rhs if present else None}
+    return result
+
+
+def official_text(
+    text: str,
+    *,
+    restore_state: Mapping[str, object] | None = None,
+) -> str:
+    restore = _restore_entries(restore_state)
+    remove_keys = set(OFFICIAL_PIN_KEYS)
+    values: list[tuple[str, str]] = []
+
+    if restore is not None:
+        remove_keys.update(UWA_RESTORE_KEYS)
+        for key in sorted(UWA_RESTORE_KEYS):
+            entry = restore[key]
+            if entry["present"]:
+                values.append((key, str(entry["rhs"])))
+
+    root_text, sections = _build_root_override(
+        text,
+        remove_keys=remove_keys,
+        values=values,
+    )
+    updated = _normalize_join(root_text, sections)
+    _validate_toml(updated)
+    return updated
+
+
+def uwa_text(text: str) -> str:
+    remove_keys = set(OFFICIAL_PIN_KEYS) | set(UWA_RESTORE_KEYS)
+    root_text, sections = _build_root_override(
+        text,
+        remove_keys=remove_keys,
+        values=UWA_ROOT_VALUES,
+        remove_uwa_profile=True,
+    )
+    sections = _strip_table_prefix(sections, "model_providers.uwa")
+
+    body = _normalize_join(root_text, sections).rstrip()
+    if body:
+        body += "\n\n"
+    updated = body + UWA_PROVIDER_TABLE.rstrip() + "\n"
+    _validate_toml(updated)
+    return updated
+
+
+def _backup_config(config_path: Path, label: str) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = config_path.with_name(f"{config_path.name}.{label}-{timestamp}")
+    shutil.copy2(config_path, backup)
+    return backup
+
+
+def write_official(
+    config_path: Path,
+    *,
+    restore_state: Mapping[str, object] | None = None,
+) -> tuple[Path | None, bool]:
     if not config_path.exists():
         return None, False
 
     original = config_path.read_text(encoding="utf-8")
-    updated = official_text(original)
+    _validate_toml(original)
+    updated = official_text(original, restore_state=restore_state)
     if updated == original:
         return None, False
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = config_path.with_name(f"{config_path.name}.before-official-{timestamp}")
-    shutil.copy2(config_path, backup)
+    backup = _backup_config(config_path, "before-official")
     config_path.write_text(updated, encoding="utf-8")
     return backup, True
+
+
+def write_uwa(
+    config_path: Path,
+    *,
+    state_path: Path | None = None,
+    legacy_official_path: Path | None = None,
+) -> tuple[Path | None, bool, bool]:
+    config_path = config_path.expanduser()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    _validate_toml(original)
+
+    state_written = False
+    if state_path is not None:
+        state_path = state_path.expanduser()
+        if _top_provider(original) != "uwa":
+            _write_state(state_path, _capture_restore_state(original))
+            state_written = True
+        elif not state_path.exists() and legacy_official_path is not None:
+            legacy_official_path = legacy_official_path.expanduser()
+            if legacy_official_path.exists():
+                legacy_text = legacy_official_path.read_text(encoding="utf-8")
+                _validate_toml(legacy_text)
+                _write_state(state_path, _capture_restore_state(legacy_text))
+                state_written = True
+
+    updated = uwa_text(original)
+    if updated == original:
+        return None, False, state_written
+
+    backup: Path | None = None
+    if config_path.exists():
+        backup = _backup_config(config_path, "before-uwa")
+    config_path.write_text(updated, encoding="utf-8")
+    return backup, True, state_written
 
 
 def top_level_status(text: str) -> dict[str, str]:
@@ -255,6 +506,7 @@ def switch_to_official(
     *,
     automate_desktop: bool = True,
     automate_uwa_stop: bool = True,
+    state_path: Path | None = None,
     quit_fn: Callable[[], list[str]] | None = None,
     stop_fn: Callable[[], list[int]] | None = None,
     restore_fn: Callable[[Path], None] | None = None,
@@ -276,7 +528,11 @@ def switch_to_official(
         stopped_pids = stop_fn()
 
     restore_fn(config_path)
-    backup, changed = write_official(config_path)
+    restore_state = _load_state(state_path)
+    backup, changed = write_official(config_path, restore_state=restore_state)
+
+    if state_path is not None and state_path.expanduser().exists():
+        state_path.expanduser().unlink()
 
     reopened = "SKIPPED"
     if automate_desktop:
@@ -287,8 +543,15 @@ def switch_to_official(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["official", "status"])
+    parser.add_argument("action", choices=["official", "uwa", "status"])
     parser.add_argument("--config", type=Path, default=default_config_path())
+    parser.add_argument("--state", type=Path, default=default_state_path())
+    parser.add_argument(
+        "--legacy-official",
+        type=Path,
+        default=default_legacy_official_path(),
+        help="optional one-time source for restore-only root values when migrating an already-active legacy UWA config",
+    )
     parser.add_argument(
         "--no-desktop-restart",
         action="store_true",
@@ -302,6 +565,7 @@ def main() -> int:
     args = parser.parse_args()
 
     path: Path = args.config.expanduser()
+    state_path: Path = args.state.expanduser()
 
     if args.action == "status":
         if not path.exists():
@@ -312,6 +576,30 @@ def main() -> int:
         print(f"CONFIG={path}")
         for key in sorted(ROOT_KEYS):
             print(f"{key}={status.get(key, '<default>')}")
+        print(f"UWA_RESTORE_STATE={'PRESENT' if state_path.exists() else 'ABSENT'}")
+        return 0
+
+    if args.action == "uwa":
+        try:
+            backup, changed, state_written = write_uwa(
+                path,
+                state_path=state_path,
+                legacy_official_path=args.legacy_official,
+            )
+        except Exception as exc:
+            print("UWA_MODE_SWITCH=FAIL")
+            print(f"ERROR={exc}")
+            return 1
+
+        print(f"CONFIG={path}")
+        print(f"UWA_MODE_CHANGED={'YES' if changed else 'NO'}")
+        if backup is not None:
+            print(f"BACKUP={backup}")
+        print(f"UWA_RESTORE_STATE={'UPDATED' if state_written else ('PRESENT' if state_path.exists() else 'ABSENT')}")
+        print('model_provider="uwa"')
+        print('model="chatgpt"')
+        print('model_reasoning_effort="high"')
+        print("AUTH=UNCHANGED")
         return 0
 
     try:
@@ -319,9 +607,10 @@ def main() -> int:
             path,
             automate_desktop=not args.no_desktop_restart,
             automate_uwa_stop=not args.no_stop_uwa,
+            state_path=state_path,
         )
     except Exception as exc:
-        print(f"OFFICIAL_MODE_SWITCH=FAIL")
+        print("OFFICIAL_MODE_SWITCH=FAIL")
         print(f"ERROR={exc}")
         return 1
 
