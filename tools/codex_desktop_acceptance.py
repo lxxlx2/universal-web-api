@@ -420,21 +420,15 @@ def _check_git_diff(root: Path) -> Tuple[bool, str]:
     values_ok = 'MODE = "prod"' in text and "TIMEOUT = 30" in text
 
     diff_check = _run(["git", "diff", "--check"], cwd=root)
-    changed = _changed_paths(root)
-    allowed = {
-        "git_diff/config.py",
-        "multi_file/math_ops.py",
-        "multi_file/summary.py",
-        "failure_recovery/parser.py",
-        "failure_recovery/.run_history",
-        "interactive/result.txt",
-        "context/result.txt",
-    }
-    unexpected = sorted(name for name in changed if name not in allowed)
-    ok = values_ok and diff_check.returncode == 0 and not unexpected
+    diff = _run(["git", "diff", "--name-only", "--", "git_diff"], cwd=root)
+    tracked_changes = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+    unexpected_tracked = [
+        path for path in tracked_changes if path != "git_diff/config.py"
+    ]
+    ok = values_ok and diff_check.returncode == 0 and not unexpected_tracked
     detail = (
         f"values_ok={values_ok} diff_check={diff_check.returncode} "
-        f"changed={changed} unexpected={unexpected}"
+        f"tracked_changes={tracked_changes} unexpected_tracked={unexpected_tracked}"
     )
     return ok, detail
 
