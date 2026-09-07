@@ -6,7 +6,7 @@ Canonical handoff for `codex-web-bridge-v2`.
 
 Run official Codex Desktop / Codex CLI as the local coding agent while routing model inference through UWA to logged-in ChatGPT Web. Codex remains authoritative for filesystem, shell, edits, tests, Git, sandbox and approval.
 
-The production target explicitly includes normal use from ChatGPT Desktop in Codex mode. CLI/protocol acceptance remains necessary evidence, but it is no longer treated as sufficient proof of Desktop UI compatibility.
+The production target explicitly includes normal use from ChatGPT Desktop in Codex mode. CLI/protocol acceptance remains necessary evidence, but it is not sufficient proof of Desktop UI compatibility.
 
 ## Verified live acceptance
 
@@ -45,32 +45,34 @@ ACCEPTANCE_PASS
 
 Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-## Current P1 gate: Responses compact protocol
+## Current P1 gate: live Responses compact acceptance
 
-Current upstream Codex remote compaction uses:
+Upstream Codex remote compaction uses:
 
 ```text
 POST /v1/responses/compact
 ```
 
-The compact request carries canonical Responses input plus model/instructions and applicable tool/reasoning/text controls. Codex parses the returned JSON `output` items and exposes context compaction as an observable lifecycle item.
-
-Code inspection found no route, and the real macOS runtime probe confirmed:
+Initial code inspection found no route, and the first real macOS runtime probe confirmed:
 
 ```text
 COMPACT_ROUTE_REGISTERED=NO
 HTTP/1.1 404 Not Found
 ```
 
-P1.0 is therefore complete. P1.1 is the current implementation gate.
+P1.1 has now implemented and registered the endpoint in `app/api/codex_compact.py`, with regression coverage in `tests/test_codex_responses_compact.py`. GitHub Actions run #220 for head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed successfully.
+
+The implementation keeps compaction tool-free, preserves incoming model/reasoning context, generates a replacement-history assistant summary through the configured ChatGPT Web path, and returns `{"output": [...]}` without fabricating encrypted compaction blobs.
+
+The current gate is the post-implementation macOS runtime probe after pulling and restarting UWA.
 
 Next sequence:
 
 ```text
-1. implement minimal compatible /v1/responses/compact endpoint + regression tests
-2. CI + direct compact protocol acceptance
+1. verify OpenAPI now registers /v1/responses/compact
+2. direct compact call -> HTTP 200 + assistant output item
 3. synthetic large-context workload
-4. require observable contextCompaction plus post-compaction recovery
+4. observable contextCompaction + post-compaction recovery
 5. lost-affinity / restart fallback deeper validation
 6. mandatory Codex Desktop UI D1-D5 live gate
 7. real-project long-task pilot
@@ -83,7 +85,7 @@ Detailed records:
 
 ## Official-account escape hatch
 
-The project now includes `tools/codex_provider_switch.py`. `official` removes top-level provider/model/reasoning pins from `~/.codex/config.toml` after creating a backup. It does not modify login credentials and does not select a model. After fully restarting ChatGPT Desktop, the user chooses any model made available by the signed-in ChatGPT account/workspace.
+`tools/codex_provider_switch.py official` backs up `~/.codex/config.toml`, removes only top-level provider/model/reasoning pins, keeps the UWA provider definition, and leaves authentication untouched. After fully restarting ChatGPT Desktop, the signed-in ChatGPT account/workspace controls model availability; no model or reasoning level is hard-coded by the restore procedure.
 
 ## Continuity layers
 
@@ -95,7 +97,7 @@ The project now includes `tools/codex_provider_switch.py`. `official` removes to
 ## Production-hardening order
 
 ```text
-P1 compact protocol compatibility
+P1 compact live protocol acceptance
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 Desktop UI live acceptance D1-D5
