@@ -18,6 +18,7 @@
 - Stage B failure recovery: PASS
 - Stage C Git diff discipline: PASS
 - Stage D long process + `write_stdin`: PASS
+- Stage E same-thread context continuity: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -25,135 +26,76 @@
 - call-id affinity recovery for reconstructed Codex tool-result continuations: PASS
 - one real tool execution with one ChatGPT Web conversation: PASS
 - synthetic workspace marker/scenario probe: PASS
-- Codex CLI `exec resume` preserves the same thread id across Stage E turns: PASS
 
-## V2 problem sequence resolved so far
+## Problem sequence resolved so far
 
-### 1. Plain text simulated tool output
+### Plain-text simulated tool output
 
-ChatGPT Web sometimes returned a path such as `/` without a real function call. V2 added a strict required-tool contract and metadata wire trace so simulated output cannot pass as local execution.
+The bridge now requires real Responses function calls when the client tool is explicitly required. Plausible assistant text cannot satisfy local-execution acceptance.
 
-### 2. Repeated fresh ChatGPT conversations
+### Web conversation churn during tool loops
 
-The generic UWA workflow could start a fresh web conversation on each Responses/tool/repair round. V2 added response-id web affinity, incremental browser input and a Codex-specific workflow reuse hint.
+V2 added Responses-to-web affinity and incremental continuation so a client tool round can continue the already-bound ChatGPT conversation where possible.
 
-### 3. Strict repair transport failure
+### Tool-result continuation without usable previous_response_id
 
-A browser/continuation preparation exception truncated the Codex HTTP/SSE body. Runtime hardening now isolates ancillary failures, buffers protocol events to a terminal boundary and emits structured `response.failed` on internal failure.
+V2 supports the reconstructed-history shape through metadata-only `call_id -> response_id` recovery and reuses the corresponding web conversation when available.
 
-### 4. Local hydration failure after web conversation restore
+### Duplicate required-tool execution
 
-A mapped `/c/...` conversation could already be healthy while local Responses hydration failed. V2 now allows that strict repair to continue as a delta on the already-bound web conversation.
+A matching `function_call + function_call_output` pair marks that obligation complete, preventing the original request from forcing the same tool repeatedly.
 
-### 5. Duplicate tool execution after `function_call_output`
+### Client-prefixed required-tool language
 
-Live evidence showed Codex could reconstruct the earlier request/call/output history and make the original required-tool request visible again. V2 now treats a matching `function_call + function_call_output` pair as completion of that required-tool obligation.
+Acceptance wording such as `第一步必须通过客户端 exec_command ...` is treated as an explicit real-tool requirement.
 
-### 6. Tool-result continuation without usable `previous_response_id`
+### Root workdir override
 
-V2 now supports:
+A generated `workdir="/"` is removed when the user did not explicitly request filesystem root, preserving the native Codex turn cwd.
 
-```text
-function_call call_id
-→ remember call_id -> response_id
-→ response_id -> ChatGPT /c/...
+### Same-thread path-oriented workspace refusal
 
-function_call_output call_id
-→ restore same /c/...
-→ send only tool-result delta
-```
+Stage E initially failed because the web model claimed that the current execution environment did not contain `/Users/jerson/uwa-codex-acceptance` before a real local tool check.
 
-This path is verified live.
+The policy matcher was extended to cover this narrow path-missing refusal form. Regression coverage verified conversion to a real `exec_command` call without guessed `workdir`.
 
-### 7. Client-prefixed required-tool wording
-
-Stage C exposed that `第一步必须通过客户端 exec_command ...` could bypass strict tool detection and allow a plain-text workspace mismatch answer. V2 now treats client-prefixed Chinese variants as explicit required-tool requests while leaving ordinary explanatory mentions untouched.
-
-### 8. Same-thread path-oriented workspace refusal
-
-Stage E turn 1 returned `CONTEXT_READY` and created no file. Turn 2 resumed the exact same Codex thread id, proving client-thread continuity, but ChatGPT Web then claimed that the active execution environment did not contain `/Users/jerson/uwa-codex-acceptance` and performed no local file operation.
-
-The generic workspace-refusal repair already covered mounted/mapped/unavailable wording but did not match this specific Chinese form: `当前可用执行环境中不存在 /Users/...`.
-
-V2 now installs a narrow path-oriented refusal-language compatibility matcher. When the current request is a local workspace task and client workspace tools are declared, this wording is routed through the existing bounded client-workspace repair instead of being accepted as a final answer. Ordinary explanatory path text is not matched.
-
-## Stage B verified
-
-Stage B `failure_recovery` passed the independent acceptance checker.
+The final live rerun then passed:
 
 ```text
-initial audited test exit: 1
-.run_history first entry: 1
-implementation edit: failure_recovery/parser.py only
-final audited test exit: 0
-.run_history last entry: 0
+thread_id turn 1 == thread_id turn 2
+THREAD_MATCH=YES
+turn 2 was not given EMBER-7319 again
+real local exec_command ran in /Users/jerson/uwa-codex-acceptance
+context/result.txt contained EMBER-7319\n
+assistant: CONTEXT_PASS
+checker: context: PASS
 checker: ACCEPTANCE_PASS
 ```
 
-A repeated block of Stage B text after completion was traced to assigning task text to zsh's special `PROMPT` variable. No `codex exec` process remained. Future commands use `ACCEPTANCE_PROMPT`.
-
-## Stage C verified
-
-Stage C `git_diff` passed the independent checker on macOS.
-
-```text
-workspace guard executed through real exec_command
-initial git_diff fixture: red
-requirements read: MODE=prod, TIMEOUT=30
-implementation edit: git_diff/config.py only
-tests: 2/2 PASS
-git diff --check: PASS
-git diff -- git_diff: only git_diff/config.py
-protected REQUIREMENTS.txt/tests: unchanged
-checker: ACCEPTANCE_PASS
-```
-
-## Stage D verified
-
-Stage D `interactive` passed both the independent checker and the metadata wire-evidence gate.
-
-```text
-workspace guard: real exec_command
-worker launch: exec_command
-worker remained alive waiting for stdin
-wire trace: write_stdin function_call observed
-write_stdin continuation reused the same ChatGPT Web conversation
-worker produced INTERACTIVE_PASS
-interactive/result.txt contained INTERACTIVE_PASS
-checker: ACCEPTANCE_PASS
-```
-
-The terminal UI collapsed the persistent-process interaction into the original `exec` block, so the visible CLI transcript alone was ambiguous. Private metadata trace resolved that ambiguity.
+Stage E is therefore closed as PASS.
 
 ## Current gate
 
-Stage E same-thread context is IN PROGRESS.
+Stage F Codex + UWA restart continuity is NEXT.
 
-First live attempt:
-
-```text
-turn 1 thread_id: 01a07b00-4c8b-7822-9aef-bab866d04ffa
-turn 1 reply: CONTEXT_READY
-turn 1 file state: clean
-turn 2 thread_id: same exact id
-thread resume: PASS
-turn 2 local file action: FAIL due path-oriented workspace refusal
-```
-
-Rerun Stage E after the refusal-language repair is pulled and UWA is restarted. PASS still requires the same thread id, recalled `EMBER-7319`, `context/result.txt` containing exactly that token plus newline, and the independent checker passing.
+This gate must verify that the same Codex thread remains usable after the local client workflow and UWA are restarted. Process-local web affinity is expected to be gone, so recovery must rely on Codex thread history, persisted Responses state, and the documented reconstructed-history fallback.
 
 ## Remaining acceptance matrix
 
 ```text
 Stage A multi-file read/edit/test         PASS
 Stage B failure recovery                  PASS
-Stage C Git diff discipline               PASS
+Stage C Git diff discipline              PASS
 Stage D long process + write_stdin        PASS
-Stage E same-thread context               IN PROGRESS
-Stage F UWA/Codex restart                 pending
+Stage E same-thread context               PASS
+Stage F Codex + UWA restart               NEXT
 ```
 
-## Remaining engineering roadmap after E-F
+## Recording discipline
+
+Every live stage result must be committed before the next stage begins. README, canonical current state, this progress file, and the stage-specific record must stay aligned. This is required for multi-agent and multi-conversation collaboration where any one chat may reach its context limit.
+
+## Roadmap after Stage F
 
 ```text
 successful Responses SSE payload slimming
@@ -162,6 +104,13 @@ concurrent request / queue / controlled-tab hardening
 long-context stress and recovery
 advanced MCP/plugin namespace coverage
 multi-agent/tool fan-out coverage
-lost-affinity fallback and restart recovery
-final operator docs and release checklist
+lost-affinity fallback validation
+real-project long-task pilot
+full Stage A-F regression
+final operator docs
+release checklist
 ```
+
+## Final merge plan
+
+The active V2 branch will be merged into `main` only after the required live gates, stability checks, real-project pilot, final regression, CI and repository-safety checks are green and the handoff documentation is current.
