@@ -15,7 +15,7 @@ OpenAI Responses
         ↓
 UWA V2 bridge
         ↓
-ChatGPT Web / GPT-5.6 Sol / High
+ChatGPT Web
         ↓
 structured function_call
         ↓
@@ -41,9 +41,12 @@ A-F aggregate checker                  PASS
 Responses tool round trip              PASS
 required-tool enforcement              PASS
 call-id / web-session continuation     PASS
+Codex Desktop UI live gate             REQUIRED BEFORE MAIN MERGE
 ```
 
 Stage F 已验证真实 UWA 重启后的连续性：重启前进程内 affinity 存在，重启后 `binding_count=0`，同一 Codex thread 仍可恢复上下文并继续真实本地工具执行，最终独立 checker 返回 `ACCEPTANCE_PASS`。
+
+需要特别区分：Stage E/F 的最终可审计实机证据主要来自 `codex exec / resume` CLI。它证明了 Codex 协议、线程恢复、本地工具和 UWA restart 链路，但不能替代 Codex Desktop UI 本身的最终验收。因此项目新增独立 Desktop live gate，并把它纳入 `main` 合并门槛。
 
 ## Aggregate regression
 
@@ -70,16 +73,17 @@ P1 开始前检查了当前 Codex 的 compaction transport contract。上游 Cod
 POST /v1/responses/compact
 ```
 
-当前 `codex-web-bridge-v2` 的 V2、legacy Codex Responses adapter 和通用 Responses 路由代码中尚未注册这个 endpoint。P1 因此先处理 compaction 协议兼容，再生成大量 synthetic context。这样可以要求真实 `contextCompaction` 证据和压缩后的上下文恢复，而不是只验证“对话足够长”。
+本机 runtime probe 已确认当前 UWA 实际行为：OpenAPI 中没有该 route，直接 POST 返回 `404 Not Found`。因此 P1.0 已完成，P1.1 进入 compact endpoint 实现和回归阶段。
 
 当前顺序：
 
 ```text
-P1.0 本机 /v1/responses/compact runtime probe
-P1.1 compact endpoint 实现 + regression + CI
-P1.2 synthetic large-context compaction / stress / recovery
-P1.3 lost-affinity / restart fallback 深化验证
-P1.4 真实项目长任务 pilot
+P1.0 本机 /v1/responses/compact runtime probe       DONE: 404 confirmed
+P1.1 compact endpoint 实现 + regression + CI        IN PROGRESS
+P1.2 synthetic large-context compaction / recovery   pending
+P1.3 lost-affinity / restart fallback 深化验证       pending
+Desktop live gate                                    required before real-project/final merge
+P1.4 真实项目长任务 pilot                            pending
 P2   并发请求 / queue / controlled-tab 稳定性
 P3   MCP / plugin namespace 与 multi-agent / tool fan-out
 P4   Responses SSE slimming 与 ChatGPT Web transcript hygiene
@@ -91,6 +95,7 @@ P5   final regression / operator docs / release checklist
 - `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
 - `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`
 - `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
+- `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## 连续性设计
 
@@ -110,11 +115,12 @@ P5   final regression / operator docs / release checklist
 `codex-web-bridge-v2` 暂不合并。需要全部满足：
 
 1. aggregate A-F regression PASS；
-2. large-context 与 lost-affinity/restart recovery 无阻断问题；
-3. 至少一次真实项目长任务 pilot PASS；
-4. CI 全绿；
-5. README、current-state、progress、operator docs、release checklist 同步；
-6. public repository safety 检查通过。
+2. compact protocol、large-context 与 lost-affinity/restart recovery 无阻断问题；
+3. Codex Desktop UI live gate PASS；
+4. 至少一次真实项目长任务 pilot PASS；
+5. CI 全绿；
+6. README、current-state、progress、operator docs、release checklist 同步；
+7. public repository safety 检查通过。
 
 ## Codex Memories
 
@@ -126,7 +132,7 @@ generate_memories = false
 use_memories = false
 ```
 
-## 快速启动
+## 快速启动 UWA
 
 ```bash
 cd ~/universal-web-api
@@ -137,24 +143,36 @@ codex-uwa-stop
 codex-uwa
 ```
 
-## 临时切回官方 Codex / ChatGPT 计划额度
+## 切回官方 Codex Desktop / ChatGPT 账号模式
 
-如果本机 Codex 默认配置已经被 UWA 启动流程切到 `model_provider = uwa`，CLI 可以通过 session-level config override 在单次启动中直接使用 Codex 内置的官方 `openai` provider。当前项目验证目标为 GPT-5.6 Sol / High：
+这个操作的目标只是恢复 Codex 的正常官方账号模式。**不固定模型，不固定 reasoning，不限制 Astra 或其他模型。** 完成后在 Codex Desktop 的模型选择器里正常选择当前账号/工作区可用的任意模型即可。
 
-```bash
-codex -c model_provider=openai -m gpt-5.6-sol -c model_reasoning_effort=high
-```
-
-该命令只覆盖本次 CLI 会话，不要求删除 UWA provider 配置；实际可用模型和额度以当前 Codex 官方账户、ChatGPT 计划和模型目录为准。
-
-如果还需要恢复 UWA 验收前的 Codex Memories 设置：
+先停止 UWA，并移除 `~/.codex/config.toml` 顶层由 UWA 使用的 provider/model/reasoning 固定项：
 
 ```bash
 cd ~/universal-web-api
+codex-uwa-stop
+python3 tools/codex_provider_switch.py official
 python3 tools/codex_uwa_memory_guard.py restore
 ```
 
-再次切回 UWA：
+`codex_provider_switch.py official` 会先备份当前 `~/.codex/config.toml`，然后只清理顶层 `model_provider`、`model`、`model_reasoning_effort` 固定项；它保留 `[model_providers.uwa]` 定义，也不会修改登录凭据。
+
+随后：
+
+1. 完全退出 ChatGPT Desktop / Codex。
+2. 重新打开 Desktop。
+3. 如果客户端提示登录，使用自己的 ChatGPT 账号登录。
+4. 在 Codex 中正常选择 Astra 或任何当前账号可用模型。
+
+查看当前是否仍存在顶层固定项：
+
+```bash
+cd ~/universal-web-api
+python3 tools/codex_provider_switch.py status
+```
+
+再次切回 UWA 时无需删除官方账号：
 
 ```bash
 cd ~/universal-web-api
