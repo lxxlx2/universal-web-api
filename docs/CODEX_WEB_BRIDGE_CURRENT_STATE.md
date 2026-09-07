@@ -28,9 +28,9 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 - client-prefixed Chinese required-tool wording: PASS
 - path-oriented client workspace refusal repair: PASS live rerun
 
-## Latest live acceptance
+## Latest completed live acceptance
 
-Stage E completed successfully in `/Users/jerson/uwa-codex-acceptance`.
+Stage E completed successfully in the synthetic acceptance workspace.
 
 Observed sequence:
 
@@ -55,25 +55,43 @@ Detailed record:
 
 ## Current live gate
 
-Stage F Codex + UWA restart continuity is NEXT.
+Stage F Codex + UWA restart continuity is IN PROGRESS.
 
-Stage F must prove the real long-running project workflow:
+Pre-restart baseline is already verified:
 
 ```text
-prepare a fresh context fixture
-start a fresh Codex thread
-turn 1 stores the context token and returns CONTEXT_READY
-fully stop Codex Desktop / CLI client session as required by the procedure
-stop and restart UWA
-resume the exact same Codex thread
-send turn 2 without repeating the token
-recover the token from persisted thread / Responses history
-perform real local tool execution
-write and read context/result.txt
-independent checker returns ACCEPTANCE_PASS
+fresh context fixture prepared: PASS
+context preflight: PASS
+fresh Codex thread created: PASS
+turn 1 reply: CONTEXT_READY
+context/result.txt after turn 1: ABSENT
+Stage F token remains conversation-only before restart
 ```
 
-This gate specifically exercises restart behavior after process-local web affinity has been lost. UWA must recover through Codex thread history plus private persisted Responses state and the documented fresh-chat reconstructed-history fallback where needed.
+The live thread identifier is intentionally kept out of the public repository. The local turn-1 JSONL remains the private source used to recover it for `codex exec resume`.
+
+The turn was run with `codex exec`, whose client process exited after turn 1. The next resume therefore starts a new Codex CLI process. The remaining disruptive boundary is UWA restart, which must remove process-local web-session and call-id affinity.
+
+Next required sequence:
+
+```text
+stop UWA
+restart UWA
+verify UWA health
+recover the same Stage F thread id locally
+send context_2 through codex exec resume without the token
+require the same thread id on resume
+require real local tool execution
+require context/result.txt == EMBER-7319\n
+require CONTEXT_PASS
+require independent context checker ACCEPTANCE_PASS
+```
+
+Do not reset or prepare the context fixture between Stage F turn 1 and turn 2.
+
+Detailed Stage F record:
+
+`docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
 
 ## Acceptance order
 
@@ -83,7 +101,9 @@ Stage B failure recovery                 PASS
 Stage C Git diff discipline              PASS
 Stage D long process + write_stdin       PASS
 Stage E same-thread context              PASS
-Stage F Codex + UWA restart              NEXT
+Stage F Codex + UWA restart              IN PROGRESS
+  pre-restart turn 1                     PASS
+  UWA restart                            NEXT
 ```
 
 ## Continuity layers
@@ -99,7 +119,7 @@ Process-local web affinity is expected to disappear across a UWA restart. Restar
 
 ## Collaboration recording rule
 
-Every completed live stage, important live failure, design change and repair must be synchronized to Git before the next stage starts. At minimum update README, this canonical handoff, progress tracking, and the stage-specific record. This allows another collaborator to continue solely from the repository when a chat session reaches its context limit.
+Every completed live stage, important live failure, design change, repair and disruptive-stage checkpoint must be synchronized to Git before the next step. At minimum update README, this canonical handoff, progress tracking, and the stage-specific record. This allows another collaborator to continue solely from the repository when a chat session reaches its context limit.
 
 ## Remaining engineering work after Stage F
 
@@ -120,4 +140,4 @@ Keep `codex-web-bridge-v2` as the active development branch until Stage F, requi
 
 ## Public repository safety
 
-Do not commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, SQLite continuation state, Codex memory workspace content, or private project source captured during acceptance.
+Do not commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, SQLite continuation state, live Codex thread identifiers, Codex memory workspace content, or private project source captured during acceptance.
