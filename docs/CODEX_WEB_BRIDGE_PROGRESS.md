@@ -56,12 +56,11 @@ Codex version                 0.153.4
 cache client version          0.153.4
 cache context window          64000
 live context window           64000
-cache truncation limit        57600
-live truncation limit         57600
-context override              none
-auto-compact override         none
+explicit auto-compact field   null
 persisted TokenCount events   9
 TokenCount model window       60800
+context override              none
+auto-compact override         none
 ```
 
 The real rollout preserved usage. Safe per-response active-context values reached:
@@ -79,10 +78,11 @@ Confirmed source facts:
 1. Resume/fork restores the latest persisted `EventMsg::TokenCount`.
 2. Normal `response.completed` usage is persisted and exposed through `TokenUsageInfo`.
 3. `context_window_token_status()` uses `last_token_usage.total_tokens` plus post-model history as active-context usage, not lifetime cumulative usage.
-4. The effective hard window is `64000 * 95% = 60800`.
-5. Round 7 ended at `55,632`, so the round-8 pre-turn check was still below the hard limit.
-6. `run_turn()` performs pre-turn compaction before context updates and before the new user message are recorded; the exact source explicitly notes that pending incoming items are not yet estimated for this check.
-7. The old runner then appended a 20KB filler after the check, jumping across the threshold inside round 8 and failing before a successful over-limit `TokenCount` could be persisted for a later turn.
+4. `ModelInfo::auto_compact_token_limit()` derives 90% of the resolved context window when the explicit field is absent: `57,600` for the current 64K model.
+5. The separate hard effective full-context cap is 95%: `60,800`.
+6. Round 7 ended at `55,632`, only 1,968 tokens below auto-compact.
+7. `run_turn()` performs pre-turn compaction before context updates and before the new user message are recorded; the exact source explicitly notes that pending incoming items are not yet estimated for this check.
+8. The old runner then appended another 20KB filler after the check, jumping across the 57,600 trigger and toward the hard boundary inside round 8.
 
 Therefore attempt 2 is now classified primarily as an acceptance-runner threshold-crossing defect, not proof of a broken Codex pre-turn compact trigger.
 
@@ -90,7 +90,7 @@ A separate capability fact remains: the custom UWA provider is `RemoteCompaction
 
 ## Current gate
 
-Use a smaller filler step near 60,800 and then a tiny next-turn trigger. The purpose is to prove the native auto-compact trigger deterministically under the current provider before touching provider identity.
+Use coarse filler until active context is close to 57,600, then ~2KB fine filler until one successful response lands only slightly above the auto-compact threshold. Send a tiny next-turn trigger and inspect bounded Codex rollout compact lifecycle evidence.
 
 Expected split:
 
@@ -98,7 +98,7 @@ Expected split:
 small-step threshold crossed + next-turn local compact observed
     -> trigger path PASS; remote-capability shim becomes separate next gate
 
-no compact after persisted active context is already >60800
+no compact after persisted active context is already >57600
     -> trigger/persistence mismatch remains
 ```
 
