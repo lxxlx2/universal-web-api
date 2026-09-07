@@ -45,7 +45,7 @@ ACCEPTANCE_PASS
 
 Detailed record: `docs/CODEX_FULL_ACCEPTANCE_HARNESS_FALSE_FAILURE_2026-09-07.md`.
 
-## Current P1 gate: live Responses compact acceptance
+## Current P1 gate: compact live HTTP 500 diagnosis
 
 Upstream Codex remote compaction uses:
 
@@ -60,27 +60,43 @@ COMPACT_ROUTE_REGISTERED=NO
 HTTP/1.1 404 Not Found
 ```
 
-P1.1 has now implemented and registered the endpoint in `app/api/codex_compact.py`, with regression coverage in `tests/test_codex_responses_compact.py`. GitHub Actions run #220 for head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed successfully.
+P1.1 then implemented and registered the endpoint in `app/api/codex_compact.py`, with regression coverage in `tests/test_codex_responses_compact.py`. GitHub Actions run #220 for implementation/test head `5cccbcf4b7f5f0c53467423ce1e5250c7fc1457d` completed successfully.
 
-The implementation keeps compaction tool-free, preserves incoming model/reasoning context, generates a replacement-history assistant summary through the configured ChatGPT Web path, and returns `{"output": [...]}` without fabricating encrypted compaction blobs.
+The first post-implementation macOS runtime probe then observed:
 
-The current gate is the post-implementation macOS runtime probe after pulling and restarting UWA.
+```text
+COMPACT_ROUTE_REGISTERED=YES
+COMPACT_HTTP_CODE=500
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=NO
+OUTPUT_COUNT=0
+MARKER_PRESERVED=NO
+TASK_PRESERVED=NO
+```
+
+Therefore route registration and unit/CI coverage are green, but the live handler is still failing. P1.1 is NOT PASS and P1.2 large-context stress remains blocked.
+
+Code inspection narrows the current diagnostic boundary: web-mode preparation and the backing request are already inside an exception block that converts failures to structured `502`; the raw `500` points more strongly to an exception before or after that block, such as request adaptation, payload sanitization, output conversion, or another uncovered route-level path. This is still a hypothesis until the local traceback is inspected.
 
 Next sequence:
 
 ```text
-1. verify OpenAPI now registers /v1/responses/compact
-2. direct compact call -> HTTP 200 + assistant output item
-3. synthetic large-context workload
-4. observable contextCompaction + post-compaction recovery
-5. lost-affinity / restart fallback deeper validation
-6. mandatory Codex Desktop UI D1-D5 live gate
-7. real-project long-task pilot
+1. extract the local compact traceback without publishing private runtime data
+2. reproduce the exact failing route-level shape in regression tests
+3. implement the narrow repair
+4. CI green
+5. rerun the same direct compact probe -> HTTP 200 + assistant output
+6. synthetic large-context workload
+7. observable contextCompaction + post-compaction recovery
+8. lost-affinity / restart fallback deeper validation
+9. mandatory Codex Desktop UI D1-D5 live gate
+10. real-project long-task pilot
 ```
 
 Detailed records:
 
 - `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
+- `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Official-account escape hatch
@@ -97,7 +113,7 @@ Detailed records:
 ## Production-hardening order
 
 ```text
-P1 compact live protocol acceptance
+P1 compact live protocol repair / acceptance
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
 Desktop UI live acceptance D1-D5
