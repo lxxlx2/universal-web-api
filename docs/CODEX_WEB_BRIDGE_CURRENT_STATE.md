@@ -23,8 +23,6 @@ Codex Desktop UI live gate                        REQUIRED / pending
 
 ## Native auto-compact trigger: PASS
 
-The small-step live probe crossed the native threshold safely and the next tiny turn produced a Codex rollout compaction lifecycle marker:
-
 ```text
 57429 < 57600
 58290 > 57600
@@ -36,7 +34,7 @@ AUTO_COMPACT_MODE=LOCAL_FALLBACK
 AUTO_COMPACT_TRIGGER_PROBE_PASS
 ```
 
-This proves threshold detection, TokenCount persistence/resume restoration and local fallback under Codex 0.153.4.
+This proves the Codex 0.153.4 threshold trigger, TokenCount persistence/resume restoration and local fallback path under UWA.
 
 ## Remote capability shim: implementation/CI PASS
 
@@ -47,44 +45,38 @@ Tracked helper/test:
 - `tools/codex_remote_compaction_compat.py`
 - `tests/test_codex_remote_compaction_compat.py`
 
-Security hardening #351 / run `34164070091` passed. Latest aligned documentation/public-safety CI #355 / run `34164304589` also passed.
+Security hardening #351 / run `34164070091` passed. Aligned docs/public-safety #355 / run `34164304589` also passed.
 
-## Current blocker: remote V2 protocol shape
+## Current blocker: remote V2 compaction item/envelope protocol
 
-The real macOS Azure-name shim has NOT been enabled yet because a pre-live exact-release audit found an additional protocol mismatch.
+The real macOS Azure-name shim has NOT been enabled yet because a pre-live exact-release audit found an additional output-item mismatch.
 
-Current UWA P1.1 compact is a legacy unary adapter:
+Important corrected transport fact: Codex 0.153.4 `/responses/compact` is still **unary HTTP**. `ModelClientSession` calls `CompactClient.compact_input(...)` and receives `output: Vec<ResponseItem>`; the client later exposes those items internally to the V2 collector.
 
-```text
-POST /v1/responses/compact
-→ HTTP JSON
-→ output contains assistant message item(s)
-```
-
-Codex 0.153.4 remote V2 requires a streaming Responses contract and accepts the attempt only when exactly one output item is:
+Current UWA P1.1 unary response contains assistant message items. Remote V2 requires the unary output list to contain exactly one:
 
 ```text
 type = compaction
 encrypted_content = <opaque payload>
 ```
 
-The V2 collector explicitly fails if it does not receive exactly one `ResponseItem::Compaction`. Therefore enabling the capability shim against the current legacy endpoint would be a predictable live failure.
+The V2 collector fails if the Compaction item count is not exactly one. Enabling the capability shim against the current P1.1 item shape would therefore be a predictable failure.
 
-Detailed blocker record: `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`.
+Detailed blocker: `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`.
 
 ## Current repair gate
 
-Keep P1.1 unary behavior. Add a V2 path for streaming `compaction_trigger` requests that:
+Preserve P1.1 behavior for compact requests without `compaction_trigger`. For V2 trigger requests:
 
-1. produces the bounded web-backed summary with tools disabled;
-2. wraps it in a UWA-owned opaque/bounded compaction envelope;
-3. emits parseable SSE with exactly one `type=compaction` output item and `response.completed`;
-4. emits parseable heartbeat events during long web inference;
-5. decodes only UWA-owned compaction envelopes back into model-visible compacted context on later normal Codex Responses turns;
-6. fails closed on foreign/corrupt envelopes;
-7. never logs summary/envelope content.
+1. remove the request-only trigger before web summarization;
+2. generate the bounded no-tools summary;
+3. encode it in a UWA-owned bounded opaque envelope with integrity checks;
+4. return unary `output` containing exactly one `type=compaction` item;
+5. decode only UWA-owned compaction envelopes into model-visible compact context on later normal Codex Responses turns;
+6. fail closed on foreign/corrupt envelopes;
+7. never log summary or envelope contents.
 
-The schema field is named `encrypted_content`, but UWA must not represent its local envelope as OpenAI encryption.
+The upstream field is named `encrypted_content`; UWA does not claim its local envelope is OpenAI encryption.
 
 ## Current status
 
@@ -92,7 +84,7 @@ The schema field is named `encrypted_content`, but UWA must not represent its lo
 P1.1 legacy compact endpoint/direct live             PASS
 P1.2 native threshold/local fallback                 PASS
 P1.2 remote capability shim implementation/CI        PASS
-P1.2 remote V2 response/envelope protocol repair     CURRENT
+P1.2 remote V2 unary item/envelope protocol repair   CURRENT
 P1.2 native remote compact macOS live                BLOCKED on repair
 P1.2 same-thread post-remote recovery                 pending
 P1.3 lost-affinity/restart + identity fencing         pending
@@ -102,14 +94,11 @@ Desktop UI D1-D5                                      pending / mandatory
 ## Production-hardening order
 
 ```text
-P1.2 remote V2 protocol repair → CI → native remote compact live → same-thread recovery
+P1.2 V2 item/envelope repair → CI → native remote compact live → same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop UI live acceptance D1-D5
 P1.4 real-project long-task pilot
-P2 per-continuation serialization / queue planes / controlled-tab stale-result hardening
-P3 MCP/plugin namespace, capability fidelity and multi-agent/tool fan-out
-P4 Responses SSE slimming, bounded trace and transcript hygiene
-P5 runtime/build identity, compatibility preflight, final regression and release checklist
+P2-P5 production hardening / final release gate
 ```
 
 ## Continuity layers
