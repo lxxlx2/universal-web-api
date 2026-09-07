@@ -9,6 +9,7 @@ app/api/routes.py - API 路由聚合入口
 from fastapi import APIRouter
 
 from app.api.codex_compat import router as codex_compat_router
+from app.api.codex_compact import router as codex_compact_router
 from app.api.codex_responses_v2 import router as codex_responses_v2_router
 from app.api.codex_responses import router as codex_responses_router
 from app.api.chat import router as chat_router
@@ -40,10 +41,12 @@ router = APIRouter()
 
 # Codex 路由顺序是协议的一部分：
 # - codex_compat 负责 Codex 专用模型目录；
+# - codex_compact 负责 unary /v1/responses/compact；
 # - codex_responses_v2 先执行 V2 观测与“明确要求工具”协议约束；
 # - codex_responses 保留已验证的 ChatGPT Web/Responses 实现作为底层；
 # - 通用 chat_router 最后兜底其他 OpenAI-compatible 请求。
 router.include_router(codex_compat_router)
+router.include_router(codex_compact_router)
 router.include_router(codex_responses_v2_router)
 router.include_router(codex_responses_router)
 
