@@ -2,13 +2,13 @@
 
 ## Scope
 
-This record captures the first macOS post-implementation live acceptance of `POST /v1/responses/compact` on `codex-web-bridge-v2`.
+This record captures macOS live acceptance of `POST /v1/responses/compact` on `codex-web-bridge-v2`.
 
-Stage A-F and the aggregate checker remain PASS. This failure is isolated to P1.1 compact protocol hardening.
+Stage A-F and the aggregate checker remain PASS. The failures recorded here are isolated to P1.1 compact protocol hardening.
 
-## Live evidence
+## First post-implementation live failure
 
-After pulling the branch, restarting UWA and confirming `/health` was healthy, the operator observed:
+After the compact endpoint was first implemented, the operator pulled the branch, restarted UWA, confirmed `/health`, and observed:
 
 ```text
 COMPACT_ROUTE_REGISTERED=YES
@@ -22,9 +22,9 @@ TASK_PRESERVED=NO
 
 The harmless probe requested compaction of synthetic history containing marker `ALPHA-42` and a compact-protocol task description.
 
-## Traceback root cause
+## First traceback root cause
 
-The local UWA traceback identifies the exact failure at the final success-log line in `app/api/codex_compact.py`:
+The first local UWA traceback identified the exact failure at the final success-log line in `app/api/codex_compact.py`:
 
 ```text
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
@@ -36,44 +36,58 @@ The route had already completed the backing ChatGPT Web request, sanitized the p
 logger.info("[CODEX_COMPACT] compacted history into %s assistant item(s)", len(output))
 ```
 
-UWA's `SecureLogger.info()` accepts one message argument, unlike the stdlib logging interpolation signature. The exception converted an otherwise successful compact call into HTTP 500.
+UWA's `SecureLogger.info()` accepts one message argument, unlike the stdlib logging interpolation signature. Code inspection also found the same incompatible style on the backing-error `logger.warning()` branch.
 
-Code inspection also found the same incompatible style on the backing-error branch:
+## First repair
 
-```python
-logger.warning("Codex compact backing request failed: %s", exc)
+The narrow repair on `codex-web-bridge-v2` changed compact success/error logging to single preformatted message arguments and added route-level success/error regressions using a one-argument logger. Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
+
+## Post-repair live rerun: FAIL
+
+The operator then pulled through branch head `b3f37ac`, verified the repaired source line locally, restarted UWA successfully, confirmed service health and route registration, and reran the exact same direct compact probe.
+
+Observed non-sensitive evidence:
+
+```text
+HEAD=b3f37ac
+COMPACT_ROUTE_REGISTERED=YES
+COMPACT_HTTP_CODE=500
+JSON_PARSE=PASS
+OUTPUT_IS_LIST=NO
+OUTPUT_COUNT=0
+MARKER_PRESERVED=NO
+TASK_PRESERVED=NO
 ```
 
-That path had not triggered in the live probe, but it would likewise raise instead of returning the intended structured 502.
+The logger repair is therefore deployed, but P1.1 still has a second unhandled runtime path. The new `500` must not be attributed to the already-fixed `SecureLogger.info()` call without a fresh traceback.
 
-## Repair
-
-The narrow repair is now on `codex-web-bridge-v2`:
-
-1. success and warning logs use single preformatted messages;
-2. a route-level success regression uses a logger whose `info()` accepts exactly one argument;
-3. a backing-failure route regression uses a logger whose `warning()` accepts exactly one argument;
-4. compaction request/response semantics are otherwise unchanged.
-
-Security hardening CI #239 for repair code commit `7c6d7ff` completed with `success`.
-
-## Classification
+## Current classification
 
 ```text
 route registration                         PASS
-backing compact execution                   PASS in observed live path
-assistant replacement output generation     PASS in observed live path
-first live success logging                  FAIL: incompatible SecureLogger call
-traceback root cause                        CONFIRMED
-SecureLogger repair                         DONE
-route-level regression coverage             DONE
+first live 500 root cause                  CONFIRMED: SecureLogger signature
+first SecureLogger repair                  DONE
+first repair route regressions              DONE
 repair CI                                   PASS: #239
-direct macOS post-repair rerun              NEXT
-P1.1 overall                                NOT PASS until live rerun
-P1.2 large-context stress                   BLOCKED until P1.1 live PASS
+post-repair service restart                 PASS
+post-repair route registration              PASS
+post-repair direct compact request          FAIL: HTTP 500
+second traceback root cause                 UNKNOWN / CURRENT
+P1.1 overall                                NOT PASS
+P1.2 large-context stress                   BLOCKED
 ```
 
-The post-repair live gate still requires:
+## Immediate next action
+
+1. preserve this second live failure in Git before any repair;
+2. extract only the fresh local traceback for the post-repair request;
+3. identify the exact new failing line;
+4. reproduce that route-level path in regression coverage;
+5. implement the narrow repair;
+6. require CI green;
+7. rerun the unchanged direct macOS probe.
+
+The live acceptance criteria remain:
 
 ```text
 COMPACT_ROUTE_REGISTERED=YES
