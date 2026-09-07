@@ -6,6 +6,8 @@ Canonical handoff for `codex-web-bridge-v2`.
 
 Run official Codex Desktop / Codex CLI as the local coding agent while routing model inference through UWA to logged-in ChatGPT Web. Codex remains authoritative for filesystem, shell, edits, tests, Git, sandbox and approval.
 
+The production target explicitly includes normal use from ChatGPT Desktop in Codex mode. CLI/protocol acceptance remains necessary evidence, but it is no longer treated as sufficient proof of Desktop UI compatibility.
+
 ## Verified live acceptance
 
 ```text
@@ -21,9 +23,12 @@ real exec_command / native cwd             PASS
 Responses tool round trip                  PASS
 required-tool enforcement                  PASS
 call-id / web-session continuation         PASS
+Codex Desktop UI live gate                 REQUIRED / pending
 ```
 
 Stage F crossed a real UWA restart. Process-local affinity was confirmed destroyed (`binding_count=4 -> 0`), then the same Codex thread resumed without repeating the token, executed a real local command, restored `EMBER-7319\n`, returned `CONTEXT_PASS`, and passed the independent checker.
+
+Important evidence boundary: the final Stage E/F runs were machine-audited primarily via `codex exec` / `codex exec resume`. They prove the Responses/thread/local-tool/restart chain, but they do not close the Desktop UI gate. The additional cases are defined in `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`.
 
 ## Aggregate A-F regression incident: CLOSED
 
@@ -50,30 +55,35 @@ POST /v1/responses/compact
 
 The compact request carries canonical Responses input plus model/instructions and applicable tool/reasoning/text controls. Codex parses the returned JSON `output` items and exposes context compaction as an observable lifecycle item.
 
-Code inspection of the current UWA branch found normal `/v1/responses` handling in:
+Code inspection found no route, and the real macOS runtime probe confirmed:
 
 ```text
-app/api/codex_responses_v2.py
-app/api/codex_responses.py
-app/api/chat.py
+COMPACT_ROUTE_REGISTERED=NO
+HTTP/1.1 404 Not Found
 ```
 
-but no registered `/v1/responses/compact` route in those adapters.
-
-This is the current P1 blocker. A long-context stress test should not be started until the compact transport path exists, because an otherwise healthy Codex thread can fail exactly when remote compaction becomes necessary.
+P1.0 is therefore complete. P1.1 is the current implementation gate.
 
 Next sequence:
 
 ```text
-1. local synthetic runtime probe for POST /v1/responses/compact
-2. record HTTP status/body class
-3. implement minimal compatible compact endpoint + regression tests
-4. CI + direct compact protocol acceptance
-5. synthetic large-context workload
-6. require observable contextCompaction plus post-compaction recovery
+1. implement minimal compatible /v1/responses/compact endpoint + regression tests
+2. CI + direct compact protocol acceptance
+3. synthetic large-context workload
+4. require observable contextCompaction plus post-compaction recovery
+5. lost-affinity / restart fallback deeper validation
+6. mandatory Codex Desktop UI D1-D5 live gate
+7. real-project long-task pilot
 ```
 
-Detailed record: `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`.
+Detailed records:
+
+- `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
+- `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
+
+## Official-account escape hatch
+
+The project now includes `tools/codex_provider_switch.py`. `official` removes top-level provider/model/reasoning pins from `~/.codex/config.toml` after creating a backup. It does not modify login credentials and does not select a model. After fully restarting ChatGPT Desktop, the user chooses any model made available by the signed-in ChatGPT account/workspace.
 
 ## Continuity layers
 
@@ -88,6 +98,7 @@ Detailed record: `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`.
 P1 compact protocol compatibility
 P1 large-context compaction / stress / recovery
 P1 lost-affinity / restart fallback deeper validation
+Desktop UI live acceptance D1-D5
 P1 real-project long-task pilot
 P2 concurrent request / queue / controlled-tab hardening
 P3 MCP/plugin namespace and multi-agent/tool fan-out
@@ -101,7 +112,7 @@ Every completed stage, important failure, repair and disruptive checkpoint is co
 
 ## Merge policy
 
-Do not merge into `main` yet. Merge only after production-hardening gates, real-project pilot, final regression, CI, documentation and public-repository safety checks are green.
+Do not merge into `main` yet. Merge only after compact/large-context/restart hardening, the Desktop UI gate, real-project pilot, final regression, CI, documentation and public-repository safety checks are green.
 
 ## Public repository safety
 
