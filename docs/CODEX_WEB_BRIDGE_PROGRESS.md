@@ -19,6 +19,7 @@
 - Stage C Git diff discipline: PASS
 - Stage D long process + `write_stdin`: PASS
 - Stage E same-thread context continuity: PASS
+- Stage F pre-restart turn 1 baseline: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -55,30 +56,47 @@ A generated `workdir="/"` is removed when the user did not explicitly request fi
 
 ### Same-thread path-oriented workspace refusal
 
-Stage E initially failed because the web model claimed that the current execution environment did not contain `/Users/jerson/uwa-codex-acceptance` before a real local tool check.
+Stage E initially failed because the web model claimed that the current execution environment did not contain the local synthetic acceptance workspace before a real local tool check.
 
 The policy matcher was extended to cover this narrow path-missing refusal form. Regression coverage verified conversion to a real `exec_command` call without guessed `workdir`.
 
 The final live rerun then passed:
 
 ```text
-thread_id turn 1 == thread_id turn 2
-THREAD_MATCH=YES
+thread id turn 1 == thread id turn 2
 turn 2 was not given EMBER-7319 again
-real local exec_command ran in /Users/jerson/uwa-codex-acceptance
+real local exec_command ran
 context/result.txt contained EMBER-7319\n
 assistant: CONTEXT_PASS
 checker: context: PASS
 checker: ACCEPTANCE_PASS
 ```
 
-Stage E is therefore closed as PASS.
+Stage E is closed as PASS.
 
 ## Current gate
 
-Stage F Codex + UWA restart continuity is NEXT.
+Stage F Codex + UWA restart continuity is IN PROGRESS.
 
-This gate must verify that the same Codex thread remains usable after the local client workflow and UWA are restarted. Process-local web affinity is expected to be gone, so recovery must rely on Codex thread history, persisted Responses state, and the documented reconstructed-history fallback.
+### Stage F pre-restart checkpoint
+
+The first half is now verified:
+
+```text
+prepare context fixture: PASS
+preflight context fixture: PASS
+fresh Codex thread created: PASS
+turn 1 assistant reply: CONTEXT_READY
+context/result.txt after turn 1: ABSENT
+```
+
+The context token is therefore still conversation-only before restart. The real thread identifier is kept private and is not written into Git.
+
+Because turn 1 used `codex exec`, that Codex CLI process has already exited. A later `codex exec resume` starts a new client process. The next step is to stop and restart UWA, ensuring process-local web affinity is lost before resuming the same Codex thread.
+
+Do not reset the context fixture between these two turns.
+
+Detailed record: `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`.
 
 ## Remaining acceptance matrix
 
@@ -88,12 +106,16 @@ Stage B failure recovery                  PASS
 Stage C Git diff discipline              PASS
 Stage D long process + write_stdin        PASS
 Stage E same-thread context               PASS
-Stage F Codex + UWA restart               NEXT
+Stage F Codex + UWA restart               IN PROGRESS
+  pre-restart turn 1                      PASS
+  UWA restart                             NEXT
+  same-thread post-restart resume         pending
+  independent checker                     pending
 ```
 
 ## Recording discipline
 
-Every live stage result must be committed before the next stage begins. README, canonical current state, this progress file, and the stage-specific record must stay aligned. This is required for multi-agent and multi-conversation collaboration where any one chat may reach its context limit.
+Every live stage result and disruptive-stage checkpoint must be committed before the next step. README, canonical current state, this progress file, and the stage-specific record stay aligned. This supports multi-agent and multi-conversation collaboration where any one chat may reach its context limit.
 
 ## Roadmap after Stage F
 
