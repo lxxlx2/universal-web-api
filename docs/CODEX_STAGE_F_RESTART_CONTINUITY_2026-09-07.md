@@ -26,7 +26,7 @@ The turn was executed through `codex exec`. That client process exited after tur
 
 ## UWA restart checkpoint
 
-The disruptive UWA restart boundary has now been verified.
+The disruptive UWA restart boundary has been verified.
 
 Observed evidence:
 
@@ -45,21 +45,48 @@ private turn-1 JSONL record: present
 context/result.txt after restart: ABSENT
 ```
 
-This proves that Stage F has crossed a real UWA process restart and that the process-local web affinity map did not survive. The browser itself may remain connected, but the new UWA process reports zero affinity bindings and zero tracked requests.
+This proves that Stage F crossed a real UWA process restart and that the process-local web affinity map did not survive.
+
+## Post-restart same-thread resume checkpoint
+
+The same Codex thread was resumed successfully after the UWA restart.
+
+Observed evidence:
+
+```text
+affinity before resume: binding_count=0
+resumed thread id matched original thread id: PASS
+THREAD_MATCH=YES
+context_2 did not repeat the context token
+real local command execution: PASS
+local cwd: synthetic acceptance workspace
+context/result.txt created: PASS
+context/result.txt content: EMBER-7319\n
+byte sequence: 45 4d 42 45 52 2d 37 33 31 39 0a
+assistant reply: CONTEXT_PASS
+affinity after resume: binding_count=2
+```
+
+The token was therefore recovered across a real UWA restart from the surviving continuity layers rather than from the destroyed pre-restart in-memory affinity map. The successful local command execution also confirms that restart recovery preserved real Codex client tool use.
 
 No live process id, thread id, browser conversation id, local log content, SQLite content, or other private runtime identifier is committed.
 
-## Next gate
+## Final gate
 
-1. recover the existing Stage F thread identifier locally from the private turn-1 JSONL;
-2. generate `context_2` from the acceptance harness;
-3. send `context_2` through `codex exec resume` without repeating the token;
-4. require the resumed event to report the same Codex thread id;
-5. require real local tool execution to create and read `context/result.txt`;
-6. require assistant reply `CONTEXT_PASS`;
-7. run the independent context checker and require `ACCEPTANCE_PASS`.
+Run the independent acceptance checker:
 
-Do not prepare or reset the context fixture between turn 1 and turn 2.
+```bash
+python3 tools/codex_desktop_acceptance.py check --scenario context
+```
+
+Required result:
+
+```text
+context: PASS
+ACCEPTANCE_PASS
+```
+
+Do not prepare or reset the context fixture before this checker.
 
 ## Status
 
@@ -67,11 +94,13 @@ Do not prepare or reset the context fixture between turn 1 and turn 2.
 Stage F turn 1 pre-restart baseline   PASS
 UWA restart                            PASS
 process-local web affinity cleared     PASS
-same-thread post-restart resume        NEXT
-independent context checker            pending
+same-thread post-restart resume        PASS
+real local tool execution              PASS
+CONTEXT_PASS                            PASS
+independent context checker            NEXT
 Stage F overall                        IN PROGRESS
 ```
 
 ## Recording rule
 
-This checkpoint is committed before the post-restart resume so another collaborator can recover the exact project state even if the current chat or local runtime context is lost.
+Every disruptive Stage F checkpoint is committed before the next step so another collaborator can recover project state without relying on the current chat.
