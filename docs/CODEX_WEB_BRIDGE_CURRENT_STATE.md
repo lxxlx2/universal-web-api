@@ -17,6 +17,7 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 - Stage A multi-file read/edit/test: PASS (`ACCEPTANCE_PASS`)
 - Stage B failure recovery: PASS (`ACCEPTANCE_PASS`)
 - Stage C Git diff discipline: PASS (`ACCEPTANCE_PASS`)
+- Stage D long process + `write_stdin`: PASS (`ACCEPTANCE_PASS` + wire evidence)
 - Responses `function_call -> function_call_output`: PASS
 - V2 metadata wire trace: PASS
 - V2 strict required-tool repair can produce a real `exec_command`: PASS
@@ -27,29 +28,26 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 
 ## Latest live acceptance
 
-Stage C `git_diff` completed successfully in `/Users/jerson/uwa-codex-acceptance`.
+Stage D `interactive` completed successfully in `/Users/jerson/uwa-codex-acceptance`.
 
 Observed sequence:
 
 ```text
 workspace guard executed through real exec_command
-initial git_diff fixture: red
-Codex read git_diff/REQUIREMENTS.txt, config.py and tests
-only git_diff/config.py was edited for Stage C
-MODE changed dev -> prod
-TIMEOUT changed 5 -> 30
-tests: 2/2 PASS
-git diff --check: PASS
-git diff -- git_diff: only git_diff/config.py
-REQUIREMENTS.txt/tests unchanged
+worker launched with exec_command
+persistent worker waited for stdin
+real write_stdin function_call observed in V2 metadata trace
+write_stdin round reused the same ChatGPT Web conversation
+worker produced INTERACTIVE_PASS
+interactive/result.txt verified as INTERACTIVE_PASS
 independent harness checker: ACCEPTANCE_PASS
 ```
 
-The first Stage C attempt exposed a protocol wording gap: `第一步必须通过客户端 exec_command ...` was not recognized by the strict required-tool detector, allowing ChatGPT Web to answer `ACCEPTANCE_WORKSPACE_MISMATCH` without a real function call. Runtime compatibility now covers client-prefixed Chinese forms such as `必须通过客户端 exec_command` while avoiding ordinary explanatory mentions.
+The Codex terminal UI displayed the worker launch as one `exec` block whose collected output included `GO` and `INTERACTIVE_PASS`, which was insufficient by itself to prove the stdin continuation path. Metadata wire tracing showed a distinct real `write_stdin` function call between the worker launch and final result-file check, so Stage D is accepted as a genuine persistent-process continuation rather than a one-shot shell pipe.
 
 ## V2 continuation design now verified
 
-Two continuation shapes are supported:
+Two Responses/web continuation shapes are supported:
 
 ```text
 A. previous_response_id continuation
@@ -74,26 +72,28 @@ Runtime hardening now:
 - stores only call ids, response ids and timestamps in this map; no prompt, command text or tool result text is stored;
 - retains degraded same-conversation repair when local Responses hydration fails;
 - retains structured terminal failure handling and compact failure envelopes;
-- recognizes explicit client-prefixed required-tool wording used by the acceptance harness.
+- recognizes explicit client-prefixed required-tool wording used by the acceptance harness;
+- has live evidence that `write_stdin` survives the same function-call / tool-result continuation path.
 
 ## Current live gate
 
-Stage D `interactive` is NEXT.
+Stage E same-thread context is NEXT.
 
-Required Stage D evidence:
+Required Stage E evidence:
 
 ```text
-workspace guard succeeds through real exec_command
-Codex starts python3 interactive/worker.py as a long-lived process
-worker prints READY and remains alive
-Codex uses client write_stdin / persistent-process continuation on that same process
-GO plus newline is delivered after READY
-worker exits and prints INTERACTIVE_PASS
-interactive/result.txt contains exactly INTERACTIVE_PASS\n
+prepare + preflight context fixture
+turn 1 and turn 2 are sent in the same Codex thread
+turn 1 stores EMBER-7319 only in conversation context and replies CONTEXT_READY
+no file contains the token after turn 1
+turn 2 is not given the token again
+Codex recalls EMBER-7319 from the same thread
+Codex creates context/result.txt with exactly EMBER-7319\n
+Codex reads the file back and replies CONTEXT_PASS
 independent checker passes
 ```
 
-A one-shot command such as piping `GO` into the worker at launch is not equivalent evidence. Stage D specifically validates process-handle continuity plus `write_stdin` behavior across tool turns.
+This gate intentionally distinguishes conversational continuity from filesystem continuity. The token must not be written during turn 1.
 
 ## Acceptance order
 
@@ -101,8 +101,8 @@ A one-shot command such as piping `GO` into the worker at launch is not equivale
 Stage A multi-file read/edit/test        PASS
 Stage B failure recovery                 PASS
 Stage C Git diff discipline              PASS
-Stage D long process + write_stdin       NEXT
-Stage E same-thread context              pending
+Stage D long process + write_stdin       PASS
+Stage E same-thread context              NEXT
 Stage F Codex + UWA restart              pending
 ```
 
@@ -110,7 +110,7 @@ After those, run long-context and advanced-tool coverage before treating V2 as p
 
 ## Remaining engineering work
 
-Beyond the Stage D-F acceptance matrix, remaining planned work includes:
+Beyond the Stage E-F acceptance matrix, remaining planned work includes:
 
 - successful Responses SSE payload slimming; successful Codex responses can still be large because the full advertised tool set is reflected in terminal payloads;
 - ChatGPT Web transcript hygiene so internal adapter/repair prompts are less noisy in the visible conversation;
@@ -136,7 +136,7 @@ UWA mode keeps Codex automatic Memories disabled during acceptance to avoid back
 
 Do not assign acceptance task text to zsh special variables such as `PROMPT`, `PS1` or `PATH`. Use ordinary names such as `ACCEPTANCE_PROMPT`.
 
-The acceptance worktree intentionally preserves prior Stage A/B/C implementation evidence. Clean only operator/test noise such as `PROMPTS.md` drift or `__pycache__` when a checker requires it.
+The acceptance worktree intentionally preserves prior Stage A/B/C/D evidence. Clean only operator/test noise such as `PROMPTS.md` drift or `__pycache__` when a checker requires it.
 
 ## Public repository safety
 
