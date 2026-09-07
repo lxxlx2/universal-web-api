@@ -20,6 +20,8 @@
 - Stage D long process + `write_stdin`: PASS
 - Stage E same-thread context continuity: PASS
 - Stage F pre-restart turn 1 baseline: PASS
+- Stage F real UWA process restart: PASS
+- Stage F process-local web affinity cleared: PASS
 - `function_call -> function_call_output`: PASS
 - V2 metadata wire observability: PASS
 - strict required-tool repair reaches a real function call: PASS
@@ -60,19 +62,7 @@ Stage E initially failed because the web model claimed that the current executio
 
 The policy matcher was extended to cover this narrow path-missing refusal form. Regression coverage verified conversion to a real `exec_command` call without guessed `workdir`.
 
-The final live rerun then passed:
-
-```text
-thread id turn 1 == thread id turn 2
-turn 2 was not given EMBER-7319 again
-real local exec_command ran
-context/result.txt contained EMBER-7319\n
-assistant: CONTEXT_PASS
-checker: context: PASS
-checker: ACCEPTANCE_PASS
-```
-
-Stage E is closed as PASS.
+The final live rerun then passed, so Stage E is closed as PASS.
 
 ## Current gate
 
@@ -80,7 +70,7 @@ Stage F Codex + UWA restart continuity is IN PROGRESS.
 
 ### Stage F pre-restart checkpoint
 
-The first half is now verified:
+Verified:
 
 ```text
 prepare context fixture: PASS
@@ -90,11 +80,29 @@ turn 1 assistant reply: CONTEXT_READY
 context/result.txt after turn 1: ABSENT
 ```
 
-The context token is therefore still conversation-only before restart. The real thread identifier is kept private and is not written into Git.
+### Stage F UWA restart checkpoint
 
-Because turn 1 used `codex exec`, that Codex CLI process has already exited. A later `codex exec resume` starts a new client process. The next step is to stop and restart UWA, ensuring process-local web affinity is lost before resuming the same Codex thread.
+Verified:
 
-Do not reset the context fixture between these two turns.
+```text
+UWA was listening before restart
+UWA stopped cleanly
+listener after stop: absent
+UWA restarted with a different process id
+health after restart: healthy
+web affinity before restart: binding_count=4
+web affinity after restart: binding_count=0
+persistent=false
+fallback=fresh_chat_plus_reconstructed_history
+turn-1 private JSONL: present
+context/result.txt after restart: ABSENT
+```
+
+This confirms that the in-process web affinity layer has actually been destroyed. The next resume therefore tests recovery without relying on the pre-restart in-memory mapping.
+
+The real thread identifier and process identifiers remain private and are not written into Git.
+
+Do not reset the context fixture between the two turns.
 
 Detailed record: `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`.
 
@@ -108,8 +116,9 @@ Stage D long process + write_stdin        PASS
 Stage E same-thread context               PASS
 Stage F Codex + UWA restart               IN PROGRESS
   pre-restart turn 1                      PASS
-  UWA restart                             NEXT
-  same-thread post-restart resume         pending
+  UWA restart                             PASS
+  process-local affinity cleared          PASS
+  same-thread post-restart resume         NEXT
   independent checker                     pending
 ```
 
