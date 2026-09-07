@@ -92,7 +92,7 @@ The installed release `rust-v0.153.4` resolves to upstream commit:
 
 That release already contains explicit token-usage restoration on resume/fork. During `InitialHistory::Resumed`, Codex scans the recorded rollout for the latest `EventMsg::TokenCount` and seeds session state with its `TokenUsageInfo` before the next real turn.
 
-The normal sampling path records usage from `response.completed`, then emits a `TokenCount` event. `send_event_raw` persists ordinary events as `RolloutItem::EventMsg`, so the intended 0.153.4 design is for non-zero response usage to survive a later CLI resume.
+The normal sampling path records usage from `response.completed`, then emits a `TokenCount` event. `send_event_raw` persists ordinary events as `RolloutItem::EventMsg`, so non-zero response usage survives a later CLI resume.
 
 `TokenUsageInfo::append_last_usage()` adds each response's usage to `total_token_usage` while preserving that response unchanged as `last_token_usage`. Therefore the CLI's cumulative token numbers and rollout's per-response `last_tokens` serve different purposes and are both expected.
 
@@ -123,11 +123,11 @@ ordinal  total_tokens  last_tokens
 9           251380       55632
 ```
 
-The `model_context_window=60800` value is exactly the cached 64,000 window after Codex's 95% effective-context-window factor.
+The persisted `model_context_window=60800` value is the model's 64,000 context window after Codex's 95% effective-context factor.
 
 ## Exact token-limit semantics
 
-Codex 0.153.4 `context_window_token_status()` calls `sess.get_total_token_usage()`. Despite its name, the exact implementation of the underlying history method uses:
+Codex 0.153.4 `context_window_token_status()` calls `sess.get_total_token_usage()`. Despite its name, the underlying history method uses:
 
 ```text
 last_token_usage.total_tokens
@@ -135,23 +135,29 @@ last_token_usage.total_tokens
 + optional reasoning-history estimate
 ```
 
-It does not use the monotonically accumulated `total_token_usage.total_tokens` as the active context size.
+It does not use lifetime cumulative `total_token_usage.total_tokens` as the active context size.
 
-The hard full-context limit is:
+Two limits matter:
 
 ```text
-resolved_context_window * effective_context_window_percent / 100
-= 64000 * 95 / 100
-= 60800
+auto-compact limit = resolved_context_window * 90%
+                   = 64000 * 90%
+                   = 57600
+
+hard effective full-context cap = resolved_context_window * 95%
+                                = 64000 * 95%
+                                = 60800
 ```
 
-Therefore the last successful filler turn ended with active context around `55,632`, still below the 60,800 hard limit. The absence of auto-compaction before round 8 is expected from the exact token-limit calculation.
+`ModelInfo::auto_compact_token_limit()` derives the 57,600 threshold from 90% of the context window when the explicit catalog field is absent. The 60,800 value is a separate hard cap.
+
+The last successful filler turn ended at about `55,632`, so it was still below both limits. In particular it was only 1,968 tokens below the 57,600 native auto-compact trigger.
 
 ## Exact pre-turn ordering
 
-The decisive source fact is in Codex 0.153.4 `run_turn()` itself. Pre-turn compaction executes before context updates and before the new user message are recorded. The source contains an explicit TODO stating that pending incoming items are not yet estimated for this pre-turn decision.
+The decisive source fact is in Codex 0.153.4 `run_turn()` itself. Pre-turn compaction executes before context updates and before the new user message are recorded. The exact source includes a TODO stating that pending incoming items are not yet estimated for this pre-turn decision.
 
-Consequently round 8 began with only the prior successful active-context estimate (`55,632 < 60,800`). Codex correctly skipped pre-turn compaction. The acceptance runner then added another ~20KB filler only after that check, allowing the next sampling request to jump across the effective context boundary in one step. Round 8 then failed the filler contract before it could produce a new successful `TokenCount` above the threshold.
+Consequently round 8 began with the prior successful active-context estimate (`55,632 < 57,600`). Codex correctly skipped pre-turn compaction. The acceptance runner then added another ~20KB filler only after that check, allowing the next sampling request to jump across the auto-compact threshold and toward the hard context boundary in one step. Round 8 failed before it could produce a new successful `TokenCount` above 57,600 for a later turn to observe.
 
 This means the second full P1.2 failure is primarily an acceptance-runner threshold-crossing defect, not evidence that Codex's pre-turn auto-compaction trigger failed.
 
@@ -172,11 +178,13 @@ UWA response usage
 → rollout persistence
 → resume restoration
 → active-context calculation from last response usage
+→ 57,600 auto-compact threshold
+→ 60,800 hard cap
 → pre-turn compact check BEFORE new user input
 ```
 
-The next acceptance must approach the 60,800 boundary without a 20KB jump. It should use smaller filler near the limit, complete one turn with a successful `last_token_usage` above threshold, and then send a very small next-turn trigger so pre-turn auto-compaction is observable before ordinary sampling.
+The next acceptance must approach 57,600 without another 20KB jump. A 2KB-class fine filler is appropriate after the coarse phase: complete one turn with a successful `last_token_usage` only slightly above 57,600, then send a tiny next-turn trigger so pre-turn auto-compaction is observable before ordinary sampling.
 
 ## Gate
 
-Repair the P1.2 live runner's threshold-approach strategy and add regression coverage for adaptive/small filler near the effective window. Do not change provider identity yet. First prove the exact auto-compact trigger path under the current provider; then distinguish local fallback behavior from the separate remote `/v1/responses/compact` capability gate.
+Add a narrow small-step auto-compact trigger probe with regression coverage. Do not change provider identity yet. First prove the exact auto-compact trigger path under the current provider; then distinguish local fallback behavior from the separate remote `/v1/responses/compact` capability gate.
