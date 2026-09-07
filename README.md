@@ -17,6 +17,7 @@ macOS 实机已经验证：
 - Codex turn cwd 继承：PASS
 - 单文件读 / 改 / 测：PASS
 - Stage A 多文件读 / 改 / 测：PASS，checker 返回 `ACCEPTANCE_PASS`
+- Stage B failure recovery：PASS，checker 返回 `ACCEPTANCE_PASS`
 - Responses `function_call -> function_call_output`：PASS
 - V2 metadata wire trace：PASS
 - 显式 required-tool contract：PASS
@@ -25,15 +26,7 @@ macOS 实机已经验证：
 - V2 单次工具执行 + 单 ChatGPT Web conversation：PASS
 - workspace marker/scenario probe：PASS
 
-最新实机 workspace probe 只执行了一次真实命令，并输出：
-
-```text
-/Users/jerson/uwa-codex-acceptance
-MARKER=YES
-SCENARIO=YES
-```
-
-工具结果通过 call-id affinity 回到同一个 ChatGPT Web conversation，未再次执行相同命令，也未为 tool-result continuation 新建网页对话。当前下一项正式验收是 Stage B `failure_recovery`。
+最近一次 Stage B 实机完成了完整 red-to-green 闭环：首次审计测试退出码为 `1`，Codex 只修改 `failure_recovery/parser.py`，随后用同一条审计命令跑绿，`.run_history` 为 `1 / 0`，独立 checker 返回 `ACCEPTANCE_PASS`。当前下一项正式验收是 Stage C `git_diff`。
 
 ## 架构
 
@@ -249,19 +242,21 @@ curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
 ```text
 单文件读/改/测                         PASS
 Stage A 多文件读/改/测                  PASS
+Stage B failure recovery               PASS
 真实 exec_command cwd                  PASS
 V2 metadata wire trace                 PASS
 V2 required-tool 真 function_call       PASS
 V2 单次工具执行 + 单网页会话            PASS
 workspace marker/scenario probe        PASS
-Stage B failure recovery               NEXT
-Stage C Git diff discipline            pending
+Stage C Git diff discipline            NEXT
 Stage D long process + write_stdin     pending
 Stage E same-thread context            pending
 Stage F Codex + UWA restart            pending
 ```
 
-Stage B-F 通过后，还需要完成成功 Responses SSE 瘦身、网页 transcript hygiene、并发/queue/controlled-tab 稳定性、长上下文、MCP/plugin namespace、多 agent/tool fan-out、丢失 affinity fallback 和发布检查。
+Stage C-F 通过后，还需要完成成功 Responses SSE 瘦身、网页 transcript hygiene、并发/queue/controlled-tab 稳定性、长上下文、MCP/plugin namespace、多 agent/tool fan-out、丢失 affinity fallback 和发布检查。
+
+操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
 
 ## 安全默认值
 
