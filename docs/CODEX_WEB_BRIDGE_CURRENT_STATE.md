@@ -79,16 +79,34 @@ Runtime hardening now:
 - retains degraded same-conversation repair when local Responses hydration fails;
 - retains structured terminal failure handling and compact failure envelopes.
 
-## Acceptance order
+## Current live gate
 
-The single-execution / single-web-conversation gate is now PASS. Resume the acceptance matrix at:
+Stage B `failure_recovery` is now IN PROGRESS.
+
+The harness first resets only the synthetic `failure_recovery` fixture, verifies that its tests are initially red and that `.run_history` does not exist, then sends the canonical Stage B prompt to a fresh Codex turn.
+
+Required Stage B evidence:
 
 ```text
-Stage B failure recovery
-Stage C Git diff discipline
-Stage D long process + write_stdin
-Stage E same-thread context
-Stage F Codex + UWA restart
+workspace guard succeeds
+initial audited test run fails for real
+first non-zero exit code is appended to failure_recovery/.run_history
+Codex reads the failure and edits only failure_recovery/parser.py
+same audited test command is rerun until green
+last exit code in .run_history is 0
+independent checker passes
+```
+
+The harness also rejects unexpected tracked changes under `failure_recovery`; only `failure_recovery/parser.py` may be modified. `.run_history` is allowed as the audit artifact and must not be deleted or rewritten.
+
+## Acceptance order
+
+```text
+Stage B failure recovery             IN PROGRESS
+Stage C Git diff discipline          pending
+Stage D long process + write_stdin   pending
+Stage E same-thread context          pending
+Stage F Codex + UWA restart          pending
 ```
 
 After those, run long-context and advanced-tool coverage before treating V2 as production-ready.
