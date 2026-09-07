@@ -75,11 +75,30 @@ File ".../app/api/codex_compact.py", line 179, in codex_responses_compact
 TypeError: SecureLogger.info() takes 2 positional arguments but 3 were given
 ```
 
-This combination is internally inconsistent for the same executing bytecode: the displayed source contains exactly one explicit argument, while the exception says two explicit arguments were passed to the bound `SecureLogger.info()` method.
+The displayed source contains one explicit argument while the exception reports two explicit arguments passed to the bound method. This suggested stale loaded bytecode rather than a second compact-protocol defect.
 
-The strongest evidence-based hypothesis is therefore stale runtime bytecode/process state: the 8199 listener may still be executing the pre-repair function object while traceback line rendering reads the already-updated source file from disk. This is not yet treated as proven until the actual listener PID/start time and a fresh interpreter import are inspected.
+## Listener freshness check: stale runtime CONFIRMED
 
-Do not introduce another compact protocol code change from this traceback alone.
+The operator then inspected the actual TCP 8199 listener and a fresh venv import.
+
+Observed evidence:
+
+```text
+LISTENER_PID=19974
+listener start time = 2026-09-07 18:00:52 local
+listener cwd = /Users/jerson/universal-web-api
+fresh module file = /Users/jerson/universal-web-api/app/api/codex_compact.py
+fresh bound logger.info signature = (msg: str)
+fresh SecureLogger.info signature = (self, msg: str)
+fresh imported source = one-argument f-string logger.info(...)
+fresh Python bytecode = CALL 1 for logger.info
+```
+
+The listener started before the logger repair was pulled/deployed, while the fresh interpreter sees the repaired one-argument call and one-argument bytecode. Therefore the HTTP 500 rerun was served by an old long-lived UWA process that had retained the pre-repair `codex_responses_compact` function object.
+
+This closes the earlier uncertainty: the post-repair 500 is not evidence of a second compact-protocol code defect. The current blocker is UWA process lifecycle/restart correctness: `codex-uwa-stop` / `codex-uwa` reported a restart but did not replace the actual process listening on TCP 8199.
+
+Do not make another compact handler change before replacing the listener with a verified fresh PID.
 
 ## Current classification
 
@@ -87,25 +106,27 @@ Do not introduce another compact protocol code change from this traceback alone.
 route registration                         PASS
 first live 500 root cause                  CONFIRMED: SecureLogger signature
 first SecureLogger repair                  DONE
-first repair route regressions              DONE
+first repair route regressions             DONE
 repair CI                                   PASS: #239
-post-repair service restart                 reported PASS
-post-repair route registration              PASS
 post-repair direct compact request          FAIL: HTTP 500
-fresh traceback                             SAME OLD SIGNATURE ERROR
-current hypothesis                          stale UWA process / stale loaded bytecode
-hypothesis confirmation                     NEXT: listener PID + start time + fresh import
-P1.1 overall                                NOT PASS
-P1.2 large-context stress                   BLOCKED
+post-repair traceback                       SAME OLD SIGNATURE ERROR
+fresh source/import                         PASS: repaired code visible
+fresh bytecode                              PASS: logger.info CALL 1
+actual 8199 listener freshness              FAIL: listener predates repair
+stale UWA runtime                           CONFIRMED
+current blocker                             process lifecycle / real restart
+P1.1 overall                                NOT PASS until fresh listener + live probe
+P1.2 large-context stress                   BLOCKED until P1.1 PASS
 ```
 
 ## Immediate next action
 
-1. inspect the exact process listening on TCP 8199 and its start time;
-2. inspect its cwd/command line;
-3. independently import `app.api.codex_compact` in the repository venv and verify the live source/function signature;
-4. if the listener predates the repair restart or otherwise appears stale, fully terminate the actual listener and start a fresh process with a verified new PID;
-5. rerun the unchanged compact probe only after the process boundary is proven fresh.
+1. terminate the exact process currently listening on TCP 8199 after verifying its cwd is this repository;
+2. verify TCP 8199 has no listener;
+3. start UWA again from the updated checkout;
+4. require a new listener PID and start time after the repair;
+5. rerun the unchanged compact probe;
+6. if the compact probe passes, separately harden/fix `codex-uwa-stop` so future restarts cannot silently leave a stale listener.
 
 The live acceptance criteria remain:
 
