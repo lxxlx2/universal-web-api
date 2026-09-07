@@ -78,9 +78,8 @@ The following explanations are rejected by live evidence:
 1. stale `models_cache.json` advertising a larger context window;
 2. live `/v1/models` advertising a larger context window;
 3. explicit top-level context-window / auto-compact overrides;
-4. a visible local-summary compaction lifecycle during rounds 1-7.
-
-A fifth hypothesis was investigated and rejected by exact-release source inspection: fresh `codex exec resume` processes do not inherently discard persisted token usage.
+4. a visible local-summary compaction lifecycle during rounds 1-7;
+5. fresh `codex exec resume` processes inherently discarding persisted token usage.
 
 ## Exact Codex 0.153.4 source verification
 
@@ -96,17 +95,62 @@ The normal sampling path also records usage from `response.completed`, then emit
 
 Therefore process restart alone does not explain the missing pre-turn compaction.
 
-## Remaining diagnostic question
+## Real rollout TokenCount result
 
-The next fact to establish is whether this actual P1.2 thread's private rollout contains the expected persisted `TokenCount` events and, if so, what safe numeric token totals they contain near rounds 2-4.
+A bounded read-only inspection of the actual private P1.2 rollout found exactly one matching rollout and nine persisted `TokenCount` events. No thread ID, rollout pathname, prompts, response bodies, tool payloads, or other private content was published.
 
-Two outcomes are possible:
+Safe numeric evidence:
 
-1. `TokenCount` is absent or carries zero/incorrect totals: the bridge/client usage persistence chain remains the blocker;
-2. `TokenCount` contains the expected over-threshold usage before a later resumed turn: pre-turn token-limit/compaction selection becomes the next fault boundary.
+```text
+TOKENCOUNT_EVENTS=9
+TOKENCOUNT_PERSISTED=YES
+TOKENCOUNT_MODEL_WINDOWS=60800
+```
 
-Do not print prompts, response bodies, thread IDs, response IDs, tool payloads, credentials, or the full rollout. Only bounded event-type counts and numeric token fields are acceptable public evidence.
+The persisted records progressed as follows:
+
+```text
+ordinal  total_tokens  last_tokens
+1             7213        7213
+2            21343       14130
+3            42390       21047
+4            70354       27964
+5           105235       34881
+6           147033       41798
+7           195748       48715
+8           251380       55632
+9           251380       55632
+```
+
+Important interpretation boundary: the diagnostic script compared `last_tokens` with `57,600`, but this comparison is not yet accepted as Codex's actual pre-turn compaction rule. The rollout simultaneously contains cumulative `total_tokens` far above the configured window and per-response `last_tokens` below 57,600. The next source-level gate is therefore the exact `context_window_token_status()` implementation in Codex 0.153.4: determine which token quantity and which effective window/auto-compact limit it uses.
+
+The observed `model_context_window=60800` is consistent with the cached 64,000 context window after Codex's 95% effective-context-window factor. This is evidence that the model metadata is being applied, not that the threshold decision itself is correct.
+
+The rollout inspection reported zero `turn_started` lifecycle events under the event names used by the diagnostic. This does not prove that later turns were absent: the acceptance itself demonstrably ran multiple resumed turns, and the event naming/layout may differ. Consequently `OVER_THRESHOLD_TOKENCOUNT_BEFORE_LATER_TURN=NO` is not treated as proof that no over-threshold token state preceded a later resume.
+
+## Current fault boundary
+
+The usage persistence chain is now confirmed working:
+
+```text
+UWA response usage
+→ Codex TokenUsageInfo
+→ TokenCount event
+→ rollout persistence
+→ resume-capable state
+```
+
+The current question is narrower:
+
+```text
+persisted token state
+→ context_window_token_status()
+→ token_limit_reached ?
+→ run_auto_compact()
+```
+
+Do not change provider identity or rerun the full stress test until the exact 0.153.4 token-limit calculation is verified.
 
 ## Gate
 
-Do not rerun the full stress test and do not change provider identity until the real rollout `TokenCount` persistence/restoration fact is known.
+Inspect the exact `rust-v0.153.4` implementation of `context_window_token_status()` and its helpers. Only after that source fact is established should the project decide whether the remaining blocker is token accounting semantics, local fallback behavior, or a narrow remote-compaction capability shim.
