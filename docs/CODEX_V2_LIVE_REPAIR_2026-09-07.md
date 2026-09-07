@@ -41,30 +41,71 @@ strict_attempt=2
 
 It also showed a nearly 1 MiB failure SSE envelope because the failure response echoed request-scale tool metadata.
 
-## Diagnosis
+## First diagnosis and repair
 
-The remaining failure was no longer cwd handling, local `exec_command` execution, or initial web affinity creation. The failure boundary was the strict required-tool retry after a healthy ChatGPT conversation had already been restored.
+The failure boundary was the strict required-tool retry after a healthy ChatGPT conversation had already been restored. The V2 prepare path restored the mapped `/c/...` conversation and then still required local Responses continuation hydration. If that local hydration raised, the repair never reached ChatGPT Web even though the browser conversation already contained the prior context.
 
-The V2 prepare path restored the mapped `/c/...` conversation and then still required local Responses continuation hydration. If that local hydration raised, the repair never reached ChatGPT Web even though the browser conversation already contained the prior context.
+Runtime hardening was updated so that:
 
-The strict layer then interpreted the terminal `response.failed` as another missing-tool result, which hid the actual preparation failure behind `required_client_tool_not_called`.
+1. a healthy mapped ChatGPT conversation can continue a strict repair as an incremental delta when local hydration fails;
+2. a real `response.failed` remains the terminal result and is not rewritten as a missing-tool failure;
+3. failure envelopes strip request-heavy fields before producing terminal SSE.
 
-## Repair
+## Second live rerun
 
-Runtime hardening now applies three rules:
+The next live run advanced further and proved the degraded same-conversation repair path works:
 
-1. If a previous response is already bound to a healthy ChatGPT conversation and local continuation hydration fails, continue the strict repair as an incremental delta on that same bound conversation. The retry keeps its input, tools, and tool choice while clearing the local `previous_response_id` hydration handle.
-2. If a strict attempt returns a real `response.failed`, preserve that terminal failure. Do not rewrite it as a missing-tool error.
-3. Failure envelopes remove request-heavy tool schemas, prompts, metadata, and continuation handles before building terminal SSE frames, preventing multi-hundred-kilobyte diagnostic responses.
+```text
+[CODEX_V2_RUNTIME] local continuation hydration failed; continuing the strict repair as a delta on the already-bound ChatGPT conversation
+[CODEX_RESPONSES_V2] ... tool_names=['exec_command'] ... web_session_reused=True browser_input=delta
+```
 
-This degraded live path is intentionally scoped to an already-verified in-process web binding. When no healthy binding exists, the normal fresh-chat plus reconstructed-history fallback remains authoritative.
+The wire trace showed a real `exec_command` function call with only `cmd`, no `workdir`, and `required_tool_satisfied=true`. Codex executed `pwd` in the correct workspace.
+
+However, Codex then executed the same `pwd` a second time. Logs showed a second outer cycle that again started with `web_session_reused=False`, then performed another required-tool repair and emitted another `exec_command`.
+
+## Duplicate-tool diagnosis
+
+The live shape indicates that after local execution Codex can send a reconstructed Responses history containing the earlier user request, the emitted `function_call`, and its `function_call_output`, without a usable UWA `previous_response_id` affinity key.
+
+Two V2 assumptions were incomplete:
+
+1. `required_declared_tool()` could rediscover the original text `必须使用 exec_command` inside reconstructed history and force the tool again even though a matching `function_call_output` already proved that requirement was satisfied.
+2. web affinity relied only on `previous_response_id`, so a full-history tool-result continuation could miss the existing ChatGPT `/c/...` binding and create another web conversation.
+
+## Second repair
+
+Runtime hardening now adds a process-local, metadata-only call bridge:
+
+```text
+function_call call_id
+→ remember call_id -> UWA response_id
+→ response_id already maps to ChatGPT /c/...
+
+later function_call_output call_id
+→ recover response_id from call_id
+→ recover the same ChatGPT /c/...
+→ send only function_call_output delta
+```
+
+It also detects completed function calls inside reconstructed input. When the original explicit required-tool request already has a matching `function_call` plus `function_call_output`, duplicate required-tool enforcement is suppressed.
+
+When the same conversation is recovered from `call_id`, reconstructed user/function-call history is removed from the browser turn and only the new tool-result item is sent. This prevents both context replay and duplicate command execution.
+
+Only call ids, response ids and timestamps are kept in process memory. Prompt text, command text and tool output are not stored in this map.
 
 ## Validation
 
-Added regression coverage for:
+Regression coverage now includes:
 
-- compact terminal failure envelopes even with a 600k-character tool description;
-- degraded same-conversation retry state preserving the repair delta and declared tools while clearing `previous_response_id`;
-- existing complete `response.created -> response.failed` terminal sequence.
+- compact terminal failure envelopes with a 600k-character tool description;
+- degraded same-conversation retry state;
+- complete function-call detection from reconstructed Responses history;
+- extracting `function_call_output` call ids;
+- trimming reconstructed input to a tool-result-only delta;
+- process-local `call_id -> response_id` recovery;
+- recovery of response id and function call ids from minimal Responses SSE.
 
-Next live gate remains the same single `exec_command(pwd)` probe. Success requires one real Codex `exec` execution, correct workdir, no repeated `pwd`, and no extra ChatGPT conversation for the strict repair.
+GitHub Actions Security hardening run #140 for head `9d38ec16edd90fbc55cf9092b6c720c9630bcec9` completed successfully, including the upstream regression suite.
+
+Next live gate remains the single `exec_command(pwd)` probe. Success requires exactly one real Codex `exec`, correct workdir, no repeated `pwd`, and no extra ChatGPT conversation for the tool-result continuation.
