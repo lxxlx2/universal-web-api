@@ -44,6 +44,9 @@ call-id / web-session continuation     PASS
 P1.1 Responses compact live            PASS
 versioned UWA lifecycle CI             PASS
 versioned UWA lifecycle live           PASS
+versioned UWA provider switch CI       PASS
+versioned UWA provider switch live     PASS
+P1.2 large-context compaction/recovery CURRENT
 Codex Desktop UI live gate             REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -121,7 +124,11 @@ VERSIONED_LIFECYCLE_PASS
 
 因此 stale-runtime lifecycle blocker 已正式关闭。详细记录：`docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`。
 
-当前最后一个 Git 外执行依赖是 `~/.uwa/config_switch.py uwa`。它仍由 `codex-uwa` thin wrapper 临时调用来设置 Codex UWA provider。下一步先把该配置合同迁回仓库并移除这个私有 helper 依赖，然后立即进入 P1.2 large-context compaction / recovery。
+最后一个 Git 外执行依赖 `~/.uwa/config_switch.py uwa` 也已经迁回仓库。`tools/codex_provider_switch.py uwa` 现在管理 UWA provider 合同，`codex-uwa` thin wrapper 不再引用旧 helper。CI #289 完整 PASS，真实 macOS 验收同时证明：无关 Codex 配置保持、UWA root/provider 合同正确、restore state 存在、listener 真正换新且健康检查通过。详细记录：`docs/CODEX_UWA_PROVIDER_SWITCH_MIGRATION_2026-09-08.md`。
+
+验收脚本里曾出现一次本机 focused pytest 假 PASS：本机 `venv` 缺 pytest，测试实际未执行，但后续无条件 `echo FOCUSED_TESTS=PASS`。该 echo 不计入证据；provider/wrapper 回归证据来自已成功的 CI #289，真实切换证据来自 macOS live run。
+
+当前正式进入 P1.2：测试重点是同一 Codex thread 的大上下文增长、native `/v1/responses/compact`、关键事实恢复和机器可审计证据，而不是简单读取一个大文件。只有观察到明确 compact route/lifecycle 证据时才宣称 compaction PASS；否则只归类为 large-context stress/recovery。
 
 当前顺序：
 
@@ -131,8 +138,8 @@ P1.1 compact endpoint + regressions                  PASS
 P1.1 macOS fresh-listener direct compact             PASS: HTTP 200
 P1.1 versioned lifecycle implementation + CI         PASS
 P1.1 versioned lifecycle macOS live validation       PASS
-P1.1 migrate ~/.uwa/config_switch.py UWA contract    CURRENT
-P1.2 native Codex large-context compaction/recovery  next
+P1.1 versioned UWA provider switch + live            PASS
+P1.2 native Codex large-context compaction/recovery  CURRENT
 P1.3 affinity/restart + identity fencing + uncertain-effect recovery
 Desktop live gate D1-D5                              required before real-project/final merge
 P1.4 真实项目长任务 pilot                            pending
@@ -149,6 +156,7 @@ P5   runtime/build identity + compatibility preflight + final regression/release
 - `docs/CODEX_P1_RESPONSES_COMPACT_GAP_2026-09-07.md`
 - `docs/CODEX_P1_COMPACT_LIVE_500_2026-09-07.md`
 - `docs/CODEX_UWA_LIFECYCLE_LIVE_2026-09-07.md`
+- `docs/CODEX_UWA_PROVIDER_SWITCH_MIGRATION_2026-09-08.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 - `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`
 
@@ -207,9 +215,9 @@ codex-uwa
 codex-uwa
 ```
 
-`codex-uwa` 会自动关闭 UWA 模式下的 Codex Memories、切换 UWA provider、退出 Codex Desktop、执行可验证的 UWA restart、确认新 listener 与 `/health`，然后重新打开 Codex Desktop。`codex-uwa-stop` 会在确认 listener 属于当前仓库后停止真实 8199 listener，并且只有端口确实为空才返回成功。
+`codex-uwa` 会自动关闭 UWA 模式下的 Codex Memories、通过仓库版 `codex_provider_switch.py uwa` 切换 provider、退出 Codex Desktop、执行可验证的 UWA restart、确认新 listener 与 `/health`，然后重新打开 Codex Desktop。`codex-uwa-stop` 会在确认 listener 属于当前仓库后停止真实 8199 listener，并且只有端口确实为空才返回成功。
 
-当前 provider 切换仍临时复用既有 `~/.uwa/config_switch.py` 的 `uwa` 配置合同；该最后一个 Git 外状态正在迁回仓库。生命周期的 stop/start/restart 已不再依赖这个私有脚本。
+正常 UWA 启动路径已经不依赖 `~/.uwa/config_switch.py`。旧 helper 可以保留在本机作为历史文件，但不会被 versioned wrapper 执行。
 
 ## 一键切回官方 Codex Desktop / ChatGPT 账号模式
 
@@ -227,7 +235,7 @@ python3 tools/codex_provider_switch.py official
 1. 自动退出正在运行的 ChatGPT Desktop / Codex；
 2. 检查 TCP `8199` 的真实 listener，只在 listener cwd 与当前 UWA 仓库一致时自动停止它，避免误杀其他进程；
 3. 自动恢复进入 UWA 模式前保存的 Codex Memories 设置；
-4. 备份 `~/.codex/config.toml`，并只清理顶层 `model_provider`、`model`、`model_reasoning_effort` 固定项；
+4. 恢复 UWA 临时覆盖的非模型 policy/context/catalog 值，并清理顶层 `model_provider`、`model`、`model_reasoning_effort` 固定项；
 5. 保留 `[model_providers.uwa]` 定义和现有账号认证状态；
 6. 自动重新打开 ChatGPT Desktop；若未安装 ChatGPT.app，则尝试打开独立 Codex.app。
 
