@@ -4,26 +4,38 @@ This document tracks the real macOS acceptance of the hardened Codex Desktop -> 
 
 ## Current live results
 
-- minimal single-file `calc.py` read/edit/test loop: **PASS**
-- Stage A multi-file read/edit/test: **PASS** on 2026-09-06
-- Stage B failure recovery: **rerun required** after a later repeated tool-availability contradiction
-- Stage C Git-aware change discipline: pending
-- Stage D long-running process + stdin continuation: pending
-- Stage E same-thread context continuity: pending
-- Stage F Codex/UWA restart continuity: pending
-
-Stage A is considered passed only because the generated checker returned:
+As of 2026-09-07, the core synthetic acceptance sequence is closed:
 
 ```text
-multi_file: PASS
+minimal single-file read/edit/test        PASS
+Stage A multi-file read/edit/test         PASS
+Stage B failure recovery                  PASS
+Stage C Git-aware change discipline       PASS
+Stage D long-running process + stdin      PASS
+Stage E same-thread context continuity    PASS
+Stage F Codex + UWA restart continuity    PASS
+```
+
+Stage F final proof crossed a real UWA process boundary, cleared process-local web affinity, resumed the same Codex thread without repeating the context token, executed a real local command, restored the expected context artifact, returned `CONTEXT_PASS`, and passed the independent checker:
+
+```text
+context: PASS
 ACCEPTANCE_PASS
 ```
 
-The assistant's final prose is not used as proof.
+Canonical current state lives in:
+
+- `README.md`
+- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
+- `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
+- `docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
+- `docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
+
+The detailed historical attempts and failure classifications remain available through Git history and the stage-specific records above.
 
 ## Safety boundary
 
-Use only the generated acceptance workspace for these scenarios. Do not point experimental prompts at a real project until the relevant stage passes.
+Use only the generated acceptance workspace for synthetic scenarios. Do not point experimental prompts at private or production source trees until the relevant synthetic gate has passed.
 
 `tools/codex_desktop_acceptance.py setup` creates `~/uwa-codex-acceptance` by default. It refuses to delete or reset an existing directory unless that directory contains the harness marker file. The fixture contains no credentials or user-specific paths and initializes its own local Git repository.
 
@@ -37,34 +49,17 @@ Create the acceptance workspace once:
 python3 tools/codex_desktop_acceptance.py setup
 ```
 
-Before every live stage, reset only that synthetic scenario and verify it locally:
+Before a synthetic stage, reset only the selected scenario and verify it locally:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py prepare --scenario failure_recovery
 python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
 ```
 
-`prepare` preserves the other scenario directories. If the entire acceptance workspace is missing, it safely recreates the marked synthetic workspace. `preflight` verifies the marker, Git root and target scenario. For deliberately failing test scenarios it also proves the fixture starts red before Codex is asked to act.
-
-Then open the printed acceptance root as the Codex Desktop project. Each action-oriented live prompt begins with a client-side workspace guard:
-
-```text
-pwd
-+ marker exists
-+ target scenario directory exists
-```
-
-If that guard fails, the model must return `ACCEPTANCE_WORKSPACE_MISMATCH` and must not probe unrelated absolute paths or switch to a different execution environment.
-
-Show all prompts:
+Show prompts:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py prompts
-```
-
-Show one prompt:
-
-```bash
 python3 tools/codex_desktop_acceptance.py prompts --scenario multi_file
 ```
 
@@ -74,15 +69,15 @@ Check one completed scenario:
 python3 tools/codex_desktop_acceptance.py check --scenario multi_file
 ```
 
-Check all scenarios:
+Check all existing synthetic scenarios:
 
 ```bash
 python3 tools/codex_desktop_acceptance.py check
 ```
 
-## Stage A: multi-file read/edit/test - PASS
+## Stage A: multi-file read/edit/test — PASS
 
-Goal: prove that the single-file `calc.py` success generalizes to several implementation files and several tool rounds.
+Goal: prove that the single-file success generalizes to several implementation files and several tool rounds.
 
 Verified behavior:
 
@@ -90,183 +85,88 @@ Verified behavior:
 2. modified two implementation files;
 3. left tests unchanged;
 4. ran the real unittest suite;
-5. all three tests passed;
+5. all tests passed;
 6. the generated checker returned `ACCEPTANCE_PASS`.
 
-Pass command:
-
-```bash
-python3 tools/codex_desktop_acceptance.py check --scenario multi_file
-```
-
-## Stage B: failure -> diagnose -> repair -> rerun
+## Stage B: failure -> diagnose -> repair -> rerun — PASS
 
 Goal: prove the agent can observe an actual failing command, use returned stderr/stdout as context, change the implementation, and rerun the same command successfully.
 
-### Attempt 1 classification
+The final machine-auditable scenario requires a real initial non-zero exit code and a final zero exit code in `failure_recovery/.run_history`, while only the intended implementation file may change.
 
-The first Stage B attempt on 2026-09-06 is **invalid**, not a bridge failure and not a Stage B pass/fail result.
+Earlier attempts exposed two useful policy gaps: workspace mismatch handling and contradictory claims that a declared `exec_command` tool was unavailable. Those gaps were repaired and covered by regression tests before the final live PASS.
 
-Evidence from the UWA log:
-
-```text
-[CODEX_RESPONSES] ... tool_names=['exec_command']
-```
-
-The tool call was delivered to Codex and a real tool result came back on the next Responses turn. That result reported that the intended synthetic acceptance workspace was unavailable in the active execution context. The web model then correctly refused to claim a repair or successful test.
-
-This showed that the bridge's tool round-trip still worked, while the live acceptance setup did not guarantee the selected Codex project matched the synthetic fixture. The harness was therefore hardened with `prepare`, `preflight`, the marker check and `ACCEPTANCE_WORKSPACE_MISMATCH`.
-
-### Attempt 2 classification
-
-The second Stage B attempt reached the correct synthetic project and executed several real `exec_command` rounds. The UWA log showed successive Responses turns with growing history and repeated minimal-stream delivery of `exec_command`, proving that the local client tool remained declared and executable throughout the run.
-
-The run then stopped when the web model returned this contradictory claim:
-
-```text
-当前实际可调用工具中没有名为 exec_command 的客户端工具
-```
-
-This is classified as a **bridge policy failure requiring rerun**, not a workspace mismatch. A prior real `exec_command` call and the current declared tool schema prove that the tool still exists.
-
-The policy fix now:
-
-1. recognizes Chinese/English wording that says the current callable tool list does not contain `exec_command` or another declared workspace tool;
-2. treats a post-tool availability contradiction as invalid even when the newest Codex user-shaped item is actually tool output and no longer resembles the original workspace request;
-3. tightens repeated repair so it must emit a tool call instead of discussing whether the tool exists;
-4. still fails closed when the bounded retry budget is exhausted;
-5. leaves genuine client errors such as missing files, permission failures and failing tests untouched.
-
-Regression coverage lives in:
-
-```text
-tests/test_client_tool_policy_repeated_refusal.py
-```
-
-CI run #105 passed all jobs after this fix.
-
-### Machine-auditable failure recovery
-
-Stage B uses the same unittest command twice through an audited shell wrapper. Each invocation appends its real exit code to:
-
-```text
-failure_recovery/.run_history
-```
-
-The generated prompt contains the exact audited command. The checker requires all of the following:
-
-1. current tests are green;
-2. `.run_history` has at least two recorded runs;
-3. the first recorded exit code is non-zero;
-4. the last recorded exit code is zero;
-5. no non-integer evidence was injected;
-6. the only tracked change under `failure_recovery/` is `failure_recovery/parser.py`.
-
-This means a plausible final answer or a manually pre-fixed implementation cannot pass Stage B without evidence of a real failing run followed by a real successful rerun.
-
-For the next rerun, execute:
-
-```bash
-python3 tools/codex_desktop_acceptance.py prepare --scenario failure_recovery
-python3 tools/codex_desktop_acceptance.py preflight --scenario failure_recovery
-python3 tools/codex_desktop_acceptance.py prompts --scenario failure_recovery
-```
-
-The external preflight only proves that the fixture exists and starts red; it does not write `.run_history` and does not count as the Stage B execution evidence.
-
-Pass command:
-
-```bash
-python3 tools/codex_desktop_acceptance.py check --scenario failure_recovery
-```
-
-## Web conversation churn observed during Stage B
-
-The current generic UWA workflow opens a fresh ChatGPT web conversation for normal reconstructed Responses turns. A multi-tool Codex task can therefore create several similar ChatGPT sidebar conversations. Internal repair rounds add additional browser calls.
-
-This was visible during Stage B and is now tracked as an efficiency/UX issue. It is not proof of duplicate Codex Desktop tasks.
-
-A global reuse switch is unsafe with the current payload format because outer turns resend reconstructed full history. Reusing the same web chat while also sending full history would duplicate context. Planned optimization is to reuse only bounded repair rounds first, then implement a mapped incremental tool-loop continuation with fresh-chat/full-history fallback on state loss.
-
-## Stage C: Git-aware change discipline
+## Stage C: Git-aware change discipline — PASS
 
 Goal: prove normal repository hygiene without allowing the agent to commit.
 
-Expected behavior:
+Verified behavior includes reading requirements, modifying only intended implementation, running tests, running `git diff --check`, and inspecting the scoped diff while leaving the baseline commit untouched.
 
-1. read `git_diff/REQUIREMENTS.txt`;
-2. modify only the intended implementation;
-3. run tests;
-4. run `git diff --check`;
-5. inspect `git diff -- git_diff`;
-6. leave the baseline commit untouched.
-
-Pass command:
-
-```bash
-python3 tools/codex_desktop_acceptance.py check --scenario git_diff
-```
-
-## Stage D: long-running command + stdin continuation
+## Stage D: long-running command + stdin continuation — PASS
 
 Goal: exercise the client-side persistent process path (`exec_command` followed by the corresponding stdin/continuation tool, normally `write_stdin`).
 
-`interactive/worker.py` prints `READY`, waits for one line on stdin, accepts only `GO`, writes `interactive/result.txt`, prints `INTERACTIVE_PASS`, and exits.
+The synthetic worker printed `READY`, accepted `GO` on stdin, wrote `interactive/result.txt`, printed `INTERACTIVE_PASS`, and the independent checker passed.
 
-This is deliberately isolated because a failure here should not block ordinary read/edit/test coding workflows.
+## Stage E: same-thread context continuity — PASS
 
-Pass command:
+Goal: verify that a second Codex turn can rely on a fact supplied in the first turn.
 
-```bash
-python3 tools/codex_desktop_acceptance.py check --scenario interactive
-```
+The first prompt stored `EMBER-7319` only in conversation context. The second prompt did not repeat it. After a narrow path-oriented workspace-refusal repair, the final live rerun resumed the exact same Codex thread, recovered the token, executed real local tools, wrote `context/result.txt`, returned `CONTEXT_PASS`, and passed the independent checker.
 
-## Stage E: same-thread context continuity
+Detailed record:
 
-Goal: verify that a second Codex turn can rely on a fact supplied in the first turn even though UWA creates fresh browser conversations internally and reconstructs context from Responses/Codex history.
+`docs/CODEX_STAGE_E_CONTEXT_WORKSPACE_REFUSAL_2026-09-07.md`
 
-Send `context_1`, wait for `CONTEXT_READY`, then send `context_2` in the same Codex Desktop thread. The first prompt forbids writing the token to disk, so the second turn cannot recover it from the fixture.
+## Stage F: Codex + UWA restart continuity — PASS
 
-Pass command:
+Goal: verify the actual long-project workflow across a UWA restart.
 
-```bash
-python3 tools/codex_desktop_acceptance.py check --scenario context
-```
+Final verified sequence:
 
-## Stage F: close/reopen Codex + restart UWA continuity
+1. prepare fresh `context` fixture;
+2. start a fresh Codex thread;
+3. send `context_1`, receive `CONTEXT_READY`;
+4. allow the first CLI process to exit;
+5. stop UWA and verify the listener disappears;
+6. restart UWA as a different process;
+7. verify `/v1/codex/web-affinity` goes from `binding_count=4` before restart to `binding_count=0` after restart with `persistent=false`;
+8. resume the same Codex thread;
+9. send `context_2` without repeating the token;
+10. verify `THREAD_MATCH=YES`;
+11. execute a real local command and restore `context/result.txt` as `EMBER-7319\n`;
+12. receive `CONTEXT_PASS`;
+13. run the independent checker and receive `context: PASS` plus `ACCEPTANCE_PASS`.
 
-Goal: verify the actual user workflow that matters for long projects.
+Detailed record:
 
-Procedure:
-
-1. prepare a fresh context scenario so `context/result.txt` does not exist;
-2. open a fresh Codex Desktop thread in the acceptance project;
-3. send the `context_1` prompt and wait for `CONTEXT_READY`;
-4. fully quit Codex Desktop;
-5. stop and restart UWA;
-6. reopen Codex Desktop;
-7. reopen the SAME Codex thread from Desktop history;
-8. send `context_2` without repeating the token;
-9. run the context checker.
-
-Pass command:
-
-```bash
-python3 tools/codex_desktop_acceptance.py check --scenario context
-```
-
-This stage exercises both Codex Desktop's own persisted thread history and UWA's private Responses continuation store. It must pass before restart continuity is considered reliable.
+`docs/CODEX_STAGE_F_RESTART_CONTINUITY_2026-09-07.md`
 
 ## Result classification
 
-A scenario is `PASS` only when the generated local artifact/test confirms the action. A plausible assistant message is not evidence of success.
+A scenario is `PASS` only when a generated local artifact/test confirms the action. Plausible assistant prose is not proof.
 
 A run with the wrong or missing acceptance workspace is `INVALID` and must be rerun after `prepare` + `preflight`; it does not count against the bridge implementation.
 
-If a scenario fails, capture the UWA log beginning at the relevant `[CHAT:ENTRY]`, `[CODEX_CONTINUITY]`, or `[CODEX_RESPONSES]` line through the terminal event. Do not publish logs containing private source code, account data, cookies, tokens, or real conversation identifiers.
+If a scenario fails, inspect the relevant local UWA metadata/log evidence. Do not publish logs containing private source code, account data, cookies, tokens, real conversation identifiers, live process identifiers, or Responses SQLite contents.
 
-## After these stages
+## After Stage F
 
-If A-C pass, the bridge is suitable for guarded normal coding work in disposable or branched worktrees. If D also passes, long-running interactive developer commands are usable. If E passes, same-thread conversational continuity is usable. If F passes, closing/reopening Codex and restarting UWA can be treated as a supported continuation workflow.
+The core bridge is now suitable for guarded coding work on disposable fixtures and branched worktrees, including long-running interactive commands, same-thread context continuation, and supported UWA restart recovery.
 
-Separate future acceptance remains for large-context compaction, MCP/plugins, namespace tools, multi-agent behavior, auxiliary Codex model requests and ChatGPT web-session churn optimization.
+Separate production-hardening acceptance remains for:
+
+```text
+large-context compaction / recovery
+lost-affinity fallback depth
+real-project long-task stability
+MCP/plugins and namespace tools
+multi-agent behavior
+authority of auxiliary Codex model requests
+concurrent request / queue / controlled-tab behavior
+ChatGPT web-session churn and transcript hygiene
+successful Responses SSE payload slimming
+full regression and release checklist
+```
+
+The next synthetic acceptance target is **large-context compaction / recovery**. It should be added to the harness rather than tested ad hoc against a private project. After that synthetic gate is reliable, run a real-project long-task pilot on a dedicated branch/worktree.
