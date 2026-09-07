@@ -27,6 +27,7 @@ from app.services.codex_workspace_refusal_language_patch import (
     install_codex_workspace_refusal_language_patch,
 )
 from app.services.codex_v2_runtime_hardening import install_codex_v2_runtime_hardening
+from app.services.codex_stream_compat import install_codex_stream_compat
 
 
 install_codex_required_tool_language_patch()
@@ -36,6 +37,13 @@ install_codex_workspace_refusal_language_patch()
 # first request can reach its router. Optional tracing/persistence/affinity
 # failures must never truncate a Codex Responses HTTP body.
 install_codex_v2_runtime_hardening()
+
+# Codex's idle timer is based on parsed SSE events rather than raw HTTP bytes,
+# and native auto-compaction depends on non-zero Responses usage. Install the
+# compatibility layer after runtime hardening so it can translate transport
+# comments into harmless response.in_progress events and fill only missing/zero
+# usage with conservative local estimates.
+install_codex_stream_compat()
 
 router = APIRouter()
 
