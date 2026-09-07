@@ -43,16 +43,19 @@ macOS 已验证：
 - Stage C Git diff discipline：PASS
 - Stage D long process + `write_stdin`：PASS
 - Stage E same-thread context：PASS
-- Stage F restart continuity：IN PROGRESS，restart + post-restart same-thread resume PASS，独立 checker NEXT
+- Stage F Codex + UWA restart continuity：PASS
 - Responses `function_call -> function_call_output`：PASS
 - required-tool 真 function call：PASS
 - duplicate required-tool suppression：PASS
 - `call_id -> response_id -> ChatGPT conversation` continuation：PASS
 - 单次工具执行 + 单网页会话：PASS
 
-Stage E 最终实测中，两轮 Codex thread id 完全一致。第二轮没有再次提供 `EMBER-7319`，Codex 仍从同一 thread 上下文恢复令牌，真实调用本地 `exec_command`，创建并读取 `context/result.txt`，最终返回 `CONTEXT_PASS`。独立 checker 返回 `context: PASS` 和 `ACCEPTANCE_PASS`。
+Stage F 已完整通过。重启前 fresh context fixture 与 preflight 通过，第一轮返回 `CONTEXT_READY`，且 `context/result.txt` 不存在。UWA 随后真实停止并以新进程启动，web affinity 从 `binding_count=4` 清空为 `binding_count=0`，证明旧进程内 affinity 已消失。之后恢复同一个 Codex thread，thread id 匹配，第二轮未重复提供 token，真实本地命令成功执行，`context/result.txt` 恢复为 `EMBER-7319\n`，assistant 返回 `CONTEXT_PASS`。最终独立 checker 返回：
 
-Stage F 已完成核心重启恢复链路。重启前 context fixture 与 preflight 通过，第一轮返回 `CONTEXT_READY`，`context/result.txt` 不存在。UWA 随后真实停止并以新进程启动，web affinity 从 `binding_count=4` 清空到 `binding_count=0`，确认旧进程内 affinity 已消失。之后恢复同一个 Codex thread，thread id 匹配，第二轮没有再次提供 token，真实本地命令仍成功执行，`context/result.txt` 被恢复为 `EMBER-7319\n`，assistant 返回 `CONTEXT_PASS`。当前只剩独立 context checker。
+```text
+context: PASS
+ACCEPTANCE_PASS
+```
 
 详细记录：
 
@@ -68,7 +71,7 @@ Stage F 已完成核心重启恢复链路。重启前 context fixture 与 prefli
 3. V2 进程内 web-session / call-id affinity。
 4. Git tracked checkpoint，作为跨对话、跨协作者的长期事实来源。
 
-Stage F 已验证第 3 层会在 UWA restart 后真实消失，同时同一 Codex thread 仍可恢复上下文并继续真实本地工具执行。最终独立 checker 用于关闭该阶段。
+Stage F 已验证第 3 层会在 UWA restart 后真实消失，同时同一 Codex thread 仍可恢复上下文并继续真实本地工具执行。
 
 ## 实机验收矩阵
 
@@ -79,14 +82,14 @@ Stage B failure recovery               PASS
 Stage C Git diff discipline            PASS
 Stage D long process + write_stdin     PASS
 Stage E same-thread context            PASS
-Stage F Codex + UWA restart            IN PROGRESS
+Stage F Codex + UWA restart            PASS
   turn 1 pre-restart baseline          PASS
   UWA restart                          PASS
   process-local affinity cleared       PASS
   same-thread post-restart resume      PASS
   real local tool execution            PASS
   CONTEXT_PASS                         PASS
-  independent checker                  NEXT
+  independent checker                  PASS
 真实 exec_command cwd                  PASS
 V2 metadata wire trace                 PASS
 V2 required-tool 真 function_call       PASS
@@ -110,32 +113,28 @@ Git 是项目长期事实来源。每个 live acceptance stage、重要故障定
 
 ## Stage F 之后
 
-核心后续工程项包括：
+Stage A 到 F 已全部通过。下一阶段进入生产化稳定性验证，优先级如下：
 
 ```text
-Responses SSE payload slimming
-ChatGPT Web transcript hygiene
-并发请求 / queue / controlled-tab 稳定性
-长上下文 stress 与 recovery
-MCP / plugin namespace
-multi-agent / tool fan-out
-lost-affinity fallback
-真实项目长任务稳定性
-final regression
-release checklist
+P1 长上下文 stress / recovery
+P1 lost-affinity / restart fallback 深化验证
+P1 真实项目长任务 pilot
+P2 并发请求 / queue / controlled-tab 稳定性
+P3 MCP / plugin namespace 与 multi-agent / tool fan-out
+P4 Responses SSE payload slimming 与 ChatGPT Web transcript hygiene
+P5 final regression / operator docs / release checklist
 ```
 
 ## 合并到 main 的门槛
 
 `codex-web-bridge-v2` 在最终验证结束前保持开发分支状态。计划在以下条件满足后合并到 `main`：
 
-1. Stage F restart continuity 通过独立 checker。
-2. Stage A 到 Stage F 最终回归通过。
-3. 长上下文和 lost-affinity / restart recovery 没有阻断问题。
-4. 至少完成一次真实项目长任务 pilot。
-5. CI 全绿。
-6. README、current-state、progress、operator docs 与 release checklist 已同步。
-7. public repository safety 检查通过。
+1. Stage A 到 Stage F 最终回归通过。
+2. 长上下文和 lost-affinity / restart recovery 没有阻断问题。
+3. 至少完成一次真实项目长任务 pilot。
+4. CI 全绿。
+5. README、current-state、progress、operator docs 与 release checklist 已同步。
+6. public repository safety 检查通过。
 
 ## Codex Memories
 
@@ -174,4 +173,4 @@ curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
 
 V2 在现有 Universal Web API 基础上研究了公开项目中的 Responses adapter、browser tool round trip、sticky session、queue、SSE diagnostics 等设计。完整来源、许可证和差异记录见：
 
-`docs/REFERENCES_AND_ATTRIBUTION.md`
+`docs/REFERENCES_AND_ATTRIBUTION.md`。
