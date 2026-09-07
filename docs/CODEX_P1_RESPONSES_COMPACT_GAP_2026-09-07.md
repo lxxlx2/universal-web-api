@@ -36,7 +36,22 @@ app/api/codex_responses.py
 app/api/chat.py
 ```
 
-The current route inspection shows `/v1/responses` handling, but no registered `/v1/responses/compact` endpoint in these adapters.
+The route inspection found no registered `/v1/responses/compact` endpoint.
+
+## Live runtime probe
+
+The macOS operator then probed the running UWA instance directly after confirming `/health` was healthy.
+
+Observed non-sensitive evidence:
+
+```text
+COMPACT_ROUTE_REGISTERED=NO
+HTTP/1.1 404 Not Found
+content-type: application/json
+{"error":{"message":"接口不存在","path":"/v1/responses/compact"}}
+```
+
+This closes P1.0 with code inspection and deployed-runtime evidence agreeing: the compact endpoint is genuinely absent.
 
 ## Classification
 
@@ -46,12 +61,13 @@ Long sessions may work until Codex decides remote compaction is required. At tha
 
 ## Next sequence
 
-1. run one local synthetic POST probe against `/v1/responses/compact` to confirm the deployed UWA behavior;
-2. record the observed HTTP status/body class without credentials or private context;
-3. implement the smallest compatible compact endpoint with unit/regression coverage;
-4. verify CI and direct compact protocol acceptance;
-5. only then add the synthetic large-context workload and require an observable compaction event plus post-compaction context recovery;
-6. keep real-project long-task testing blocked until the synthetic compaction path passes.
+1. implement the smallest compatible compact endpoint with unit/regression coverage;
+2. verify CI and direct compact protocol acceptance;
+3. add the synthetic large-context workload;
+4. require an observable compaction lifecycle item plus post-compaction context recovery;
+5. deepen lost-affinity/restart validation;
+6. run the mandatory Desktop UI live gate before the real-project/final merge gate;
+7. keep real-project long-task testing blocked until the synthetic compaction path passes.
 
 ## Status
 
@@ -59,10 +75,11 @@ Long sessions may work until Codex decides remote compaction is required. At tha
 Stage A-F live acceptance             PASS
 aggregate A-F checker                 PASS
 P1 compact contract inspection        DONE
-UWA /v1/responses/compact route       NOT PRESENT IN CODE INSPECTION
-local runtime compact probe           NEXT
-compact endpoint implementation       pending
+UWA /v1/responses/compact route       ABSENT CONFIRMED
+local runtime compact probe           DONE: 404 confirmed
+compact endpoint implementation       IN PROGRESS
 large-context stress/recovery         blocked on compact protocol support
+Desktop UI live gate                  required before main merge
 ```
 
 No private runtime state, conversation identifiers, cookies, logs or Responses SQLite contents are included in this record.
