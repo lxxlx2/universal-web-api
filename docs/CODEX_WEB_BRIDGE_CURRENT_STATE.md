@@ -101,6 +101,30 @@ Desktop UI D1-D5                            pending / mandatory before main
 
 `python3 tools/codex_provider_switch.py official` is a one-command macOS switch. It automatically quits ChatGPT Desktop/Codex, stops the verified UWA TCP 8199 listener only when its cwd matches this checkout, restores saved Codex Memories settings, removes only top-level provider/model/reasoning pins, preserves authentication and the `[model_providers.uwa]` definition, then reopens ChatGPT Desktop. No model or reasoning level is hard-coded.
 
+## WebCodex design review
+
+`yyjeqhc/webcodex` was reviewed at upstream commit `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` as an Apache-2.0 design reference. It does not replace the V2 architecture: WebCodex needs its own local Runner because its cloud MCP clients need an executor, while this project intentionally keeps official Codex Desktop / CLI as the local filesystem/shell/Git/sandbox/approval owner.
+
+The useful lessons are reliability contracts rather than executor code:
+
+- browser/window/transport identity must not become durable task or execution identity;
+- request loss is distinct from execution loss;
+- uncertain tool effects must be reconciled before any retry;
+- stable logical identity and current process/browser generation must remain separate;
+- correlation ids and observation cursors are not authority or retry permission;
+- protocol capabilities should fail closed when semantics cannot be preserved;
+- diagnostics and recovery evidence should remain bounded and secret-free.
+
+Roadmap impact:
+
+- P1.2 stays focused on native Codex `/v1/responses/compact`; durable task state is not a substitute for LLM context compaction.
+- P1.3 expands to explicit identity separation, stale-generation fencing and uncertain tool-effect recovery.
+- P2 expands per-continuation serialization, distinct concurrency planes and late/stale result rejection.
+- P3 uses WebCodex as a primary MCP/schema/capability reference while Codex remains the actual local MCP/tool executor.
+- P4/P5 strengthen bounded trace/transcript behavior, build/runtime identity and compatibility diagnostics.
+
+Detailed audit: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
+
 ## Continuity layers
 
 1. Codex Desktop / CLI thread history.
@@ -108,18 +132,20 @@ Desktop UI D1-D5                            pending / mandatory before main
 3. Process-local ChatGPT web-session / call-id affinity.
 4. Git tracked handoff documents as long-term project truth.
 
+P1.3 will formalize the identity boundary further: Codex thread, Responses `response_id`, tool `call_id`, ChatGPT `/c/...` affinity, UWA process generation, controlled-tab generation and Codex-owned local process state are separate domains and must never be inferred from one another.
+
 ## Production-hardening order
 
 ```text
 P1 migrate ~/.uwa/config_switch.py UWA provider contract into Git
 P1 large-context compaction / stress / recovery
-P1 lost-affinity / restart fallback deeper validation
+P1 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop UI live acceptance D1-D5
 P1 real-project long-task pilot
-P2 concurrent request / queue / controlled-tab hardening
-P3 MCP/plugin namespace and multi-agent/tool fan-out
-P4 Responses SSE slimming and transcript hygiene
-P5 final regression, operator docs and release checklist
+P2 per-continuation serialization / queue planes / controlled-tab stale-result hardening
+P3 MCP/plugin namespace, capability fidelity and multi-agent/tool fan-out
+P4 Responses SSE slimming, bounded trace and transcript hygiene
+P5 runtime/build identity, compatibility preflight, final regression and release checklist
 ```
 
 ## Collaboration rule
