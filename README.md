@@ -42,10 +42,11 @@ Codex Desktop D1                                    PASS / LIVE / CLOSED
 Codex Desktop D2                                    PASS / LIVE / CLOSED
 Codex Desktop D3                                    PASS / LIVE / CLOSED
 Codex Desktop D4                                    PASS / LIVE / CLOSED
-Codex Desktop D5                                    BLOCKED / live rerun pending
+Codex Desktop D5 lifecycle                          PASS / LIVE
+Codex Desktop D5 final official request             pending quota availability
 ```
 
-Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。fresh Desktop probe 实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。随后 Desktop D1-D4 已完成实机验收，覆盖真实本地工具、多轮上下文、Desktop 重启恢复以及 Desktop + UWA 双重重启恢复。Desktop D5 在 official restore 中发现旧 provider switch 只终止 listener、遗留 `start.py` launcher 并导致 listener respawn；该生命周期缺陷现已完成代码修复和 focused regression，当前等待 repaired live D5 rerun。H3-H5 仍作为 `main` 前的最小 Hybrid Routing Safety 工作。
+Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。fresh Desktop probe 实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。随后 Desktop D1-D4 已完成实机验收，覆盖真实本地工具、多轮上下文、Desktop 重启恢复以及 Desktop + UWA 双重重启恢复。Desktop D5 首次 official restore 暴露 `start.py` launcher 遗留并导致 `main.py` respawn 的生命周期缺陷；该缺陷已完成代码修复、18 项 focused regression 和 GitHub CI，修复后的 live rerun 在 T+0、T+3、T+10、T+20 均确认 launcher、listener、TCP 8199 与 pidfile 持续消失。当前 D5 只剩官方额度可用后的一次 harmless official-provider request。H3-H5 仍作为 `main` 前的最小 Hybrid Routing Safety 工作。
 
 详细记录：
 
@@ -55,6 +56,7 @@ Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continu
 - `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`
 - `docs/CODEX_HYBRID_H2_FRESH_ROUTE_PROBE_PASS_2026-09-08.md`
 - `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`
+- `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
 - `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`
 
 ## 快速开始
@@ -388,8 +390,11 @@ Hybrid H0-H2                             PASS
 Hybrid H3-H5                             CURRENT / mandatory
 Desktop reasoning Medium/High            pending / part of UI gate
 Desktop UI D1                            PASS / LIVE / CLOSED
-Desktop UI D2                            READY / CURRENT
-Desktop UI D3-D5                         pending / mandatory
+Desktop UI D2                            PASS / LIVE / CLOSED
+Desktop UI D3                            PASS / LIVE / CLOSED
+Desktop UI D4                            PASS / LIVE / CLOSED
+Desktop UI D5 lifecycle                  PASS / LIVE
+Desktop UI D5 final official request     pending quota availability
 ```
 
 操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
@@ -402,7 +407,7 @@ Desktop UI D3-D5                         pending / mandatory
 P1.2 same-thread post-remote recovery          PASS / CLOSED
 → P1.3 最小 continuity blockers               PASS / CLOSED
 → Hybrid Routing Safety H0-H5                 H0-H2 PASS / H3-H5 CURRENT
-→ Desktop UI D1-D5 + Medium/High reasoning    D1 PASS / D2 CURRENT
+→ Desktop UI D1-D5 + Medium/High reasoning    D1-D4 PASS / D5 lifecycle PASS / final official request pending
 → 一个 real-project long-task pilot
 → final A-F / compaction / restart regression
 → CI + public-repo safety + docs/provenance/license
