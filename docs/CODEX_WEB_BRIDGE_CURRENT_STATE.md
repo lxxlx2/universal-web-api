@@ -31,6 +31,7 @@ Hybrid H2 fresh Desktop route probe                   PASS / LIVE / CLOSED
 Desktop D1 real local-tool round trip                 PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
+Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
 ```
 
 Detailed historical evidence remains in the dedicated `docs/CODEX_*` live/closure records.
@@ -60,8 +61,8 @@ Detailed design: `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`.
 D1 real Desktop local tool round trip                 PASS / CLOSED
 D2 same Desktop thread continuation                   PASS / CLOSED
 D3 full Desktop app restart + history resume          PASS / CLOSED
-D4 Desktop + UWA restart + same-thread recovery       READY / CURRENT
-D5 clean official-account restore                     pending
+D4 Desktop + UWA restart + same-thread recovery       PASS / CLOSED
+D5 clean official-account restore                     BLOCKED / CURRENT
 Medium/High request -> ChatGPT Web verification      folded into Desktop gate
 ```
 
@@ -71,11 +72,17 @@ D2 proved two-turn context continuity in the same actual Desktop conversation wi
 
 D3 proved Desktop history recovery after a full app exit/reopen. The same session identity was observed before and after restart, the context checker passed, and the resumed turn remained on `uwa / chatgpt / high` with three post-marker UWA request/response pairs and exact route expectation PASS.
 
+D4 proved recovery across both Desktop and UWA process boundaries. The same Desktop session identity survived the double restart, the context checker passed, the post-restart route remained `uwa / chatgpt / high`, and metadata-only traces proved real `exec_command` calls plus a completed Responses turn.
+
+D5 exposed a lifecycle blocker. The official switch correctly restored Memories and account-default model/provider/reasoning configuration, preserved authentication and removed the private restore state. However, after reporting the active UWA listener stopped, a fresh healthy TCP 8199 listener appeared immediately. The leading diagnosis is duplicated stop semantics in `tools/codex_provider_switch.py`: its local stop helper terminates the listener but does not perform the launcher/supervisor cleanup already implemented by `tools/codex_uwa_lifecycle.py`. D5 remains blocked until this is repaired and rerun.
+
 Detailed records:
 
 - `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`
 - `docs/CODEX_DESKTOP_D2_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D3_LIVE_PASS_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Current release-critical path
@@ -84,7 +91,7 @@ Detailed records:
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5                                  CURRENT; D1-D3 PASS, D4 CURRENT
+M3b Desktop UI D1-D5                                  CURRENT; D1-D4 PASS, D5 BLOCKED
 M4 one real-project long-task pilot                   pending
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/license       pending
