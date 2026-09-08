@@ -21,11 +21,14 @@ P1.2 remote-capability shim implementation/CI        PASS (#351)
 P1.2 remote V2 protocol implementation/CI            PASS (#380)
 P1.2 UWA provider precondition live                  PASS
 P1.2 native remote V2 compaction macOS live          PASS
+P1.2 same-thread post-remote token continuity live   PASS
+P1.2 body-after-prefix anti-thrash migration live    PASS
+P1.2 deterministic staged recovery harness CI        PASS (#473)
 UWA reasoning-effort semantics documented            PASS
 Codex Desktop UI live gate                           REQUIRED / pending
 ```
 
-## P1.2 native remote V2 compaction: LIVE PASS
+## P1.2 native remote V2 compaction: CLOSED
 
 The valid macOS run used Codex CLI 0.153.4, the managed UWA provider, and the narrow Azure-name capability shim. The probe crossed the native auto-compaction threshold without crossing the hard effective context cap:
 
@@ -36,7 +39,7 @@ PRE_TRIGGER_ACTIVE_TOKENS=57674
 PRE_TRIGGER_OVER_HARD_CAP=NO
 ```
 
-The trigger then produced the required remote-V2 evidence:
+The trigger produced the required remote-V2 evidence:
 
 ```text
 TRIGGER_REPLY_EXACT=YES
@@ -49,32 +52,40 @@ AUTO_COMPACT_MODE=REMOTE
 AUTO_COMPACT_TRIGGER_PROBE_PASS
 ```
 
-This closes the native remote-compaction trigger/protocol gate. Detailed record: `docs/CODEX_P1_REMOTE_V2_LIVE_PASS_2026-09-08.md`.
+Post-compaction recovery then proved same-thread continuity and conversation-only token recovery. The decisive recovery run produced a real local write containing the recovered token, an exact result file, no private history search, and no additional compaction marker. UWA mode now manages Codex's supported `model_auto_compact_token_limit_scope="body_after_prefix"` override and restores the user's original scope when switching back to official mode.
 
-## Current gate: P1.2 same-thread post-remote recovery
+The earlier single-turn guard -> write -> read choreography was separated from the product-continuity claim because the model can legally skip intermediate acceptance choreography while still proving continuity. A deterministic staged harness now validates guard/write/read as three bounded resumed turns and is covered by complete CI.
 
-P1.2 has one remaining correctness gate:
+Detailed records:
+
+- `docs/CODEX_P1_REMOTE_V2_LIVE_PASS_2026-09-08.md`
+- `docs/CODEX_P1_REMOTE_V2_RECOVERY_TOKEN_CONTINUITY_PASS_2026-09-08.md`
+- `docs/CODEX_P1_BODY_AFTER_PREFIX_LIVE_MIGRATION_PASS_2026-09-08.md`
+- `docs/CODEX_P1_REMOTE_V2_RECOVERY_CLOSED_2026-09-08.md`
+
+P1.2 / merge-critical M1 is PASS / CLOSED.
+
+## Current gate: P1.3 minimal continuity blockers
+
+Accelerated P1.3 is now the active merge-critical gate. It intentionally covers only correctness blockers that can corrupt or duplicate work across restart/lost-affinity boundaries:
 
 ```text
-remote V2 compact
-→ continue the same Codex thread
-→ do not search local rollout/session/history/private UWA stores
-→ recover the original conversation-only synthetic token from compacted model-visible context
-→ perform a real local write/read through Codex
-→ exact checker PASS
+1. lost-affinity / UWA-restart fallback correctness
+2. stable continuation identity / stale-generation fencing
+3. uncertain tool-effect reconciliation before retry
 ```
 
-After this passes, P1.2 closes.
+Broad concurrency governance, browser lease frameworks, MCP normalization and productized doctor/preflight remain post-main unless one of these three blockers proves they are required.
 
 ## Accelerated main-merge path
 
-The project is now release-focused. Broad P2-P5 feature expansion no longer blocks the first verified merge to `main` unless a remaining live gate exposes a dependency on it.
+The project is release-focused. Broad P2-P5 feature expansion no longer blocks the first verified merge to `main` unless a remaining live gate exposes a dependency on it.
 
 Merge-blocking sequence:
 
 ```text
-M1 P1.2 same-thread post-remote recovery
-M2 P1.3 minimal continuity blockers
+M1 P1.2 same-thread post-remote recovery                  PASS / CLOSED
+M2 P1.3 minimal continuity blockers                       CURRENT
    - lost-affinity/restart fallback correctness
    - stable identity / stale-generation fencing
    - uncertain tool-effect reconciliation before retry
@@ -153,8 +164,8 @@ P1.2 remote capability shim implementation/CI        PASS
 P1.2 remote V2 ordinary Responses implementation/CI  PASS
 P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact macOS live                PASS
-P1.2 same-thread post-remote recovery                CURRENT
-P1.3 minimal continuity blockers                     pending
+P1.2 same-thread post-remote recovery                PASS / CLOSED
+P1.3 minimal continuity blockers                     CURRENT
 Desktop UI D1-D5 + Medium/High verification          pending / mandatory
 real-project pilot                                   pending / mandatory
 final regression/safety/docs                         pending / mandatory
@@ -170,7 +181,7 @@ post-main standalone repository extraction           planned
 
 ## Collaboration / merge / safety
 
-Every completed stage, important failure, repair and disruptive checkpoint is committed before moving on. README, this canonical state, progress tracking, stage/failure records and Draft PR stay aligned.
+Every completed stage, important failure, repair and disruptive checkpoint is committed before moving on. README, this canonical state, progress tracking, stage/failure records and Draft PR stay aligned as far as the available GitHub integration safely allows.
 
 Do not merge into `main` until the accelerated merge-blocking sequence is green. P2-P5 enhancements continue after the first verified `main` baseline unless a remaining gate proves one is required earlier.
 
