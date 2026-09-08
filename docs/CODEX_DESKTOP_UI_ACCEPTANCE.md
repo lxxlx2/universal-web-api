@@ -14,8 +14,8 @@ aggregate A-F checker                     PASS
 P1.1 compact live                         PASS
 versioned UWA lifecycle CI                PASS
 Desktop D1 tool round trip                PASS / LIVE / CLOSED
-Desktop D2 same-thread continuation       READY / CURRENT
-Desktop D3 Desktop app restart resume     pending
+Desktop D2 same-thread continuation       PASS / LIVE / CLOSED
+Desktop D3 Desktop app restart resume     READY / CURRENT
 Desktop D4 Desktop + UWA restart resume   pending
 Desktop D5 official-account switch        pending
 Desktop gate overall                      REQUIRED BEFORE MAIN MERGE
@@ -51,33 +51,25 @@ The actual Desktop UI modified only `multi_file/math_ops.py` and `multi_file/sum
 
 Detailed record: `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`.
 
-## D2: Desktop same-thread continuation
+## D2: Desktop same-thread continuation — PASS
 
 Goal: prove that conversation context survives across two turns inside the actual Desktop thread.
 
-Procedure:
+Verified live result:
 
-```bash
-cd ~/universal-web-api
-python3 tools/codex_desktop_acceptance.py prepare --scenario context
-python3 tools/codex_desktop_acceptance.py preflight --scenario context
-python3 tools/codex_desktop_acceptance.py prompts --scenario context_1
-python3 tools/codex_desktop_acceptance.py prompts --scenario context_2
+```text
+first turn                     CONTEXT_READY
+second turn                    CONTEXT_PASS
+independent checker            context: PASS / ACCEPTANCE_PASS
+route                          uwa / chatgpt / high
+post-marker UWA requests       3
+post-marker UWA responses      3
+route expectation              PASS
 ```
 
-In one Desktop Codex chat:
+The second turn stayed in the same Desktop conversation, did not manually repeat the acceptance token, executed a real local command, created and read the expected `context/result.txt`, and passed the independent checker.
 
-1. send `context_1` and require `CONTEXT_READY`;
-2. do not repeat the hidden token manually;
-3. send `context_2` in the same Desktop thread;
-4. require real local execution and `CONTEXT_PASS`;
-5. run:
-
-```bash
-python3 tools/codex_desktop_acceptance.py check --scenario context
-```
-
-PASS requires the exact expected artifact and `ACCEPTANCE_PASS`.
+Detailed record: `docs/CODEX_DESKTOP_D2_LIVE_PASS_2026-09-09.md`.
 
 ## D3: Desktop application restart resume
 
