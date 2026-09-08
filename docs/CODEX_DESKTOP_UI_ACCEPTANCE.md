@@ -16,8 +16,8 @@ versioned UWA lifecycle CI                PASS
 Desktop D1 tool round trip                PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation       PASS / LIVE / CLOSED
 Desktop D3 Desktop app restart resume     PASS / LIVE / CLOSED
-Desktop D4 Desktop + UWA restart resume   READY / CURRENT
-Desktop D5 official-account switch        pending
+Desktop D4 Desktop + UWA restart resume   PASS / LIVE / CLOSED
+Desktop D5 official-account switch        READY / CURRENT
 Desktop gate overall                      REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -91,25 +91,26 @@ The actual Desktop application was exited and reopened, the same history thread 
 
 Detailed record: `docs/CODEX_DESKTOP_D3_LIVE_PASS_2026-09-09.md`.
 
-## D4: Desktop + UWA restart resume
+## D4: Desktop + UWA restart resume — PASS
 
 Goal: reproduce Stage F through the actual Desktop UI using the versioned lifecycle path.
 
-Procedure:
+Verified live result:
 
-1. prepare fresh `context` fixture;
-2. start a fresh Desktop Codex thread and send `context_1`;
-3. receive `CONTEXT_READY` and verify `context/result.txt` is absent;
-4. fully quit ChatGPT Desktop;
-5. run `codex-uwa-stop`; PASS requires `PORT_EMPTY=YES`;
-6. run `codex-uwa`; PASS requires a real replacement listener plus `HEALTH=PASS`;
-7. reopen the same Desktop Codex thread from history;
-8. send `context_2` without repeating the token;
-9. verify the local artifact and run the checker.
+```text
+independent checker                     context: PASS / ACCEPTANCE_PASS
+session identity before/after boundary MATCH
+route                                  uwa / chatgpt / high
+post-marker UWA requests               3
+post-marker UWA responses              3
+real exec_command present              YES
+completed Responses turn               YES
+route expectation                      PASS
+```
 
-The installed `codex-uwa*` commands must be the thin wrappers produced by `tools/install_codex_uwa_commands.py`, so D4 exercises repository-tracked lifecycle logic rather than a stale private script copy.
+The installed `codex-uwa*` commands are the thin wrappers produced by `tools/install_codex_uwa_commands.py`. The versioned lifecycle helper is fail-closed: stop does not succeed until TCP 8199 is empty, restart requires a healthy owned listener, and restart rejects reused listener PIDs. After the Desktop and UWA process boundaries, the same Desktop history thread recovered the hidden context, executed real local tools and passed the independent checker.
 
-PASS requires successful same-thread recovery across both process boundaries and `ACCEPTANCE_PASS`.
+Detailed record: `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`.
 
 ## D5: restore normal official-account mode and model selection
 
@@ -129,7 +130,9 @@ In Codex mode verify:
 1. UWA is not required for the session;
 2. the model picker is controlled by the signed-in account/workspace rather than a README/CLI hard-coded model;
 3. any currently available model can be selected, including Astra when the account/rollout permits it;
-4. a harmless local Codex task can run successfully.
+4. a harmless local Codex task can run successfully when official quota is available.
+
+A quota-limit response after a clean official restore is not a bridge-routing failure. If official quota is exhausted, record the clean restore separately and complete the harmless-task proof after the official allowance resets.
 
 Do not record account identifiers or usage amounts in the public repository.
 
