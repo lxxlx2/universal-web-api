@@ -1,37 +1,42 @@
-# Desktop D1 official-quota misroute — 2026-09-08
+# Pre-D1 Desktop official-quota event — 2026-09-08
 
-## Classification
+## Classification correction
 
-D1 is NOT PASS. During the first Desktop live attempt, the Desktop surface consumed the signed-in account's official Codex/Work five-hour allowance even though the managed local Codex config was set to the UWA provider before Desktop restart.
+This event happened **before the user executed any D1 preparation or result-collection commands**. It must therefore not be classified as a D1 live attempt or a D1 failure.
 
-## User-visible evidence
+At the time of the event:
 
-- The Desktop UI showed an active pre-existing Codex conversation titled `Fix and harden V2 cargo flow`, not the fresh `uwa-codex-acceptance/multi_file` acceptance thread.
-- The conversation performed edits and commands against a Unity project (`Assets/Game/...`, `Assets/Tests/...`).
-- The Desktop UI then reported the Codex/Work usage limit was reached.
-- The user confirmed the five-hour official allowance was effectively exhausted by this run.
+- an already-existing Desktop Codex conversation titled `Fix and harden V2 cargo flow` was open;
+- the Desktop UI showed the official GPT-6 Astra model with Ultra reasoning before the resumed task;
+- the user's five-hour official Codex/Work allowance had just refreshed;
+- the user resumed the previously interrupted task in that existing conversation;
+- the task consumed the refreshed official five-hour allowance and eventually showed the official usage-limit banner;
+- the separate D1 commands that prepare `~/uwa-codex-acceptance` had not yet been run.
 
-No account identifiers, usage amounts, local PIDs, thread IDs, or private project contents are recorded here.
+No account identifiers, exact usage amounts, local PIDs, thread IDs, or private project contents are recorded here.
 
 ## What this proves
 
-The preflight state of `~/.codex/config.toml` is not sufficient evidence that an already-existing or automatically-restored Desktop Codex thread is using UWA. Desktop routing must be proved per live thread before any long acceptance task is allowed to proceed.
+The resumed existing Desktop conversation was on the official Codex/Work accounting path for at least the quota-consuming task. A UWA-backed turn would not consume the signed-in account's official Codex/Work five-hour allowance.
 
-## Current hypotheses
+This does **not** prove that the planned fresh-thread D1 route is wrong, because D1 had not started.
 
-1. Desktop restored an existing conversation created under the official provider and preserved that thread's backend/model state.
-2. The Desktop Codex surface may not apply the same provider override semantics as a fresh Codex CLI session for an existing cloud-backed thread.
-3. A fresh Desktop thread may still honor UWA, but this has not yet been proved.
+## Model/routing interpretation
 
-Do not select among these hypotheses without route evidence.
+The strongest current interpretation is:
 
-## Required next diagnostic
+1. the existing conversation/active task retained its official Astra + Ultra selection and consumed official allowance;
+2. the local Codex config had already been changed earlier to the managed UWA provider for future Codex sessions/turns;
+3. after the official task ended or the Desktop surface refreshed/reconstructed its local session state, the UI could then pick up the UWA-managed provider/model alias instead of the old conversation's official model selection.
 
-Before retrying D1:
+This is a hypothesis until local metadata confirms the model/provider boundary. Reaching a Codex usage limit by itself is not evidence of an automatic model switch.
 
-- identify the exact model/reasoning used by the offending Desktop chat from Desktop usage details where available;
-- inspect only metadata-level UWA wire evidence for the D1 time window;
-- determine whether the offending turn generated any UWA request at all;
-- prevent any further long Desktop task until a tiny fresh-thread route probe proves UWA routing without consuming official Codex/Work allowance.
+## Current gate status
 
-D1 remains `FAIL / ROUTE NOT PROVEN` and M3 remains current.
+```text
+M3 Desktop UI D1-D5       CURRENT
+D1 fresh-thread UWA gate  NOT STARTED
+pre-D1 official task      official quota consumed / route known to be official
+```
+
+Before D1 starts, use a tiny fresh-thread route probe and metadata-only evidence so a long Desktop task is never allowed to consume official quota accidentally.
