@@ -44,6 +44,8 @@ The versioned provider switch restored the exact managed UWA root/provider contr
 
 The UWA listener remained healthy and connected to the logged-in browser session.
 
+A separate transient GitHub DNS failure occurred before this successful rerun. Because that shell used `set -e`, it exited at `git pull --ff-only` before any provider switch or acceptance action, so it does not qualify or weaken this PASS evidence.
+
 ## Current gate
 
 The next valid step is the real native remote-compaction probe:
