@@ -88,6 +88,19 @@ def _item_function_name(item: Any) -> str:
     return str(item.get("name") or function_data.get("name") or "").strip()
 
 
+def _latest_user_index(source: Any) -> int:
+    if not isinstance(source, list):
+        return -1
+    for index in range(len(source) - 1, -1, -1):
+        item = source[index]
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role == "user":
+            return index
+    return -1
+
+
 def _function_call_output_ids(source: Any) -> List[str]:
     ids: List[str] = []
     for item in source if isinstance(source, list) else []:
@@ -100,10 +113,16 @@ def _function_call_output_ids(source: Any) -> List[str]:
 
 
 def _completed_function_call_names(source: Any) -> Set[str]:
+    if not isinstance(source, list):
+        return set()
+
+    latest_user = _latest_user_index(source)
+    if latest_user < 0:
+        return set()
+
     calls: Dict[str, str] = {}
     outputs: Set[str] = set()
-    completed: Set[str] = set()
-    for item in source if isinstance(source, list) else []:
+    for item in source[latest_user + 1 :]:
         item_type = _item_type(item)
         if item_type in {"function_call", "tool_call"}:
             call_id = _item_call_id(item)
@@ -114,14 +133,12 @@ def _completed_function_call_names(source: Any) -> Set[str]:
             call_id = _item_call_id(item)
             if call_id:
                 outputs.add(call_id)
-            direct_name = _item_function_name(item)
-            if direct_name:
-                completed.add(direct_name)
-    for call_id in outputs:
-        name = calls.get(call_id)
-        if name:
-            completed.add(name)
-    return completed
+
+    return {
+        calls[call_id]
+        for call_id in outputs
+        if call_id in calls and calls[call_id]
+    }
 
 
 def _tool_result_delta_body(body: ResponsesRequest) -> ResponsesRequest:
@@ -291,10 +308,18 @@ def install_codex_v2_runtime_hardening() -> None:
 
         def _required_tool_once(body: ResponsesRequest) -> str:
             required = original_required_declared_tool(body)
-            if required and required in _completed_function_call_names(body.input):
+            if not required:
+                return ""
+
+            declared = set(v2._declared_tool_names(body.tools))
+            explicit_choice = v2._specific_tool_choice_name(body.tool_choice)
+            if explicit_choice and explicit_choice in declared:
+                return required
+
+            if required in _completed_function_call_names(body.input):
                 logger.info(
                     "[CODEX_V2_RUNTIME] required client tool already has a matching "
-                    "function_call_output; suppressing duplicate enforcement"
+                    "function_call_output in the latest user turn; suppressing duplicate enforcement"
                 )
                 return ""
             return required
