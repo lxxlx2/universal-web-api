@@ -4,17 +4,14 @@
 
 The project is moving from broad hardening exploration to a release-focused sequence.
 
-The existence of multiple adjacent ChatGPT/Codex bridge projects is not a reason to pivot architecture or chase feature parity. The current bridge already has a verified local-tool loop, restart continuity, large-context accounting, native auto-compaction, real remote V2 compaction and same-thread post-compaction token recovery. The fastest path to a useful public research release is to finish only the remaining correctness/blocking gates before `main`, then continue non-blocking hardening after `main` and during the standalone-repository phase.
+The existence of multiple adjacent ChatGPT/Codex bridge projects is not a reason to pivot architecture or chase feature parity. The current bridge already has a verified local-tool loop, restart continuity, large-context accounting, native auto-compaction, real remote V2 compaction, same-thread post-compaction token recovery and the minimal P1.3 continuity fences. The fastest path to a useful public research release is to finish only the remaining user-facing/blocking gates before `main`, then continue non-blocking hardening after `main` and during the standalone-repository phase.
 
 ## What remains merge-blocking
 
 ```text
 M1 P1.2 same-thread post-remote-compaction recovery       PASS / CLOSED
-M2 P1.3 minimal continuity blockers                        CURRENT
-   - lost-affinity/restart fallback correctness
-   - stable identity / stale-generation fencing
-   - uncertain tool-effect reconciliation before retry
-M3 Desktop UI D1-D5
+M2 P1.3 minimal continuity blockers                        PASS / CLOSED
+M3 Desktop UI D1-D5                                       CURRENT
    - real Desktop local tool round trip
    - same Desktop thread continuation
    - full Desktop restart/history resume
@@ -43,13 +40,45 @@ compaction growth during decisive recovery          NO
 staged deterministic recovery harness CI #473       PASS
 ```
 
-The previous one-turn guard -> write -> read choreography is no longer treated as the product continuity criterion. It mixed continuity with instruction-following variance. A staged same-thread harness now represents that tool choreography deterministically, while the decisive live evidence already proves token continuity and anti-thrash behavior.
-
 Detailed closure: `docs/CODEX_P1_REMOTE_V2_RECOVERY_CLOSED_2026-09-08.md`.
+
+## P1.3 closure
+
+The accelerated minimal continuity block is also closed:
+
+```text
+lost-affinity / restart fallback                    PASS
+stable response/conversation identity               PASS
+conflicting call-id stale fencing                   PASS
+no retry after real client function_call            PASS
+no retry after response.failed                      PASS
+bounded repair only before client tool effect       PASS
+Security hardening CI #478 / #483 / #486            PASS
+```
+
+This closes the three correctness risks that could otherwise lose, duplicate or mis-associate work across restart and retry boundaries.
+
+Detailed closure: `docs/CODEX_P1_3_MINIMAL_CONTINUITY_CLOSED_2026-09-08.md`.
+
+## Active gate: Desktop UI
+
+M3 is now the release-critical gate. CLI/protocol evidence cannot substitute for actual ChatGPT Desktop Codex behavior.
+
+The scenarios are intentionally sequential:
+
+```text
+D1 native Desktop tool round trip
+D2 same Desktop thread continuation
+D3 Desktop application restart/history resume
+D4 Desktop + UWA process restart recovery
+D5 clean restore to normal official-account mode
+```
+
+Medium/High request-to-page verification is folded into this gate so that UI controls are only considered supported after the actual Desktop request reaches UWA and the ChatGPT Web page state is verified.
 
 ## What no longer blocks the first main merge
 
-The following remain valuable but are moved to post-main hardening unless a blocker discovered by M2-M6 requires them earlier:
+The following remain valuable but are moved to post-main hardening unless a blocker discovered by M3-M6 requires them earlier:
 
 ```text
 P2 broad per-continuation concurrency architecture
@@ -65,7 +94,7 @@ These items should continue after the first verified `main` baseline and can be 
 
 ## Why this is safe
 
-Already live-verified:
+Already live/CI verified:
 
 ```text
 Stage A-F protocol/CLI acceptance                    PASS
@@ -82,16 +111,16 @@ managed UWA precondition                             PASS
 native remote V2 compaction macOS live               PASS
 same-thread post-remote token continuity             PASS
 body-after-prefix anti-thrash behavior               PASS
+minimal P1.3 continuity correctness                  PASS
 ```
 
-The remaining merge blockers therefore test restart/lost-affinity correctness and user-facing integration rather than foundational protocol discovery.
+The remaining merge blockers therefore test user-facing Desktop integration, one real-project workload and final release regression/safety rather than foundational protocol discovery.
 
 ## Expected remaining effort
 
 If no new blocker appears:
 
 ```text
-1 focused implementation/test block   minimal P1.3
 5 Desktop scenarios                    D1-D5 (reasoning verification folded in)
 1 real-project pilot
 1 final regression/safety/docs pass
