@@ -17,9 +17,9 @@ Desktop D1 tool round trip                PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation       PASS / LIVE / CLOSED
 Desktop D3 Desktop app restart resume     PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart resume   PASS / LIVE / CLOSED
-Desktop D5 official restore lifecycle     PASS / LIVE
-Desktop D5 harmless official task         pending quota availability
-Desktop gate overall                      REQUIRED BEFORE MAIN MERGE
+Desktop D5 official restore lifecycle     PASS / LIVE / CLOSED
+Desktop D5 harmless official task         PASS / LIVE / CLOSED
+Desktop gate overall                      PASS / LIVE / CLOSED
 ```
 
 ## Safety
@@ -113,7 +113,7 @@ The installed `codex-uwa*` commands are the thin wrappers produced by `tools/ins
 
 Detailed record: `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`.
 
-## D5: restore normal official-account mode and model selection — LIFECYCLE PASS
+## D5: restore normal official-account mode and model selection — PASS
 
 Goal: prove the project can be exited cleanly and normal Codex Desktop account usage is restored without pinning a model.
 
@@ -130,19 +130,35 @@ Commit `143b396` repaired that defect by routing the provider-switch stop path t
 
 The repaired live rerun then passed the shutdown and no-respawn gate. At T+0, T+3, T+10 and T+20 seconds, metadata-only checks all observed zero repository-owned `start.py`, zero repository-owned `main.py`, zero TCP 8199 listeners and no UWA pidfile. The lifecycle helper reported `STATUS=STOPPED`. Provider status remained at signed-in account defaults with `UWA_RESTORE_STATE=ABSENT`, and the repository working tree remained clean.
 
+After official Codex allowance became available, a fresh actual Codex Desktop conversation completed a bounded synthetic local task through the restored official route. The signed-in account model picker exposed GPT-6 Astra; the bounded task used the Light reasoning tier. Independent checker evidence proved exactly one local source effect:
+
+```text
+OFFICIAL_EFFECT_COUNT=1
+OFFICIAL_SOURCE_PASS
+```
+
+Metadata-only route audit reported:
+
+```text
+latest session provider = openai
+latest session model = gpt-6-astra
+latest session effort = low
+UWA health = unavailable
+post-marker UWA requests = 0
+post-marker UWA responses = 0
+provider=openai route expectation = PASS
+```
+
+This proves the successful Desktop task used the restored official provider while UWA remained stopped. The selected account-controlled model and reasoning tier were reflected in authoritative local session metadata.
+
 Detailed records:
 
 - `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
-
-D5 now has one remaining item:
-
-1. run one harmless real Codex task through the restored official provider when official quota is available.
-
-The lifecycle, account-default selection and restore-state portions are already live PASS. A quota-limit response after a clean official restore is not a bridge-routing failure. Do not bypass quota restrictions to finish this item.
+- `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
 
 Do not record account identifiers or usage amounts in the public repository.
 
 ## Final Desktop gate
 
-Desktop UI overall becomes PASS only after the remaining D5 harmless official-provider request is recorded with non-sensitive evidence. The final merge gate requires this document, README, canonical state, progress tracking and the Draft PR to agree on the same result.
+Desktop UI D1-D5 is PASS / LIVE / CLOSED. The final merge gate still requires Hybrid Routing Safety H3-H5, the real-project pilot, final regressions, CI/public-repo safety checks and branch-topology inspection before merge to `main`.
