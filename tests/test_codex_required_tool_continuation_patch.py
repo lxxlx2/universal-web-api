@@ -3,9 +3,9 @@ from app.api import codex_responses_v2 as v2
 from app.services.codex_required_tool_language_patch import (
     install_codex_required_tool_language_patch,
 )
-from app.services.codex_required_tool_continuation_patch import (
-    completed_tool_names_after_latest_user,
-    install_codex_required_tool_continuation_patch,
+from app.services.codex_v2_runtime_hardening import (
+    _completed_function_call_names,
+    install_codex_v2_runtime_hardening,
 )
 
 
@@ -49,7 +49,7 @@ def _output(call_id: str):
 
 def _body(items, *, tool_choice=None):
     install_codex_required_tool_language_patch()
-    install_codex_required_tool_continuation_patch()
+    install_codex_v2_runtime_hardening()
     return ResponsesRequest(
         model="chatgpt",
         stream=True,
@@ -73,7 +73,7 @@ def test_completed_matching_cycle_after_latest_user_satisfies_natural_language_r
         _output("call_guard"),
     ])
 
-    assert completed_tool_names_after_latest_user(body.input) == {"exec_command"}
+    assert _completed_function_call_names(body.input) == {"exec_command"}
     assert v2.required_declared_tool(body) == ""
 
 
@@ -83,7 +83,7 @@ def test_unmatched_function_call_does_not_satisfy_requirement():
         _call("exec_command", "call_guard"),
     ])
 
-    assert completed_tool_names_after_latest_user(body.input) == set()
+    assert _completed_function_call_names(body.input) == set()
     assert v2.required_declared_tool(body) == "exec_command"
 
 
@@ -93,7 +93,7 @@ def test_unmatched_function_output_does_not_satisfy_requirement():
         _output("call_guard"),
     ])
 
-    assert completed_tool_names_after_latest_user(body.input) == set()
+    assert _completed_function_call_names(body.input) == set()
     assert v2.required_declared_tool(body) == "exec_command"
 
 
@@ -105,7 +105,7 @@ def test_completed_cycle_before_latest_user_cannot_satisfy_new_user_turn():
         _user(_recovery_text()),
     ])
 
-    assert completed_tool_names_after_latest_user(body.input) == set()
+    assert _completed_function_call_names(body.input) == set()
     assert v2.required_declared_tool(body) == "exec_command"
 
 
@@ -116,7 +116,7 @@ def test_completed_different_tool_does_not_satisfy_required_exec_command():
         _output("call_other"),
     ])
 
-    assert completed_tool_names_after_latest_user(body.input) == {"write_stdin"}
+    assert _completed_function_call_names(body.input) == {"write_stdin"}
     assert v2.required_declared_tool(body) == "exec_command"
 
 
@@ -127,7 +127,7 @@ def test_mismatched_call_id_does_not_satisfy_requirement():
         _output("call_b"),
     ])
 
-    assert completed_tool_names_after_latest_user(body.input) == set()
+    assert _completed_function_call_names(body.input) == set()
     assert v2.required_declared_tool(body) == "exec_command"
 
 
@@ -141,5 +141,5 @@ def test_explicit_tool_choice_remains_authoritative_after_completed_cycle():
         tool_choice={"type": "function", "name": "exec_command"},
     )
 
-    assert completed_tool_names_after_latest_user(body.input) == {"exec_command"}
+    assert _completed_function_call_names(body.input) == {"exec_command"}
     assert v2.required_declared_tool(body) == "exec_command"
