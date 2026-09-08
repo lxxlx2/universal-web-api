@@ -28,6 +28,7 @@ P1.3 uncertain tool-effect retry safety CI #486      PASS
 Hybrid H0 metadata route audit                       PASS / CI
 Hybrid H1 exact route/model/effort guard             PASS / CI
 Hybrid H2 fresh Desktop route probe                  PASS / LIVE
+Desktop D1 real local-tool round trip                PASS / LIVE
 UWA reasoning-effort semantics documented            PASS
 ```
 
@@ -102,7 +103,11 @@ A pre-D1 event confirmed an existing Desktop thread as `openai / gpt-6-astra / u
 
 This proves that configured provider state alone cannot tell the operator which route an existing Desktop thread will use. The release now has a narrow Hybrid Routing Safety block inside M3.
 
-H2 has now passed on a fresh Desktop thread. The post-marker route audit proved `uwa / chatgpt / high`, healthy UWA/browser state, one fresh UWA request/response pair, completed status, and an exact route expectation PASS. This closes the fresh-thread ambiguity and allows the original D1 Desktop acceptance path to resume.
+H2 passed on a fresh Desktop thread. The post-marker route audit proved `uwa / chatgpt / high`, healthy UWA/browser state, one fresh UWA request/response pair, completed status, and an exact route expectation PASS. This closed the fresh-thread ambiguity and allowed the original Desktop acceptance path to resume.
+
+D1 has now also passed through the actual Codex Desktop UI. The independent checker returned `multi_file: PASS` and `ACCEPTANCE_PASS`; only `multi_file/math_ops.py` and `multi_file/summary.py` changed; test files remained unchanged. The D1 route remained `uwa / chatgpt / high` with four post-marker UWA request/response pairs and exact route expectation PASS. Metadata-only traces proved three real `exec_command` function calls and a completed Responses turn.
+
+Detailed D1 record: `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`.
 
 Current status:
 
@@ -113,8 +118,8 @@ H2 tiny fresh Desktop route probe                        PASS / LIVE / CLOSED
 H3 explicit official -> UWA stateful handoff             pending
 H4 private metadata-only transition ledger               marker foundation present
 H5 synthetic hybrid acceptance                           pending
-D1 real Desktop local tool round trip                     READY / CURRENT
-D2 same Desktop thread continuation                      pending
+D1 real Desktop local tool round trip                     PASS / LIVE / CLOSED
+D2 same Desktop thread continuation                      READY / CURRENT
 D3 full Desktop app restart + history resume             pending
 D4 Desktop + UWA restart + same-thread recovery          pending
 D5 clean official-account restore                        pending
@@ -126,6 +131,7 @@ Medium/High request/page verification                    folded into Desktop gat
 Detailed routing design: `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`.
 CI record: `docs/CODEX_HYBRID_ROUTE_AUDIT_CI_PASS_2026-09-08.md`.
 H2 live record: `docs/CODEX_HYBRID_H2_FRESH_ROUTE_PROBE_PASS_2026-09-08.md`.
+D1 live record: `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`.
 
 ## Accelerated release-critical path
 
@@ -133,7 +139,7 @@ H2 live record: `docs/CODEX_HYBRID_H2_FRESH_ROUTE_PROBE_PASS_2026-09-08.md`.
 M1 P1.2 same-thread post-remote recovery                  PASS / CLOSED
 M2 P1.3 minimal continuity blockers                       PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                           CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5 + Medium/High verification           CURRENT; D1 READY
+M3b Desktop UI D1-D5 + Medium/High verification           CURRENT; D1 PASS, D2 CURRENT
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license checks
@@ -205,7 +211,8 @@ P1.2 same-thread post-remote recovery                PASS / CLOSED
 P1.3 minimal continuity blockers                     PASS / CLOSED
 Hybrid Routing Safety H0-H2                         PASS
 Hybrid Routing Safety H3-H5                         CURRENT / mandatory
-Desktop UI D1-D5 + Medium/High verification          CURRENT / mandatory; D1 READY
+Desktop UI D1                                       PASS / CLOSED
+Desktop UI D2-D5 + Medium/High verification          CURRENT / mandatory; D2 READY
 real-project long-task pilot                         pending / mandatory
 final regression / safety / docs                     pending / mandatory
 post-main standalone repository extraction           planned
