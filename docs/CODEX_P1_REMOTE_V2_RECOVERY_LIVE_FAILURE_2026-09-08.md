@@ -35,22 +35,53 @@ RESULT_EXACT=NO
 POST_REMOTE_RECOVERY_FAIL
 ```
 
-The immediate failure boundary is the recovery turn itself: Codex produced no `exec_command` item, so the required workspace guard / write / read sequence never began.
+A bounded classification of the private recovery trace showed one normal `agent_message`, no tool item, no error event, no synthetic-token text, and the reply matched the workspace-mismatch sentinel class.
 
-## What is not yet known
+## Root cause confirmed
 
-The current public evidence is insufficient to distinguish among:
+The recovery prompt used the natural Chinese wording:
 
-1. the compacted summary no longer retained the original conversation-only token;
-2. the recovery turn refused or ignored the required tool contract;
-3. the resumed turn did not expose the expected client tools to the web bridge;
-4. another bridge/runtime contract caused a text-only response instead of a structured tool call.
+```text
+第一步必须单独调用一次客户端 exec_command
+```
 
-Do not rerun the recovery gate blindly. First inspect the private recovery JSONL through a bounded sanitizer that reports only safe event types, final-response classification, usage and tool-availability metadata without printing the token, prompt, thread id, session path or private bodies.
+The V2 strict required-tool detector did not recognize that phrase. Its existing compatibility patch recognized direct/client-prefixed forms such as:
+
+```text
+必须使用 exec_command
+必须通过客户端 exec_command
+```
+
+but not the bounded modifiers `单独调用一次客户端`. As a result `required_declared_tool(...)` returned an empty requirement, so the bounded required-tool repair path never ran and a plain-text `ACCEPTANCE_WORKSPACE_MISMATCH` reply escaped as a normal final answer.
+
+This means the first recovery failure is not evidence that remote compaction lost the token.
+
+## Repair
+
+`app/services/codex_required_tool_language_patch.py` now recognizes a deliberately bounded Chinese grammar:
+
+```text
+必须/务必/一定要/请务必/只能
++ optional 先/再
++ optional 单独
++ optional 通过/使用/调用/执行
++ optional 一次/一遍/一个
++ optional 客户端
++ declared tool name
+```
+
+It still requires the matched tool to be present in the client-declared tool list, and an explanatory sentence such as `你必须解释为什么 exec_command ...` remains non-forcing.
+
+Focused regressions cover both the original `必须通过客户端 exec_command` wording and the exact post-remote recovery wording.
+
+Security hardening #432 / run `34195002230` completed successfully across public-repo-safety, macOS/Ubuntu security matrices, and the full reproducible upstream regression suite.
 
 ## Current gate
 
 ```text
 P1.2 native remote compaction                 PASS
-P1.2 same-thread post-remote recovery         FAIL / diagnosis CURRENT
+P1.2 recovery required-tool parser repair     PASS / CI
+P1.2 same-thread post-remote recovery rerun   CURRENT
 ```
+
+Rerun only the same-thread recovery gate after restarting UWA to load the language patch. Do not rebuild the large-context thread or repeat remote compaction unless the retained private trace becomes unavailable.
