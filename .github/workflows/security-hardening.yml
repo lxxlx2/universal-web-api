@@ -58,7 +58,6 @@ jobs:
           app/services/codex_web_session_affinity.py
           app/services/codex_remote_compaction_v2.py
           app/services/codex_required_tool_language_patch.py
-          app/services/codex_required_tool_continuation_patch.py
           app/services/codex_v2_runtime_hardening.py
           app/services/codex_stream_compat.py
           app/services/codex_workspace_refusal_language_patch.py
