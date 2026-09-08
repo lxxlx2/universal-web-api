@@ -9,133 +9,104 @@ Run official Codex Desktop / Codex CLI as the local coding agent while routing m
 ## Verified acceptance / CI
 
 ```text
-Stage A-F protocol/CLI acceptance                 PASS
-aggregate A-F checker                             PASS
-Responses tool / call-id continuity               PASS
-P1.1 Responses compact direct live                PASS
-versioned UWA lifecycle/provider switch CI/live   PASS
-P1.2 stream/usage compatibility                   PASS
-P1.2 rollout TokenCount persistence               PASS
-P1.2 native auto-compact trigger/local fallback   PASS
-P1.2 remote-capability shim implementation/CI     PASS (#351)
-P1.2 remote V2 protocol implementation/CI         PASS (#380)
-P1.2 UWA provider precondition live               PASS
-UWA reasoning-effort semantics documented         PASS
-Codex Desktop UI live gate                        REQUIRED / pending
+Stage A-F protocol/CLI acceptance                    PASS
+aggregate A-F checker                                PASS
+Responses tool / call-id continuity                  PASS
+P1.1 Responses compact direct live                   PASS
+versioned UWA lifecycle/provider switch CI/live      PASS
+P1.2 stream/usage compatibility                      PASS
+P1.2 rollout TokenCount persistence                  PASS
+P1.2 native auto-compact trigger/local fallback      PASS
+P1.2 remote-capability shim implementation/CI        PASS (#351)
+P1.2 remote V2 protocol implementation/CI            PASS (#380)
+P1.2 UWA provider precondition live                  PASS
+P1.2 native remote V2 compaction macOS live          PASS
+UWA reasoning-effort semantics documented            PASS
+Codex Desktop UI live gate                           REQUIRED / pending
 ```
 
-## Native auto-compact trigger: PASS
+## P1.2 native remote V2 compaction: LIVE PASS
+
+The valid macOS run used Codex CLI 0.153.4, the managed UWA provider, and the narrow Azure-name capability shim. The probe crossed the native auto-compaction threshold without crossing the hard effective context cap:
 
 ```text
-57429 < 57600
-58290 > 57600
+AUTO_COMPACT_LIMIT=57600
+HARD_CONTEXT_LIMIT=60800
+PRE_TRIGGER_ACTIVE_TOKENS=57674
 PRE_TRIGGER_OVER_HARD_CAP=NO
+```
+
+The trigger then produced the required remote-V2 evidence:
+
+```text
+TRIGGER_REPLY_EXACT=YES
+TRIGGER_TOOL_EFFECTS=0
 ROLLOUT_COMPACT_MARKER_DELTA=1
-REMOTE_COMPACT_ROUTE_DELTA=0
-REMOTE_COMPACT_SUCCESS_DELTA=0
-AUTO_COMPACT_MODE=LOCAL_FALLBACK
+REMOTE_COMPACT_ROUTE_DELTA=1
+REMOTE_COMPACT_SUCCESS_DELTA=1
+TOKEN_LEAK_WORKSPACE=NO
+AUTO_COMPACT_MODE=REMOTE
 AUTO_COMPACT_TRIGGER_PROBE_PASS
 ```
 
-This proves the Codex 0.153.4 threshold trigger, TokenCount persistence/resume restoration and local fallback path under UWA.
+This closes the native remote-compaction trigger/protocol gate. Detailed record: `docs/CODEX_P1_REMOTE_V2_LIVE_PASS_2026-09-08.md`.
 
-## Remote capability shim: implementation/CI PASS
+## Current gate: P1.2 same-thread post-remote recovery
 
-Exact Codex 0.153.4 capability audit selected a narrow compatibility identity: only `[model_providers.uwa].name` becomes `Azure`, while provider id, loopback URL, Responses wire API, disabled OpenAI auth and unrelated config remain unchanged.
-
-Tracked helper/test:
-
-- `tools/codex_remote_compaction_compat.py`
-- `tests/test_codex_remote_compaction_compat.py`
-
-Security hardening #351 / run `34164070091` passed.
-
-## Remote V2 ordinary Responses protocol: implementation/CI PASS
-
-Exact 0.153.4 routing:
+P1.2 has one remaining correctness gate:
 
 ```text
-legacy remote compaction
-→ compact_conversation_history()
-→ unary /responses/compact
-
-remote compaction V2
-→ append compaction_trigger
-→ ModelClientSession.stream()
-→ ordinary Responses transport
-→ /v1/responses for UWA
+remote V2 compact
+→ continue the same Codex thread
+→ do not search local rollout/session/history/private UWA stores
+→ recover the original conversation-only synthetic token from compacted model-visible context
+→ perform a real local write/read through Codex
+→ exact checker PASS
 ```
 
-For UWA, `wire_api=responses` and `supports_websockets=false`, so remote V2 uses ordinary HTTP Responses streaming. The V2 collector requires exactly one output item:
+After this passes, P1.2 closes.
+
+## Accelerated main-merge path
+
+The project is now release-focused. Broad P2-P5 feature expansion no longer blocks the first verified merge to `main` unless a remaining live gate exposes a dependency on it.
+
+Merge-blocking sequence:
 
 ```text
-type = compaction
-encrypted_content = <opaque payload>
+M1 P1.2 same-thread post-remote recovery
+M2 P1.3 minimal continuity blockers
+   - lost-affinity/restart fallback correctness
+   - stable identity / stale-generation fencing
+   - uncertain tool-effect reconciliation before retry
+M3 Desktop UI D1-D5
+   - real Desktop local tool round trip
+   - same-thread continuation
+   - Desktop restart/history resume
+   - Desktop + UWA restart recovery
+   - clean official-account restore
+   - Medium/High reasoning end-to-end verification folded into this gate
+M4 one real-project long-task pilot
+M5 final A-F + compaction + restart regression
+M6 CI green + public-repo safety + docs/provenance/license checks
+M7 inspect branch topology and merge verified V2 to main
 ```
 
-Tracked implementation now:
-
-- validates exactly one trailing request-only `compaction_trigger`;
-- strips it before ChatGPT Web summarization;
-- disables tools during bounded compaction summarization;
-- encodes the summary into a versioned/bounded/integrity-checked UWA opaque envelope;
-- emits exactly one Responses `type=compaction` output plus completed/non-zero usage;
-- decodes only valid UWA envelopes back into model-visible compact context on later replayed HTTP history;
-- fails closed on foreign/corrupt/oversized envelopes;
-- logs only bounded metadata, never summary/envelope bodies.
-
-Exact HTTP `ResponsesApiRequest` has no `previous_response_id`, so `compaction_response_id` is Codex-side checkpoint metadata. Post-compact recovery is carried by replayed compacted history, which the UWA envelope decoder handles directly.
-
-Tracked files:
-
-- `app/services/codex_remote_compaction_v2.py`
-- `tests/test_codex_remote_compaction_v2.py`
-- `tools/codex_remote_compaction_trigger_probe.py`
-- `tests/test_codex_remote_compaction_trigger_probe.py`
-- `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`
-
-CI history:
+Moved to post-main hardening unless required by an observed blocker:
 
 ```text
-#372  compile/public safety PASS; CI dependency-layer placement failure
-#378  492 passed; one probe-test import-identity failure
-#380  all jobs PASS, including upstream reproducible regression
+broad P2 concurrency/governance framework
+broad P3 MCP/schema/capability normalization
+expanded P4 evidence/trust framework
+full P5 doctor/preflight productization
+optional first-party page-runtime research
+broad upstream-surface cleanup
 ```
 
-Security hardening #380 / run `34185500715` is the implementation CI gate.
-
-## UWA provider precondition live: PASS
-
-The first native remote-V2 live attempt was invalid because Codex was not in the managed UWA provider mode. That precondition has now been corrected and live-verified:
-
-```text
-MODEL_PROVIDER_UWA=YES
-MODEL_CHATGPT=YES
-REASONING_HIGH=YES
-APPROVAL_ON_REQUEST=YES
-SANDBOX_WORKSPACE_WRITE=YES
-PROVIDER_NAME_BASELINE=YES
-LOOPBACK_BASE_URL=YES
-WIRE_API_RESPONSES=YES
-OPENAI_AUTH_DISABLED=YES
-WEBSOCKETS_DISABLED=YES
-UWA_PROVIDER_CONTRACT_PASS=YES
-SERVICE=healthy
-BROWSER_CONNECTED=True
-HEALTH_PASS=YES
-UWA_REMOTE_V2_PRECONDITION_PASS
-```
-
-Records:
-
-- `docs/CODEX_P1_REMOTE_V2_LIVE_PRECONDITION_FAILURE_2026-09-08.md` — initial invalid attempt plus closed transient DNS blocker;
-- `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md` — successful UWA-mode precondition gate.
+Detailed decision: `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`.
 
 ## Reasoning-effort semantics
 
-UWA currently treats the actual Responses request plus verified ChatGPT Web state as authoritative, not the visual position of a Codex Desktop slider by itself.
-
-Current contract:
+UWA treats the actual Responses request plus verified ChatGPT Web state as authoritative, not the visible position of a Desktop slider by itself.
 
 ```text
 UWA default                       high
@@ -144,60 +115,32 @@ request effort=high               supported -> verify High / 高 on ChatGPT Web
 request effort=low/light          unsupported / fail closed
 ```
 
-The managed UWA provider defaults to `model_reasoning_effort="high"`. Medium and High are intentionally distinct bridge modes. A Desktop slider movement only counts as effective after a dedicated Desktop acceptance proves that the intended `reasoning.effort` reached UWA and the web page was switched/verified accordingly.
+The managed UWA provider defaults to `model_reasoning_effort="high"`. Medium and High are intentionally distinct bridge modes. Desktop Medium/High request+page verification is folded into the mandatory Desktop UI gate.
 
 Detailed record: `docs/CODEX_REASONING_EFFORT_SEMANTICS_2026-09-08.md`.
 
-## Current gate: native remote compaction macOS live
-
-The protocol implementation and UWA-mode precondition are both green. The current single gate is real Codex 0.153.4 on macOS with the fail-closed Azure-name compatibility helper enabled for a fresh CLI process.
-
-Required evidence:
-
-```text
-THRESHOLD_CROSSED=YES
-PRE_TRIGGER_OVER_HARD_CAP=NO
-ROLLOUT_COMPACT_MARKER_DELTA>=1
-REMOTE_COMPACT_ROUTE_DELTA>=1
-REMOTE_COMPACT_SUCCESS_DELTA>=1
-AUTO_COMPACT_MODE=REMOTE
-AUTO_COMPACT_TRIGGER_PROBE_PASS
-```
-
-After this passes, P1.2 still requires a separate same-thread post-remote-compaction recovery of the conversation-only synthetic token through a real local write/read.
-
 ## Adjacent bridge design refresh
 
-A 2026-09-08 review covered refreshed `yyjeqhc/webcodex` plus three newly formalized references: `Waishnav/devspace`, `XiaoDuoYa/codex-with-chatgpt`, and `alexanderradahl/mac-developer-bridge`.
+Reviewed/refreshed references include `yyjeqhc/webcodex`, `Waishnav/devspace`, `XiaoDuoYa/codex-with-chatgpt`, and `alexanderradahl/mac-developer-bridge`.
 
-Decision: no architecture pivot. Official Codex remains the only local executor.
-
-Adopted roadmap principles:
-
-- keep bridge/session/generation/correlation metadata outside model-authored business tool arguments;
-- centralize governance for future specialized adapters;
-- add browser lease/generation/heartbeat/reclaim fencing;
-- strengthen independent diff/test/tool evidence review in the real-project pilot;
-- make evidence trust ordering and bounded sanitization explicit;
-- add doctor/preflight plus verified disable/kill diagnostics;
-- research first-party ChatGPT page-runtime submission only as a later optional transport after the current browser path is stable.
+Decision: no architecture pivot. Official Codex remains the only local executor. Useful reliability ideas are tracked for P1.3/post-main hardening, but adjacent-project feature parity does not enter the current release-critical path.
 
 Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
 
 ## Repository provenance and post-main standalone extraction
 
-The current GitHub repository is an actual fork of `lumingya/universal-web-api` and retains upstream AGPL-3.0 code/history. The project also contains substantial newly implemented Codex Web Bridge code. The project should describe both facts directly rather than claim that all code was only conceptually inspired.
+The current GitHub repository is an actual fork of `lumingya/universal-web-api` and retains upstream AGPL-3.0 code/history. It also contains substantial newly implemented Codex Web Bridge code.
 
-There is no requirement to rewrite working upstream-derived browser/runtime foundations merely to create a clearer repository. The planned post-main goal is a curated standalone research repository that:
+After the verified V2 release candidate is merged to `main`, create a clearer standalone research repository by dependency-auditing and extracting the bridge core plus genuinely required upstream runtime. Preserve AGPL-3.0, copyright/license notices and explicit upstream attribution; do not rewrite working upstream-derived foundations merely to remove provenance.
 
-- keeps the bridge core and the upstream runtime pieces it genuinely needs;
-- removes unrelated generic UWA surface only after import/runtime dependency proof;
-- preserves AGPL-3.0 and required copyright/license notices for reused code;
-- carries an explicit upstream/attribution document;
-- gives new users a bridge-first README, install path and provider-mode explanation;
-- reruns the full CI/live acceptance matrix before its first stable release.
+Post-main phases:
 
-Do not perform this extraction during current hardening. Start only after the verified V2 release candidate has been merged to `main`.
+```text
+S1 dependency/import/runtime audit + core manifest
+S2 create standalone attributed repository
+S3 full CI/live parity acceptance
+S4 first standalone research release
+```
 
 Detailed plan: `docs/POST_MAIN_STANDALONE_REPOSITORY_PLAN_2026-09-08.md`.
 
@@ -209,41 +152,19 @@ P1.2 native threshold/local fallback                 PASS
 P1.2 remote capability shim implementation/CI        PASS
 P1.2 remote V2 ordinary Responses implementation/CI  PASS
 P1.2 UWA provider precondition live                  PASS
-P1.2 native remote compact macOS live                CURRENT
-P1.2 same-thread post-remote recovery                 pending
-P1.3 lost-affinity/restart + identity fencing         pending
-Desktop UI reasoning Medium/High verification         pending / part of UI gate
-Desktop UI D1-D5                                      pending / mandatory
-post-main standalone repository extraction            planned / after main merge
-```
-
-## Production-hardening order
-
-```text
-P1.2 native remote compact live → same-thread recovery
-P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
-     + typed bridge metadata outside business tool args
-P2 per-continuation serialization + concurrency planes
-   + browser lease/generation/heartbeat/reclaim fencing
-   + shared specialized-adapter governance
-P3 MCP/schema/capability fidelity + protocol-edge normalization
-Desktop UI live acceptance D1-D5 + reasoning Medium/High verification
-P1.4 real-project long-task pilot with independent diff/test/tool evidence review
-P4 bounded evidence/trust-order/sanitization hardening
-P5 doctor/preflight + runtime/build identity + verified disable path
-   + optional first-party page-runtime submission research
-final release gate
-→ merge verified V2 to main
-→ S1 dependency/import audit + core manifest
-→ S2 create attributed standalone repository
-→ S3 full CI/live parity acceptance
-→ S4 first standalone research release
+P1.2 native remote compact macOS live                PASS
+P1.2 same-thread post-remote recovery                CURRENT
+P1.3 minimal continuity blockers                     pending
+Desktop UI D1-D5 + Medium/High verification          pending / mandatory
+real-project pilot                                   pending / mandatory
+final regression/safety/docs                         pending / mandatory
+post-main standalone repository extraction           planned
 ```
 
 ## Continuity layers
 
 1. Codex Desktop / CLI thread history.
-2. UWA private Responses persistence at `~/.uwa/codex_responses.sqlite3`.
+2. Private UWA Responses persistence at `~/.uwa/codex_responses.sqlite3`.
 3. Process-local ChatGPT web-session / call-id affinity.
 4. Git-tracked handoff documents as long-term project truth.
 
@@ -251,6 +172,6 @@ final release gate
 
 Every completed stage, important failure, repair and disruptive checkpoint is committed before moving on. README, this canonical state, progress tracking, stage/failure records and Draft PR stay aligned.
 
-Do not merge into `main` until P1 hardening, Desktop D1-D5, the real-project pilot, final regression, CI, docs and public-repository safety checks are green.
+Do not merge into `main` until the accelerated merge-blocking sequence is green. P2-P5 enhancements continue after the first verified `main` baseline unless a remaining gate proves one is required earlier.
 
 Never commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, Responses SQLite contents, live thread/process/browser identifiers, Codex memory workspace content, or private project source captured during acceptance.
