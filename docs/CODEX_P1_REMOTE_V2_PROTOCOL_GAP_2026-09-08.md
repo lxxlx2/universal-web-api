@@ -106,6 +106,25 @@ The implementation must remain correct across process-local affinity loss by rel
 - summary/envelope contents are never written to public logs or tracked files;
 - public-repo safety remains green.
 
+## Implementation checkpoint
+
+Tracked implementation now exists in:
+
+- `app/services/codex_remote_compaction_v2.py`
+- `tests/test_codex_remote_compaction_v2.py`
+- installation ordering in `app/api/routes.py`
+
+The first implementation CI attempt, Security hardening #372 / run `34184935625`, reached Python compile and public-repository safety successfully. Focused pytest then failed during collection because the lightweight `security-tests` matrix installs only `pytest` while importing the full app runtime requires FastAPI/runtime dependencies:
+
+```text
+py_compile new V2 module              PASS
+public-repo-safety                    PASS
+focused pytest collection             FAIL
+ModuleNotFoundError: fastapi
+```
+
+This is classified as a CI-layer dependency placement defect, not a remote-compaction protocol failure. The repair is to leave the lightweight cross-platform security matrix dependency footprint unchanged and execute the new runtime-level regression under the existing `upstream-regression` job, which already installs `requirements.txt` and automatically discovers this test file.
+
 ## Gate
 
 Do not run the native remote-compaction macOS test until the ordinary Responses V2 compaction path, regression suite and CI are green.
