@@ -13,8 +13,8 @@ CLI / protocol A-F acceptance             PASS
 aggregate A-F checker                     PASS
 P1.1 compact live                         PASS
 versioned UWA lifecycle CI                PASS
-Desktop D1 tool round trip                pending
-Desktop D2 same-thread continuation       pending
+Desktop D1 tool round trip                PASS / LIVE / CLOSED
+Desktop D2 same-thread continuation       READY / CURRENT
 Desktop D3 Desktop app restart resume     pending
 Desktop D4 Desktop + UWA restart resume   pending
 Desktop D5 official-account switch        pending
@@ -32,34 +32,24 @@ A Desktop case is PASS only when both are true:
 
 Assistant prose or screenshots alone are insufficient.
 
-## D1: Desktop native tool round trip
+## D1: Desktop native tool round trip — PASS
 
 Goal: prove that an actual Desktop Codex chat opened on the acceptance workspace can call a real local tool and complete a small coding task through UWA.
 
-Procedure:
+Verified live result:
 
-```bash
-cd ~/universal-web-api
-python3 tools/codex_desktop_acceptance.py prepare --scenario multi_file
-python3 tools/codex_desktop_acceptance.py preflight --scenario multi_file
-python3 tools/codex_desktop_acceptance.py prompts --scenario multi_file
+```text
+multi_file: PASS
+ACCEPTANCE_PASS
+route = uwa / chatgpt / high
+real exec_command function calls = YES
+completed Responses turn = YES
+test files modified = NO
 ```
 
-Then in ChatGPT Desktop:
+The actual Desktop UI modified only `multi_file/math_ops.py` and `multi_file/summary.py`, ran the real unittest suite, and passed the independent checker. Metadata-only wire traces proved three `exec_command` function calls and a completed Responses turn.
 
-1. select Codex;
-2. open `~/uwa-codex-acceptance`;
-3. start a fresh Codex chat;
-4. send the generated `multi_file` prompt;
-5. allow the task to finish;
-6. run the checker in Terminal:
-
-```bash
-cd ~/universal-web-api
-python3 tools/codex_desktop_acceptance.py check --scenario multi_file
-```
-
-PASS requires `multi_file: PASS` and real local command/edit evidence.
+Detailed record: `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`.
 
 ## D2: Desktop same-thread continuation
 
