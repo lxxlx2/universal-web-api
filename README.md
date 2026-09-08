@@ -2,110 +2,391 @@
 
 面向 Codex Desktop / Codex CLI 的本地 ChatGPT Web 推理桥。
 
-当前开发分支：`codex-web-bridge-v2`。
+目标是保留官方 Codex 的本地工作区、Shell、文件修改、测试、Git、sandbox 与 approval 能力，同时把模型推理通过本机 UWA 转发到已登录的 ChatGPT Web。网页模型负责分析和选择客户端工具，真正的本地操作仍由 Codex 客户端执行。
 
-> Canonical: `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
->
-> Progress: `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
+当前开发分支：`codex-web-bridge-v2`
 
-## 项目目标
+长期状态与详细进度：
 
-保留官方 Codex Desktop / CLI 的本地 workspace、Shell、文件修改、测试、Git、sandbox 与 approval，同时把推理经本机 UWA 转发到已登录的 ChatGPT Web。
+- `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
+- `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
+
+README 只维护项目说明、架构、使用方式、安全边界和当前阶段摘要；细粒度 live acceptance、失败记录和修复 checkpoint 统一放在 `docs/`。
 
 ## 当前状态
 
-```text
-Stage A-F protocol/CLI                         PASS
-A-F aggregate checker                          PASS
-P1.1 legacy compact direct live                PASS
-versioned lifecycle/provider switch            PASS
-P1.2 stream/usage + TokenCount                 PASS
-P1.2 native auto-compact trigger/local         PASS
-P1.2 remote-capability shim implementation/CI  PASS (#351)
-P1.2 remote V2 ordinary Responses repair       CURRENT
-Codex Desktop UI live gate                     REQUIRED BEFORE MAIN MERGE
-```
-
-Native small-step trigger 已真实 macOS PASS：
+当前已验证：
 
 ```text
-57429 < 57600
-58290 > 57600
-ROLLOUT_COMPACT_MARKER_DELTA=1
-REMOTE_COMPACT_ROUTE_DELTA=0
-REMOTE_COMPACT_SUCCESS_DELTA=0
-AUTO_COMPACT_MODE=LOCAL_FALLBACK
-AUTO_COMPACT_TRIGGER_PROBE_PASS
+Stage A-F protocol / CLI acceptance                 PASS
+aggregate A-F checker                               PASS
+真实 exec_command / cwd / function_call loop        PASS
+同一 ChatGPT Web conversation tool continuation    PASS
+长进程 + write_stdin                                PASS
+same-thread / restart continuity                    PASS
+P1.1 legacy Responses compact direct live           PASS
+versioned UWA lifecycle/provider switch             PASS
+P1.2 stream/usage + TokenCount                      PASS
+P1.2 native auto-compact trigger/local fallback     PASS
+P1.2 remote capability shim implementation/CI       PASS
+P1.2 remote V2 ordinary Responses protocol repair   CURRENT
+Codex Desktop UI live gate                          REQUIRED / pending
 ```
 
-Remote capability 的 exact Codex 0.153.4 审计也已完成：最窄方案只把 managed UWA provider display name 设为 `Azure`，provider id 仍是 `uwa`，base URL 仍是本机 `127.0.0.1:8199/v1`，`wire_api=responses`，`requires_openai_auth=false`。对应 fail-closed helper 和测试已通过 Security hardening #351；对齐后的 #355 也 PASS。
+当前主线已经从基础 tool-loop 验收进入 P1 production hardening。现阶段 blocker 是 Codex 0.153.4 的 remote compaction V2：它不是调用 legacy `/v1/responses/compact`，而是在普通 `/v1/responses` 输入末尾追加 `compaction_trigger`，并要求普通 Responses stream 返回恰好一个 `type=compaction` item。
 
-实机启用前继续追 exact release 后，remote V2 的真实路由已经钉死：
-
-```text
-legacy remote compact
-→ unary /v1/responses/compact
-
-Codex 0.153.4 remote V2
-→ input 末尾追加 compaction_trigger
-→ ModelClientSession.stream()
-→ 普通 Responses HTTP transport
-→ /v1/responses
-```
-
-我们的 provider 明确 `supports_websockets=false`，所以 V2 会走普通 HTTP Responses streaming。Codex V2 collector 要求该 stream 里恰好一个：
-
-```text
-type = compaction
-encrypted_content = <opaque payload>
-```
-
-当前普通 UWA Responses 路由尚未识别 `compaction_trigger`，因此 Azure capability shim 暂时不能实机启用。P1.1 的 `/responses/compact` PASS 仍然有效，但它属于另一条 legacy compact 路径，不能代替 V2。
-
-现在修复普通 `/v1/responses` V2 compact：验证并剥离 trigger、通过 ChatGPT Web 生成 bounded no-tools summary、包装为 UWA-owned bounded/integrity-checked opaque envelope、以正常 Responses SSE 发出恰好一个 `type=compaction` item；后续普通 Responses 输入再把有效 UWA envelope 解码回 model-visible compact context。foreign/corrupt/oversized envelope 必须 fail closed。
-
-字段名虽然叫 `encrypted_content`，UWA 不会把自己的本地 envelope 宣称为 OpenAI encryption。
+因此 Azure-name capability shim 暂不在真实 macOS 环境启用，先完成普通 Responses V2 compaction protocol repair、回归和 CI，再做 native remote compact live 和 same-thread post-compact recovery。
 
 详细记录：
 
-- `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`
-- `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
 - `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`
+- `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
+- `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`
 
-## 日常命令
+## 架构
 
-进入 UWA 模式：
+```text
+Codex Desktop / CLI
+        ↓
+OpenAI Responses request
+        ↓
+UWA Codex Responses bridge
+        ↓
+previous_response_id / call_id → ChatGPT /c/... affinity
+        ↓
+ChatGPT Web / GPT-5.6 Sol / High
+        ↓
+结构化客户端工具调用
+        ↓
+Codex 在本机执行
+        ↓
+function_call_output
+        ↓
+同一 ChatGPT conversation 增量继续
+        ↓
+直到最终答案
+```
+
+浏览器页面自身没有本机文件系统权限。本地文件、Shell、测试和 Git 能力来自 Codex 客户端，Codex 自己的 sandbox 和 approval 始终是本地执行权限边界。
+
+UWA 不直接替 Codex 执行本地 shell 命令，它负责把 ChatGPT Web 的模型输出转换为 Codex 能消费的 Responses/tool protocol，并把客户端工具结果继续送回同一个模型会话。
+
+## V2 Web Session Affinity
+
+旧流程在每个外层 Responses turn 前都会准备 fresh composer，而通用 UWA workflow 默认也会执行 `new_chat_btn`。一个简单工具循环可能变成：
+
+```text
+用户任务
+→ 新 ChatGPT 对话
+→ function_call
+→ Codex tool result
+→ 再开新 ChatGPT 对话并重放历史
+→ function_call
+→ 再开新对话
+```
+
+V2 把网页会话连续性和 Responses 连续性绑定。正常路径使用 `previous_response_id`：
+
+```text
+首次 Codex turn
+→ 创建 fresh ChatGPT conversation
+→ response_id A 绑定到 /c/...
+
+Codex 返回 function_call_output
+→ previous_response_id=A
+→ 恢复同一个 /c/...
+→ 只发送新增 tool result
+→ response_id B 继续绑定同一个 /c/...
+```
+
+实机还观察到 Codex 可能以重建历史形式回传工具结果，没有可直接使用的 UWA `previous_response_id`。因此增加 metadata-only call bridge：
+
+```text
+function_call call_id
+→ 记录 call_id -> response_id
+→ response_id 已绑定 /c/...
+
+function_call_output call_id
+→ 找回 response_id
+→ 找回同一个 /c/...
+→ 只发送 function_call_output delta
+```
+
+关键规则：
+
+1. response / call affinity 只保存协议关联信息，不保存 prompt、命令正文或 tool output。
+2. continuation 复用时不重放完整 Codex transcript，只把新增 Responses delta 发到已有网页会话。
+3. 已经存在匹配 `function_call + function_call_output` 时，同一个 required-tool 不会再次被强制执行。
+4. Codex 浏览器轮次会抑制通用 workflow 的 `new_chat` 决策，内部 repair round 也继续当前网页 conversation。
+5. 映射丢失、TTL 到期、UWA 重启、页面不可恢复或模型/推理档不匹配时，优先保证正确性并回退到 reconstructed history / persistent continuation 路径。
+
+本地只读状态接口：
+
+```text
+GET /v1/codex/web-affinity
+```
+
+它只返回启用状态、binding 数量、TTL、容量和 fallback 类型，不暴露 conversation pathname。
+
+## Responses Continuity
+
+项目有四层连续性：
+
+1. Codex Desktop / CLI thread history。
+2. UWA private Responses continuation：`~/.uwa/codex_responses.sqlite3`。
+3. 进程内 ChatGPT web-session / call-id affinity。
+4. Git tracked checkpoint，作为长期项目事实来源。
+
+Stage E-F 已验证 same-thread 和 restart continuity。短期浏览器 affinity 丢失不应破坏项目工作区或 Git 状态，恢复策略以 Codex thread、client-supplied history、private Responses persistence 和 Git checkpoint 为准。
+
+## V2 Wire Observability
+
+默认 metadata trace 路径：
+
+```text
+~/.uwa/debug/codex-wire
+```
+
+它用于区分：
+
+```text
+网页模型只是输出了一段看似命令结果的文字
+```
+
+和：
+
+```text
+UWA 真的向 Codex 发出了 Responses function_call
+```
+
+metadata 默认记录：
+
+- Responses event 顺序
+- function call 名称
+- argument keys
+- argument 长度与短 hash
+- 是否存在 `workdir` / `cwd`
+- 是否为 `/`
+- response status
+
+默认不记录 prompt、源码、命令正文、tool output、Cookie 或 Token。
+
+状态接口：
+
+```text
+GET /v1/codex/wire-trace
+```
+
+`full` capture 仅供显式本地调试，可能包含私有 prompt、源码和工具输出，严禁提交或上传。
+
+## Required Tool Contract
+
+当用户明确要求：
+
+```text
+必须使用 exec_command 执行 pwd
+```
+
+或者 harness 使用：
+
+```text
+第一步必须通过客户端 exec_command ...
+```
+
+V2 都要求 Responses 中真实出现对应 `function_call`。纯文本模拟结果、声称工具不可用、只输出一个路径都不算成功。
+
+首次结果没有真实工具调用时，V2 进行有限 repair。工具真实执行并有匹配 `function_call_output` 后，该 required-tool 已满足，不会因为重建历史里仍包含原始用户要求而再次强制执行。
+
+workspace refusal repair 也会纠正网页模型把“浏览器看不到本机文件系统”误判成“Codex 客户端没有本地工具/工作区”的情况。只有真实客户端工具结果可以证明路径存在与否。
+
+## Root workdir 防护
+
+实机曾出现 Codex turn cwd 正确，但网页模型生成 `workdir="/"`，导致命令落到文件系统根目录。
+
+当前策略：
+
+```text
+用户没有明确要求 filesystem root
++
+exec-like tool 生成 workdir="/"
+→ 删除错误 override
+→ Codex 使用自己的 turn cwd
+```
+
+UWA 不猜测替代绝对路径。用户明确要求根目录时仍允许 `/`。
+
+## 长进程与 write_stdin
+
+Stage D 已用真实持续进程验证：
+
+```text
+exec_command 启动 worker
+→ worker 输出 READY 并等待 stdin
+→ write_stdin 向同一进程发送 GO\n
+→ worker 输出 INTERACTIVE_PASS
+→ Codex 继续读取结果
+```
+
+wire metadata 中能区分独立 `exec_command` 和 `write_stdin` function call，因此不会把 `echo GO | python ...` 一类 shell 管道误判为持续进程能力。
+
+## Context Compaction
+
+长线程压缩分为两条不同协议路径。
+
+Legacy 路径：
+
+```text
+POST /v1/responses/compact
+→ ChatGPT Web 生成 replacement-history summary
+→ 返回 legacy compact output
+```
+
+该路径 P1.1 已通过 direct live。
+
+Codex 0.153.4 remote compaction V2 的真实路径是：
+
+```text
+普通 Responses input
++ trailing compaction_trigger
+→ POST /v1/responses
+→ exactly one type=compaction output item
+→ encrypted_content=<opaque transport payload>
+```
+
+当前 P1.2 正在实现这条普通 Responses 协议。UWA 会使用自己可验证、有限大小的 opaque envelope 做本地兼容状态，不宣称它是 OpenAI encryption。
+
+## Codex Memories
+
+UWA 模式默认关闭 Codex 自动 Memories，避免后台 memory consolidation 抢占唯一受控 ChatGPT tab：
+
+```toml
+[memories]
+generate_memories = false
+use_memories = false
+```
+
+helper：
+
+```bash
+python3 tools/codex_uwa_memory_guard.py status
+python3 tools/codex_uwa_memory_guard.py disable
+python3 tools/codex_uwa_memory_guard.py restore
+```
+
+项目连续性的长期事实来源仍然是 Git、tracked docs、Codex thread history 和 private Responses state，不依赖 ChatGPT account memory。
+
+## 快速开始
+
+安装/更新本地 helper：
 
 ```bash
 cd ~/universal-web-api
 git switch codex-web-bridge-v2
 git pull
 python3 tools/install_codex_uwa_commands.py
+```
+
+进入 UWA 模式：
+
+```bash
 codex-uwa
 ```
 
-切回官方账号模式：
+切回官方 Codex provider：
 
 ```bash
-cd ~/universal-web-api
-python3 tools/codex_provider_switch.py official
+codex-official
 ```
+
+也可以直接使用 provider switch helper：
+
+```bash
+python3 tools/codex_provider_switch.py official
+python3 tools/codex_provider_switch.py uwa
+```
+
+基础检查：
+
+```bash
+curl -sS http://127.0.0.1:8199/health
+curl -sS http://127.0.0.1:8199/v1/codex/wire-trace
+curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
+```
+
+## 实机验收矩阵
+
+```text
+单文件读 / 改 / 测                       PASS
+Stage A 多文件读 / 改 / 测                PASS
+Stage B failure recovery                 PASS
+Stage C Git diff discipline              PASS
+Stage D long process + write_stdin       PASS
+Stage E same-thread context              PASS
+Stage F Codex + UWA restart              PASS
+aggregate A-F checker                    PASS
+P1.1 legacy Responses compact            PASS
+P1.2 stream / usage / TokenCount         PASS
+P1.2 native auto-compact local fallback  PASS
+P1.2 remote V2 ordinary Responses        CURRENT
+Desktop UI D1-D5                         pending / mandatory
+```
+
+操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
 
 ## 后续路线
 
 ```text
-P1.2 V2 Responses repair → CI → native remote compact live → same-thread recovery
-P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
-Desktop D1-D5 actual UI acceptance
-P1.4 real-project long-task pilot
-P2-P5 production hardening / final release gate
+P1.2 remote V2 Responses repair
+→ regression / CI
+→ native remote compact macOS live
+→ same-thread post-remote recovery
+→ P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
+→ Desktop UI D1-D5 live acceptance
+→ real-project long-task pilot
+→ P2-P5 production hardening / final release gate
 ```
 
-## 合并与安全
+不为了阶段性状态频繁重写 README。详细阶段结果、失败、诊断、实验数据和 checkpoint 应写入 `docs/`，README 只做长期稳定入口。
 
-`codex-web-bridge-v2` 暂不合并到 `main`。P1 hardening、Desktop D1-D5、真实项目 pilot、最终回归/CI/docs/public-repo-safety 全绿后才进入最终合并。
+## 安全默认值
 
-不得提交 browser profile、cookie/local storage、credentials、private UWA/Codex logs、raw wire traces、Responses SQLite、真实 thread/process/browser identifier、Codex memory workspace、用户私有项目源码或 acceptance 捕获的私有 prompt/tool body。
+```text
+API bind           127.0.0.1
+CORS               disabled
+Debug              disabled
+Unsafe Python      disabled
+Auto update        disabled
+Remote access      disabled
+DevTools           local only
+```
+
+仓库是 public。禁止提交：
+
+- `.env`
+- API Key / Token / 密码
+- Cookie / Session / Local Storage
+- 浏览器 profile
+- UWA / Codex 私有日志
+- 私有源码和聊天正文
+- `~/.uwa/codex_responses.sqlite3`
+- `~/.uwa/debug/codex-wire`
+- Codex memory workspace 内容
+- 真实 thread / process / browser identifier
+- acceptance 捕获的私有 prompt / tool body
+
+## 设计参考与 Attribution
+
+V2 研究并借鉴了以下公开项目的设计思路：
+
+- `lumingya/universal-web-api`：浏览器/API 基础，AGPL-3.0。
+- `FlameFront-end/chatgpt-gateway`：浏览器 tool-call round trip 与结构化工具证据，MIT。
+- `lininn/codex-proxy`：Responses translation 分层，MIT。
+- `mehdic/codex-proxy`：sticky session、TTL、queue、SSE keepalive，MIT。
+- OpenAI `codex-responses-api-proxy`：Responses 协议诊断和 paired private dumps，Apache-2.0。
+
+详细来源、许可证、借鉴内容和差异见 `docs/REFERENCES_AND_ATTRIBUTION.md`。
+
+当前 V2 新增代码根据这些设计原则独立实现，没有直接复制上述参考项目的源文件。仓库继续保留 upstream Git history 和既有 AGPL-3.0 许可证义务。
 
 ## 项目说明
 
