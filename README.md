@@ -31,18 +31,20 @@ P1.2 native auto-compact trigger/local fallback     PASS
 P1.2 remote capability shim implementation/CI       PASS
 P1.2 remote V2 ordinary Responses implementation/CI PASS
 P1.2 UWA provider precondition live                 PASS
-P1.2 native remote compact macOS live               CURRENT
+P1.2 native remote compact macOS live               PASS
+P1.2 same-thread post-remote recovery               CURRENT
 Codex Desktop UI live gate                          REQUIRED / pending
 ```
 
-当前主线已经从基础 tool-loop 验收进入 P1 production hardening。Codex 0.153.4 remote compaction V2 的普通 Responses 协议实现和 CI 已经完成，UWA provider 前置条件也已在真实 macOS 环境通过。当前唯一 gate 是启用 fail-closed Azure-name capability shim 后运行 native remote-compaction live probe。
+Codex 0.153.4 的 native remote V2 compaction 已在真实 macOS 环境通过：阈值跨越、Codex rollout compaction marker、UWA remote route/success marker 和 `AUTO_COMPACT_MODE=REMOTE` 全部成立。P1.2 现在只剩 remote compact 后同一 thread 恢复原始 conversation-only context + 真实本地 write/read 的最终恢复 gate。
 
 详细记录：
 
+- `docs/CODEX_P1_REMOTE_V2_LIVE_PASS_2026-09-08.md`
 - `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md`
 - `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`
 - `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
-- `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`
+- `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`
 
 ## 快速开始
 
@@ -330,7 +332,7 @@ Codex 0.153.4 remote compaction V2 的真实路径是：
 → encrypted_content=<opaque transport payload>
 ```
 
-该普通 Responses V2 路径已完成实现和 CI。UWA 使用自己可验证、有限大小的 opaque envelope 做本地兼容状态，不宣称它是 OpenAI encryption。当前正在进行真实 macOS native remote-compaction live gate。
+该普通 Responses V2 路径已完成实现、CI 和真实 macOS native live。实机确认 `REMOTE_COMPACT_ROUTE_DELTA=1`、`REMOTE_COMPACT_SUCCESS_DELTA=1`、`AUTO_COMPACT_MODE=REMOTE`。UWA 使用自己可验证、有限大小的 opaque envelope 做本地兼容状态，不宣称它是 OpenAI encryption。
 
 ## Codex Memories
 
@@ -368,25 +370,33 @@ P1.2 stream / usage / TokenCount         PASS
 P1.2 native auto-compact local fallback  PASS
 P1.2 remote V2 implementation/CI         PASS
 P1.2 UWA provider precondition live      PASS
-P1.2 native remote compact macOS live    CURRENT
+P1.2 native remote compact macOS live    PASS
+P1.2 post-remote same-thread recovery    CURRENT
 Desktop reasoning Medium/High            pending / part of UI gate
 Desktop UI D1-D5                         pending / mandatory
 ```
 
 操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
 
-## 后续路线
+## 加速后的 main merge 路线
+
+当前不再用广义 P2-P5 功能扩展阻塞首个稳定 `main`。只保留真正影响正确性和用户可用性的 release-critical gates：
 
 ```text
-P1.2 native remote compact macOS live
-→ same-thread post-remote recovery
-→ P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
+P1.2 same-thread post-remote recovery
+→ P1.3 最小 continuity blockers
+   lost-affinity/restart + identity fencing + uncertain-effect reconciliation
 → Desktop UI D1-D5 + Medium/High reasoning live acceptance
-→ real-project long-task pilot
-→ P2-P5 production hardening / final release gate
+→ 一个 real-project long-task pilot
+→ final A-F / compaction / restart regression
+→ CI + public-repo safety + docs/provenance/license
+→ inspect branch topology
 → merge verified V2 to main
-→ post-main standalone repository extraction + parity acceptance
 ```
+
+广义 P2 concurrency/governance、P3 MCP/schema normalization、P4 evidence framework、P5 doctor/preflight 和可选 first-party page-runtime research 移到 `main` 之后继续，除非剩余 live gate 证明某一项必须提前修。
+
+详细决策：`docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`。
 
 独立仓库阶段不会重写已经工作的 upstream-derived 基础代码。目标是从已验证的 `main` 做依赖审计和核心提取，保留实际需要的 upstream runtime、AGPL-3.0 和明确 attribution，同时去掉与 Codex Web Bridge 无关的通用 UWA 表面积，让后来者更容易安装、理解和使用。详细计划见 `docs/POST_MAIN_STANDALONE_REPOSITORY_PLAN_2026-09-08.md`。
 
