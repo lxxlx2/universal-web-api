@@ -15,16 +15,19 @@ P1.1 legacy Responses compact direct live            PASS
 versioned lifecycle/provider switch CI/live          PASS
 P1.2 stream/usage + TokenCount                       PASS
 P1.2 native auto-compact trigger/local fallback live PASS
-P1.2 remote capability shim implementation/CI #351   PASS
-P1.2 remote V2 implementation/CI #380                PASS
+P1.2 remote capability shim implementation/CI        PASS
+P1.2 remote V2 implementation/CI                     PASS
 P1.2 UWA provider precondition live                  PASS
 P1.2 native remote V2 compaction macOS live          PASS
+P1.2 same-thread token continuity live               PASS
+P1.2 body-after-prefix anti-thrash migration live    PASS
+P1.2 deterministic staged recovery harness CI #473   PASS
 UWA reasoning-effort semantics documented            PASS
 ```
 
-## Remote V2 live evidence
+## P1.2 closure evidence
 
-Valid Codex CLI 0.153.4 macOS run:
+Native Codex CLI 0.153.4 remote-V2 compaction was proven through the managed UWA provider:
 
 ```text
 AUTO_COMPACT_LIMIT=57600
@@ -41,30 +44,51 @@ AUTO_COMPACT_MODE=REMOTE
 AUTO_COMPACT_TRIGGER_PROBE_PASS
 ```
 
-This closes the native remote-compaction trigger/protocol gate. Record: `docs/CODEX_P1_REMOTE_V2_LIVE_PASS_2026-09-08.md`.
-
-## Current gate: same-thread post-remote recovery
-
-P1.2 has one remaining gate:
+Post-compaction live recovery then proved:
 
 ```text
-remote V2 compact
-→ continue the same Codex thread
-→ no search of local rollout/session/history/private UWA stores
-→ recover the first-turn conversation-only synthetic token
-→ real Codex local write/read
-→ exact checker PASS
+same private Codex thread resumed                    YES
+conversation-only token recovered                    YES
+real local write                                     YES
+result exact                                         YES
+private history search                               NO
+compaction marker growth during decisive recovery    NO
 ```
 
-After this passes, P1.2 closes.
+The repeated post-compact compaction loop was eliminated by managing Codex's supported UWA-only setting:
+
+```toml
+model_auto_compact_token_limit_scope = "body_after_prefix"
+```
+
+Provider switching preserves the user's pre-UWA value and restores it on official mode. The old one-turn guard -> write -> read choreography is no longer treated as the product continuity criterion; a deterministic staged harness now covers those three client-tool steps as separate bounded resumed turns and passed complete CI #473.
+
+P1.2 / M1 is therefore PASS / CLOSED.
+
+Detailed records:
+
+- `docs/CODEX_P1_REMOTE_V2_LIVE_PASS_2026-09-08.md`
+- `docs/CODEX_P1_REMOTE_V2_RECOVERY_TOKEN_CONTINUITY_PASS_2026-09-08.md`
+- `docs/CODEX_P1_BODY_AFTER_PREFIX_LIVE_MIGRATION_PASS_2026-09-08.md`
+- `docs/CODEX_P1_REMOTE_V2_RECOVERY_CLOSED_2026-09-08.md`
+
+## Current gate: accelerated P1.3
+
+Release-critical work has moved to the minimal continuity blockers:
+
+```text
+1. lost-affinity / UWA-restart fallback correctness
+2. stable continuation identity / stale-generation fencing
+3. uncertain tool-effect reconciliation before retry
+```
+
+P1.3 should stay narrow: only correctness behavior that can lose, duplicate, or mis-associate work blocks the first `main` merge.
 
 ## Accelerated release-critical path
 
-To avoid delaying the usable public research release while adjacent bridge projects continue to appear, the first `main` merge is now blocked only by observed correctness/user-facing gates:
-
 ```text
-M1 P1.2 same-thread post-remote recovery
-M2 P1.3 minimal continuity blockers
+M1 P1.2 same-thread post-remote recovery                  PASS / CLOSED
+M2 P1.3 minimal continuity blockers                       CURRENT
    - lost-affinity/restart fallback correctness
    - stable identity / stale-generation fencing
    - uncertain tool-effect reconciliation before retry
@@ -75,7 +99,7 @@ M6 CI green + public-repo safety + docs/provenance/license checks
 M7 branch-topology inspection + merge verified V2 to main
 ```
 
-Moved to post-main hardening unless required by a failure in M1-M6:
+Moved to post-main hardening unless required by a failure in M2-M6:
 
 ```text
 broad P2 concurrency / browser-lease governance
@@ -132,8 +156,8 @@ P1.2 remote capability shim implementation/CI        PASS
 P1.2 remote V2 implementation/CI                     PASS
 P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact live                      PASS
-P1.2 same-thread post-remote recovery                CURRENT
-P1.3 minimal continuity blockers                     pending
+P1.2 same-thread post-remote recovery                PASS / CLOSED
+P1.3 minimal continuity blockers                     CURRENT
 Desktop UI D1-D5 + Medium/High verification          pending / mandatory
 real-project long-task pilot                         pending / mandatory
 final regression / safety / docs                     pending / mandatory
@@ -142,4 +166,4 @@ post-main standalone repository extraction           planned
 
 ## Recording discipline
 
-Every live result, failure, repair and disruptive checkpoint is committed before the next step. README, canonical current state, this file, stage/failure records and Draft PR stay aligned.
+Every live result, failure, repair and disruptive checkpoint is committed before the next step. README, canonical current state, this file, stage/failure records and Draft PR stay aligned as far as the available GitHub integration safely allows.
