@@ -94,7 +94,9 @@ What V2 adopts conceptually:
 
 Repository: https://github.com/yyjeqhc/webcodex
 
-Reviewed upstream commit: `5a4da8fff7a7a7dc52bd963e8dc22ef530160f28` on 2026-09-07.
+Initial reviewed upstream commit: `5a4da8fff7a7dc52bd963e8dc22ef530160f28` on 2026-09-07.
+
+Review refreshed through upstream head: `79e61cc85008bf35e4eea02abd137531afdba968` on 2026-09-08.
 
 License observed during V2 research: Apache-2.0.
 
@@ -107,12 +109,16 @@ Ideas studied:
 - per-executor concurrency accounting and the rule that queued work keeps the same logical execution identity;
 - fail-closed protocol/capability compatibility behavior;
 - bounded, private forensic tracing with correlation identifiers that do not become execution authority;
-- MCP schema/capability discipline, project/root authority boundaries and explicit task continuation.
+- MCP schema/capability discipline, project/root authority boundaries and explicit task continuation;
+- newer typed invocation metadata separated from concrete business tool arguments;
+- newer centralized governance for heterogeneous/specialized gateway dispatch.
 
 What V2 adopts conceptually:
 
 - P1.3 will explicitly test identity separation, stale-generation fencing and uncertain tool-effect recovery;
+- bridge/session/generation/correlation metadata must remain outside model-authored business tool arguments and must not become execution authority;
 - P2 concurrency hardening will distinguish request/browser/model/executor concurrency planes and prohibit blind duplicate effects after ambiguous transport failure;
+- P2/P3 adapter hardening will use one shared governance boundary for specialized gateways while keeping adapter-specific protocol/effect semantics local;
 - P3 will use WebCodex as a primary reference for MCP/schema/capability/fan-out fidelity while keeping Codex as the actual local tool/MCP executor;
 - P4/P5 will strengthen bounded diagnostics, runtime/build identity and transcript/trace hygiene.
 
@@ -124,7 +130,97 @@ What V2 deliberately does differently:
 - V2 does not make a public MCP tunnel part of the core local Codex-to-UWA architecture;
 - WebCodex durable Agent/scheduler concepts remain future reference only and are not part of the current V2 scope.
 
-Detailed review: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
+Detailed original review: `docs/WEBCODEX_ARCHITECTURE_REVIEW_2026-09-07.md`.
+
+Refreshed adjacent-project review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
+
+## `Waishnav/devspace`
+
+Repository: https://github.com/Waishnav/devspace
+
+Reviewed upstream commit: `d74ece04adc2a80ebed07c2798407b3be668b0f1` on 2026-09-08.
+
+License observed during V2 research: MIT.
+
+Ideas studied:
+
+- narrow configured workspace roots;
+- worktree isolation treated as a workflow boundary rather than a security boundary;
+- `doctor`/preflight diagnostics;
+- protocol-version normalization at one MCP endpoint;
+- bounded metadata-oriented logging;
+- one-shot workspace-scoped artifact download with traversal/symlink/overwrite protections.
+
+Planned V2 use:
+
+- P3/P5 protocol-edge normalization and doctor/preflight design;
+- retain explicit workspace authority and bounded logging;
+- if artifact ingress is ever added, prefer one-shot workspace-scoped transfer instead of a reusable public artifact capability.
+
+What V2 deliberately does differently:
+
+- no public MCP tunnel is required for the core local Codex-to-UWA path;
+- no duplicate local shell/filesystem executor is added to UWA;
+- Codex remains the workspace/sandbox/approval authority.
+
+## `XiaoDuoYa/codex-with-chatgpt`
+
+Repository: https://github.com/XiaoDuoYa/codex-with-chatgpt
+
+Reviewed upstream commit: `a9f91cd98df1bc82686f57d5bc2b2993394c93be` on 2026-09-08.
+
+License observed during V2 research: MIT.
+
+Ideas studied:
+
+- explicit control-plane versus data-plane separation;
+- independent post-execution review from current diff/test/evidence instead of trusting success prose;
+- workspace-bound authorization and canonical path containment;
+- sensitive-file exclusion and bounded/sanitized execution-output release;
+- finite orchestration states, bounded iteration count, local checkpoints and bounded handoff briefs;
+- explicit trust ordering that prefers current code/evidence over summaries and memory.
+
+Planned V2 use:
+
+- the real-project pilot and P4 should independently verify diff/test/tool evidence;
+- control/observation metadata stays separate from private content;
+- bounded evidence trust ordering and finite retry/iteration classifications become explicit acceptance rules.
+
+What V2 deliberately does differently:
+
+- no second MCP data plane is needed for normal Codex execution;
+- no ChatGPT Project memory or public connector is required for the core bridge.
+
+## `alexanderradahl/mac-developer-bridge`
+
+Repository: https://github.com/alexanderradahl/mac-developer-bridge
+
+Reviewed upstream commit: `fea70d1a3c5524164f2159f6063ba685fef91324` on 2026-09-08.
+
+License observed during V2 research: MIT.
+
+Ideas studied:
+
+- explicit PTY/background-job lifecycle and process-group termination;
+- local audit tail, verified disable/kill path and fail-closed unlock latch;
+- read-only stored Codex thread inspection;
+- background browser workspace leases, heartbeat renewal, stale-lease reclamation and bounded tab pooling;
+- experimental first-party ChatGPT page-runtime composer submission instead of DOM typing/clicking.
+
+Planned V2 use:
+
+- P2 browser affinity should model lease/generation/heartbeat/reclaim and fence stale generations;
+- P5 should retain a verified disable path, bounded audit and runtime preflight;
+- first-party page-runtime submission is research-only as a possible future robustness transport after the current browser path is stable.
+
+What V2 deliberately does differently:
+
+- UWA never receives unrestricted local shell/filesystem authority;
+- Codex remains responsible for PTY/background-process semantics;
+- private Codex rollout/session files are not used as an automatic bridge continuity source;
+- broad authenticated-browser control is not part of the core UWA bridge.
+
+Detailed cross-project review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
 
 ## License and copying policy
 
