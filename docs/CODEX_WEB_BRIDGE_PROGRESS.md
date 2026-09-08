@@ -17,6 +17,7 @@ P1.2 stream/usage + TokenCount                       PASS
 P1.2 native auto-compact trigger/local fallback live PASS
 P1.2 remote capability shim implementation/CI #351   PASS
 P1.2 remote V2 implementation/CI #380                PASS
+P1.2 UWA provider precondition live                  PASS
 ```
 
 ## Native trigger live evidence
@@ -80,6 +81,30 @@ CI history:
 
 Run #380: `34185500715`.
 
+## UWA provider precondition live
+
+The initial remote-V2 live attempt was invalid because Codex was not using the managed UWA provider. The versioned provider switch has now been rerun and the full precondition contract passed:
+
+```text
+MODEL_PROVIDER_UWA=YES
+MODEL_CHATGPT=YES
+REASONING_HIGH=YES
+APPROVAL_ON_REQUEST=YES
+SANDBOX_WORKSPACE_WRITE=YES
+PROVIDER_NAME_BASELINE=YES
+LOOPBACK_BASE_URL=YES
+WIRE_API_RESPONSES=YES
+OPENAI_AUTH_DISABLED=YES
+WEBSOCKETS_DISABLED=YES
+UWA_PROVIDER_CONTRACT_PASS=YES
+SERVICE=healthy
+BROWSER_CONNECTED=True
+HEALTH_PASS=YES
+UWA_REMOTE_V2_PRECONDITION_PASS
+```
+
+Record: `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md`.
+
 ## External reference refresh
 
 Reviewed/refreshed on 2026-09-08:
@@ -107,6 +132,8 @@ Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
 
 ## Current gate: native remote compact macOS live
 
+The UWA provider precondition is now green. The next valid run enables the narrow Azure-name compatibility shim and immediately verifies that every managed provider field except `name` remains unchanged before launching the remote-V2-specific small-step probe.
+
 Required output:
 
 ```text
@@ -128,6 +155,7 @@ P1.1 legacy compact endpoint/live                    PASS
 P1.2 native trigger/local fallback                   PASS
 P1.2 remote capability shim implementation/CI        PASS
 P1.2 remote V2 implementation/CI                     PASS
+P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact live                      CURRENT
 P1.2 same-thread post-remote recovery                pending
 P1.3 affinity/restart/uncertain-effect               pending
