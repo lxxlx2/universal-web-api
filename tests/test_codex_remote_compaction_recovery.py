@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from tools import codex_remote_compaction_recovery as recovery
@@ -92,24 +93,23 @@ def test_partial_timeout_summary_classifies_recovery_stage_without_raw_bodies(tm
         f"{recovery.base.RESULT_RELATIVE.as_posix()}"
     )
     read = f"cat {recovery.base.RESULT_RELATIVE.as_posix()}"
-    payload = "\n".join(
-        [
-            '{"type":"thread.started","thread_id":"thread-one"}',
-            (
-                '{"type":"item.completed","item":{"type":"command_execution",'
-                f'"command":{guard!r}}}}'
-            ).replace("'", '"'),
-            (
-                '{"type":"item.completed","item":{"type":"command_execution",'
-                f'"command":{write!r}}}}'
-            ).replace("'", '"'),
-            (
-                '{"type":"item.completed","item":{"type":"command_execution",'
-                f'"command":{read!r}}}}'
-            ).replace("'", '"'),
-            '{"type":"error","message":"skill budget warning"}',
-        ]
-    ) + "\n"
+    events = [
+        {"type": "thread.started", "thread_id": "thread-one"},
+        {
+            "type": "item.completed",
+            "item": {"type": "command_execution", "command": guard},
+        },
+        {
+            "type": "item.completed",
+            "item": {"type": "command_execution", "command": write},
+        },
+        {
+            "type": "item.completed",
+            "item": {"type": "command_execution", "command": read},
+        },
+        {"type": "error", "message": "skill budget warning"},
+    ]
+    payload = "".join(json.dumps(event) + "\n" for event in events)
     trace = tmp_path / "post-remote-recovery.jsonl"
     trace.write_text(payload, encoding="utf-8")
 
