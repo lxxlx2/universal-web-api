@@ -32,8 +32,7 @@ Desktop D1 real local-tool round trip                 PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
-D5 lifecycle code repair                              PASS / focused tests / CI
-D5 repaired official lifecycle rerun                  PASS / LIVE
+Desktop D5 official restore + harmless task           PASS / LIVE / CLOSED
 ```
 
 Detailed historical evidence remains in the dedicated `docs/CODEX_*` live/closure records.
@@ -48,7 +47,7 @@ Release-critical hybrid scope:
 H0 metadata-only route audit helper                   PASS
 H1 explicit route intent + fail-closed quality floor  PASS
 H2 tiny fresh-thread route probe                      PASS
-H3 explicit official -> UWA stateful handoff          pending
+H3 explicit official -> UWA stateful handoff          CURRENT; official source half PASS
 H4 private metadata-only transition ledger            marker foundation present
 H5 synthetic hybrid acceptance                        pending
 ```
@@ -64,9 +63,8 @@ D1 real Desktop local tool round trip                 PASS / CLOSED
 D2 same Desktop thread continuation                   PASS / CLOSED
 D3 full Desktop app restart + history resume          PASS / CLOSED
 D4 Desktop + UWA restart + same-thread recovery       PASS / CLOSED
-D5 official restore lifecycle                         PASS / LIVE
-D5 harmless real official-provider request            pending quota availability
-Medium/High request -> ChatGPT Web verification      folded into Desktop gate
+D5 clean official-account restore + harmless task     PASS / LIVE / CLOSED
+Desktop UI D1-D5                                      PASS / LIVE / CLOSED
 ```
 
 D1 proved real Desktop local execution/edit/test through `uwa / chatgpt / high` with metadata-only `exec_command` function-call evidence.
@@ -77,13 +75,13 @@ D3 proved Desktop history recovery after a full app exit/reopen. The same sessio
 
 D4 proved recovery across both Desktop and UWA process boundaries. The same Desktop session identity survived the double restart, the context checker passed, the post-restart route remained `uwa / chatgpt / high`, and metadata-only traces proved real `exec_command` calls plus a completed Responses turn.
 
-D5 exposed a confirmed lifecycle blocker. The first official restore correctly restored Memories and account-default model/provider/reasoning configuration, preserved authentication and removed the private restore state, but the old provider-switch stop path killed only the active `main.py` listener while leaving the repository-owned `start.py` launcher alive. The launcher immediately recreated a healthy TCP 8199 listener.
+D5 first exposed a confirmed lifecycle blocker. The old provider-switch stop path killed only the active `main.py` listener while leaving the repository-owned `start.py` launcher alive. Commit `143b396` repaired the defect by delegating provider-switch shutdown to hardened launcher-aware `codex_uwa_lifecycle.stop_uwa()` semantics. Focused provider-switch/lifecycle regression coverage passes with 18 tests and Security hardening CI succeeded.
 
-Commit `143b396` repairs the defect by delegating provider-switch shutdown to the hardened launcher-aware `codex_uwa_lifecycle.stop_uwa()` path. Focused provider-switch/lifecycle regression coverage passes with 18 tests, and the Security hardening GitHub Actions run for `143b396` succeeded.
+The repaired lifecycle rerun then passed at T+0, T+3, T+10 and T+20 with zero repository-owned `start.py`, zero repository-owned `main.py`, zero TCP 8199 listeners and no UWA pidfile. The lifecycle helper reported `STATUS=STOPPED`, provider/model/effort remained account defaults, and the private UWA restore state was absent.
 
-The repaired live D5 lifecycle rerun then passed. Metadata-only checks at T+0, T+3, T+10 and T+20 all showed zero repository-owned `start.py`, zero repository-owned `main.py`, zero TCP 8199 listeners and no UWA pidfile. The lifecycle helper reported `STATUS=STOPPED`, and provider status remained at account defaults with no private UWA restore state. This closes the respawn defect at the lifecycle level.
+After official Codex allowance became available again, a fresh actual Codex Desktop conversation completed a bounded synthetic local task through the restored official route. The signed-in account picker exposed GPT-6 Astra. Authoritative local session metadata recorded `openai / gpt-6-astra / low`, matching the selected Light reasoning tier. The independent checker proved the official source effect occurred exactly once, UWA remained unavailable by design, and post-marker UWA wire activity was zero. Route expectation for `provider=openai` passed. This closes D5 and the Desktop D1-D5 gate.
 
-The only remaining D5 item is a harmless real official-provider request after restore when official Codex quota is available.
+The synthetic official workspace diff is intentionally preserved as the source state for H3. H3 must now switch to UWA, open a fresh UWA Desktop thread in the same workspace, inspect the durable existing diff, append exactly one UWA continuation effect and prove the official effect remains exactly once.
 
 Detailed records:
 
@@ -93,6 +91,7 @@ Detailed records:
 - `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Current release-critical path
@@ -100,8 +99,8 @@ Detailed records:
 ```text
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
-M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5                                  CURRENT; lifecycle PASS, final official request pending
+M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 source half PASS
+M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
 M4 one real-project long-task pilot                   pending
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/license       pending
