@@ -28,6 +28,9 @@ P1.3 lost-affinity/restart fallback                  PASS (#478)
 P1.3 stable identity/stale fencing                   PASS (#483)
 P1.3 uncertain tool-effect retry safety              PASS (#486)
 local provider/model/effort metadata distinction     PASS
+Hybrid H0 metadata route audit                       PASS / CI
+Hybrid H1 exact route/model/effort guard             PASS / CI
+Hybrid H2 fresh Desktop route probe                  PASS / LIVE
 UWA reasoning-effort semantics documented            PASS
 Hybrid Routing Safety                                CURRENT / REQUIRED
 Codex Desktop UI live gate                           CURRENT / REQUIRED
@@ -126,17 +129,21 @@ H4 private metadata-only transition ledger
 H5 synthetic live acceptance for routing/handoff
 ```
 
+H2 is now CLOSED. A fresh Codex Desktop thread produced a post-marker `uwa / chatgpt / high` session with healthy UWA/browser state, one new UWA request/response pair, completed status and `ROUTE_EXPECTATION_PASS=YES`. This proves the managed UWA route works for a fresh Desktop thread and clears D1 to start. Existing old Desktop threads still cannot be treated as route proof.
+
+Detailed H2 live record: `docs/CODEX_HYBRID_H2_FRESH_ROUTE_PROBE_PASS_2026-09-08.md`.
+
 No silent premium-quota spend and no silent quality downgrade are allowed. Unknown quota state must not be guessed. Broad automatic routing remains post-main.
 
 Detailed design: `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`.
 
 ## Current gate: Hybrid Routing Safety + Desktop UI
 
-The active merge-critical gate remains M3, now split into a narrow routing-safety block and the actual Desktop scenarios:
+The active merge-critical gate remains M3, split into a narrow routing-safety block and the actual Desktop scenarios:
 
 ```text
-M3a H0-H5 Hybrid Routing Safety                         CURRENT
-M3b D1 real Desktop local tool round trip              blocked on fresh route probe
+M3a H0-H5 Hybrid Routing Safety                         CURRENT; H0-H2 PASS
+M3b D1 real Desktop local tool round trip              READY / CURRENT
      D2 same Desktop thread continuation               pending
      D3 full Desktop app restart + history resume      pending
      D4 Desktop + UWA restart + same-thread recovery   pending
@@ -144,7 +151,7 @@ M3b D1 real Desktop local tool round trip              blocked on fresh route pr
      Medium/High request -> ChatGPT Web verification   folded into Desktop gate
 ```
 
-A long D1 task must not run until a tiny fresh Desktop thread proves the intended provider/model/effort with metadata-only evidence.
+D1 may now run on the fresh UWA-proven Desktop path. Route checks remain mandatory before any long or real-project work.
 
 ## Accelerated main-merge path
 
@@ -155,8 +162,8 @@ Merge-blocking sequence:
 ```text
 M1 P1.2 same-thread post-remote recovery                  PASS / CLOSED
 M2 P1.3 minimal continuity blockers                       PASS / CLOSED
-M3a Hybrid Routing Safety H0-H5                           CURRENT
-M3b Desktop UI D1-D5                                      CURRENT after route probe
+M3a Hybrid Routing Safety H0-H5                           CURRENT; H0-H2 PASS
+M3b Desktop UI D1-D5                                      CURRENT; D1 READY
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license checks
@@ -231,8 +238,9 @@ P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact macOS live                PASS
 P1.2 same-thread post-remote recovery                PASS / CLOSED
 P1.3 minimal continuity blockers                     PASS / CLOSED
-Hybrid Routing Safety H0-H5                          CURRENT / mandatory
-Desktop UI D1-D5 + Medium/High verification          CURRENT / mandatory
+Hybrid Routing Safety H0-H2                          PASS
+Hybrid Routing Safety H3-H5                          CURRENT / mandatory
+Desktop UI D1-D5 + Medium/High verification          CURRENT / mandatory; D1 READY
 real-project pilot                                   pending / mandatory
 final regression/safety/docs                         pending / mandatory
 post-main standalone repository extraction           planned
