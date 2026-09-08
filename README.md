@@ -22,7 +22,7 @@ versioned lifecycle/provider switch            PASS
 P1.2 stream/usage + TokenCount                 PASS
 P1.2 native auto-compact trigger/local         PASS
 P1.2 remote-capability shim implementation/CI  PASS (#351)
-P1.2 remote V2 unary item/envelope repair      CURRENT
+P1.2 remote V2 ordinary Responses repair       CURRENT
 Codex Desktop UI live gate                     REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -40,20 +40,29 @@ AUTO_COMPACT_TRIGGER_PROBE_PASS
 
 Remote capability 的 exact Codex 0.153.4 审计也已完成：最窄方案只把 managed UWA provider display name 设为 `Azure`，provider id 仍是 `uwa`，base URL 仍是本机 `127.0.0.1:8199/v1`，`wire_api=responses`，`requires_openai_auth=false`。对应 fail-closed helper 和测试已通过 Security hardening #351；对齐后的 #355 也 PASS。
 
-实机启用前又确认了一个更窄的协议 blocker。纠正后的 exact-release 事实是：`/responses/compact` **仍是 unary HTTP**，不需要 SSE。当前 P1.1 transport 已正确；差异只在返回 item：
+实机启用前继续追 exact release 后，remote V2 的真实路由已经钉死：
 
 ```text
-当前 UWA P1.1:
-output=[assistant message]
+legacy remote compact
+→ unary /v1/responses/compact
 
-Codex 0.153.4 remote V2:
-output=[{
-  type: compaction,
-  encrypted_content: <opaque payload>
-}]
+Codex 0.153.4 remote V2
+→ input 末尾追加 compaction_trigger
+→ ModelClientSession.stream()
+→ 普通 Responses HTTP transport
+→ /v1/responses
 ```
 
-Codex V2 collector 要求 Compaction item 数量恰好为 1，否则直接失败。因此现在先实现 dual-path unary contract：无 `compaction_trigger` 继续保持 P1.1；有 trigger 时生成同样的 bounded web summary，但包装成 UWA-owned opaque compaction envelope。后续普通 Responses 输入还必须能把 UWA 自己的 envelope 解码回 model-visible compact context，并对 foreign/corrupt envelope fail closed。
+我们的 provider 明确 `supports_websockets=false`，所以 V2 会走普通 HTTP Responses streaming。Codex V2 collector 要求该 stream 里恰好一个：
+
+```text
+type = compaction
+encrypted_content = <opaque payload>
+```
+
+当前普通 UWA Responses 路由尚未识别 `compaction_trigger`，因此 Azure capability shim 暂时不能实机启用。P1.1 的 `/responses/compact` PASS 仍然有效，但它属于另一条 legacy compact 路径，不能代替 V2。
+
+现在修复普通 `/v1/responses` V2 compact：验证并剥离 trigger、通过 ChatGPT Web 生成 bounded no-tools summary、包装为 UWA-owned bounded/integrity-checked opaque envelope、以正常 Responses SSE 发出恰好一个 `type=compaction` item；后续普通 Responses 输入再把有效 UWA envelope 解码回 model-visible compact context。foreign/corrupt/oversized envelope 必须 fail closed。
 
 字段名虽然叫 `encrypted_content`，UWA 不会把自己的本地 envelope 宣称为 OpenAI encryption。
 
@@ -85,7 +94,7 @@ python3 tools/codex_provider_switch.py official
 ## 后续路线
 
 ```text
-P1.2 V2 item/envelope repair → CI → native remote compact live → same-thread recovery
+P1.2 V2 Responses repair → CI → native remote compact live → same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop D1-D5 actual UI acceptance
 P1.4 real-project long-task pilot
