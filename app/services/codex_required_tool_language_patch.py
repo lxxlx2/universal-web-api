@@ -1,10 +1,11 @@
 """Compatibility detector extensions for explicit Codex client-tool requests.
 
-Live macOS acceptance exposed a wording gap in the V2 required-tool contract.
-The acceptance harness says ``必须通过客户端 exec_command ...`` while the
-original detector covered direct forms such as ``必须使用 exec_command ...``.
-A web model could therefore answer ``ACCEPTANCE_WORKSPACE_MISMATCH`` without a
-real workspace probe and the response would escape strict repair.
+Live macOS acceptance exposed wording gaps in the V2 required-tool contract.
+The acceptance harness may say forms such as ``必须通过客户端 exec_command`` or
+``必须单独调用一次客户端 exec_command`` while the original detector covered
+direct forms such as ``必须使用 exec_command``. A web model could therefore
+answer a plain-text failure sentinel without a real workspace probe and escape
+strict repair.
 
 This module extends only the request-language detector. It does not execute
 commands or change Codex sandbox/approval behavior.
@@ -18,7 +19,10 @@ from typing import Any
 
 _CLIENT_PREFIXED_REQUIRED_TOOL_PATTERN = re.compile(
     r"(?:必须|务必|一定要|请务必|只能)\s*"
-    r"(?:通过|使用|调用)?\s*"
+    r"(?:先|再)?\s*"
+    r"(?:单独\s*)?"
+    r"(?:通过|使用|调用|执行)?\s*"
+    r"(?:一次|一遍|一个)?\s*"
     r"(?:客户端\s*)?`?"
     r"(exec_command|shell_command|local_shell|apply_patch|write_stdin)`?",
     re.IGNORECASE,
