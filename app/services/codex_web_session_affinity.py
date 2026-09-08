@@ -106,18 +106,35 @@ def bind_response_to_conversation(
     safe_path = _valid_pathname(pathname)
     if not key or not safe_path:
         return False
+
+    normalized_model = _normalize_model(model)
+    normalized_reasoning = _normalize_reasoning(reasoning)
+    now = time.time()
     binding = WebConversationBinding(
         response_id=key,
         pathname=safe_path,
-        model=_normalize_model(model),
-        reasoning=_normalize_reasoning(reasoning),
-        bound_at=time.time(),
+        model=normalized_model,
+        reasoning=normalized_reasoning,
+        bound_at=now,
     )
     with _BINDINGS_LOCK:
-        _prune_locked()
+        _prune_locked(now)
+        existing = _BINDINGS.get(key)
+        if existing is not None:
+            identical = (
+                existing.pathname == safe_path
+                and existing.model == normalized_model
+                and existing.reasoning == normalized_reasoning
+            )
+            if not identical:
+                logger.warning(
+                    "[CODEX_WEB_AFFINITY] rejected response identity rebind to a different "
+                    "ChatGPT conversation/model/reasoning (path redacted)"
+                )
+                return False
         _BINDINGS[key] = binding
         _BINDINGS.move_to_end(key)
-        _prune_locked()
+        _prune_locked(now)
     logger.info("[CODEX_WEB_AFFINITY] bound response to ChatGPT conversation (path redacted)")
     return True
 
