@@ -11,7 +11,7 @@
 - `docs/CODEX_WEB_BRIDGE_CURRENT_STATE.md`
 - `docs/CODEX_WEB_BRIDGE_PROGRESS.md`
 
-README 只维护项目说明、架构、使用方式、安全边界和当前阶段摘要；细粒度 live acceptance、失败记录和修复 checkpoint 统一放在 `docs/`。
+README 只维护项目说明、使用方式、架构、安全边界和当前阶段摘要；细粒度 live acceptance、失败记录和修复 checkpoint 统一放在 `docs/`。
 
 ## 当前状态
 
@@ -44,6 +44,66 @@ Codex Desktop UI live gate                          REQUIRED / pending
 - `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
 - `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`
 
+## 快速开始
+
+安装/更新本地 helper：
+
+```bash
+cd ~/universal-web-api
+git switch codex-web-bridge-v2
+git pull
+python3 tools/install_codex_uwa_commands.py
+```
+
+进入 UWA 模式：
+
+```bash
+codex-uwa
+```
+
+切回官方 Codex provider：
+
+```bash
+codex-official
+```
+
+也可以直接使用 provider switch helper：
+
+```bash
+python3 tools/codex_provider_switch.py uwa
+python3 tools/codex_provider_switch.py official
+```
+
+基础检查：
+
+```bash
+curl -sS http://127.0.0.1:8199/health
+curl -sS http://127.0.0.1:8199/v1/codex/wire-trace
+curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
+```
+
+### official 与 UWA 模式的区别
+
+Codex Desktop / CLI 中“登录了哪个账号”和“当前推理请求走哪个 provider”是两个不同层面。
+
+```text
+official 模式
+→ Codex 使用正常的官方 provider / account backend
+→ 使用 Codex / Work 对应的官方额度
+→ 可使用当前官方账号和客户端提供的模型 / 能力
+
+UWA 模式
+→ model_provider = "uwa"
+→ Codex 请求发到本机 127.0.0.1:8199
+→ UWA 把推理转发给当前已登录的 ChatGPT Web
+→ 不使用 Codex / Work 的官方推理额度
+→ 可用模型 / 推理档取决于该 ChatGPT Web 账号和网页实际提供的能力
+```
+
+因此，UWA 模式不会让 Codex 同时获得官方 Codex 专属额度、官方专属模型或 ChatGPT Web 没有开放的模型/能力；需要这些能力时应切回 official 模式。反过来，仅仅在 Desktop 中保持官方账号登录，也不会让一个已经启动在 `model_provider="uwa"` 下的新 Codex CLI 请求自动绕过 UWA。
+
+provider switch 不修改登录凭据。切回 official 模式时会移除 UWA 的顶层 provider/model/reasoning pin，让正常账号模式重新接管模型选择。
+
 ## 架构
 
 ```text
@@ -55,7 +115,7 @@ UWA Codex Responses bridge
         ↓
 previous_response_id / call_id → ChatGPT /c/... affinity
         ↓
-ChatGPT Web / GPT-5.6 Sol / High
+ChatGPT Web / selected web model
         ↓
 结构化客户端工具调用
         ↓
@@ -276,44 +336,6 @@ python3 tools/codex_uwa_memory_guard.py restore
 
 项目连续性的长期事实来源仍然是 Git、tracked docs、Codex thread history 和 private Responses state，不依赖 ChatGPT account memory。
 
-## 快速开始
-
-安装/更新本地 helper：
-
-```bash
-cd ~/universal-web-api
-git switch codex-web-bridge-v2
-git pull
-python3 tools/install_codex_uwa_commands.py
-```
-
-进入 UWA 模式：
-
-```bash
-codex-uwa
-```
-
-切回官方 Codex provider：
-
-```bash
-codex-official
-```
-
-也可以直接使用 provider switch helper：
-
-```bash
-python3 tools/codex_provider_switch.py official
-python3 tools/codex_provider_switch.py uwa
-```
-
-基础检查：
-
-```bash
-curl -sS http://127.0.0.1:8199/health
-curl -sS http://127.0.0.1:8199/v1/codex/wire-trace
-curl -sS http://127.0.0.1:8199/v1/codex/web-affinity
-```
-
 ## 实机验收矩阵
 
 ```text
@@ -390,6 +412,12 @@ V2 研究并借鉴了以下公开项目的设计思路：
 
 当前 V2 新增代码根据这些设计原则独立实现，没有直接复制上述参考项目的源文件。仓库继续保留 upstream Git history 和既有 AGPL-3.0 许可证义务。
 
-## 项目说明
+## 项目说明 / 非商业与非官方声明
 
-本项目是个人实验、协议兼容研究和工程验证项目，不是 OpenAI、ChatGPT、Codex、WebCodex 或其他参考项目的官方产品，也不代表这些项目或公司的认可、合作、授权或背书。
+本仓库维护者当前仅将本项目用于个人学习、个人实验、协议兼容研究、工程验证和非商业用途，不以本项目提供商业化托管、付费代理或账号共享服务。
+
+本项目不是 OpenAI、ChatGPT、Codex、WebCodex 或其他参考项目的官方产品，也不代表这些项目、维护者或公司的认可、合作、授权、代理关系或背书。
+
+本项目不会改变第三方服务本身的账号、订阅、额度或模型开放范围。使用者需要自行确认其账号权限，并自行遵守所使用软件、网站和服务的适用条款、政策与法律要求。
+
+本仓库中的兼容性研究、provider 切换、协议适配和自动化测试仅用于研究本地客户端与已登录网页服务之间的技术互操作性；不构成对任何第三方服务可用性、稳定性、长期兼容性或商业适用性的承诺。
