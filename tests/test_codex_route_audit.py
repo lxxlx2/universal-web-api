@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 
 
@@ -8,6 +9,7 @@ MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "codex_route_audit
 SPEC = importlib.util.spec_from_file_location("codex_route_audit", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 route_audit = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = route_audit
 SPEC.loader.exec_module(route_audit)
 
 
