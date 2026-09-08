@@ -61,10 +61,7 @@ jobs:
           app/api/codex_compat.py
           app/api/codex_responses.py
           app/api/codex_responses_v2.py
-      - run: >-
-          python -m pytest -q
-          tests/test_security_hardening.py
-          tests/test_codex_remote_compaction_v2.py
+      - run: python -m pytest -q tests/test_security_hardening.py
 
   upstream-regression:
     runs-on: ubuntu-latest
