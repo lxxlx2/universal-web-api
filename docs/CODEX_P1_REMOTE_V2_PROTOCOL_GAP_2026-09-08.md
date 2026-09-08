@@ -4,9 +4,9 @@
 
 Pre-live protocol audit after the narrow Codex 0.153.4 remote-compaction capability shim passed CI.
 
-The exact remote V2 compact contract was compared with UWA's already-live P1.1 compact endpoint before touching the real macOS provider config.
+The exact remote V2 request/response path was traced before touching the real macOS provider config.
 
-## Exact Codex 0.153.4 contract
+## Exact Codex 0.153.4 routing
 
 Exact release:
 
@@ -15,89 +15,97 @@ rust-v0.153.4
 3d2ee51ca2d5db578f328aa75e20aa22c0197c9a
 ```
 
-Important correction from the first draft of this record: `/responses/compact` itself is **unary HTTP**, not an SSE endpoint. The exact client source explicitly documents this and calls `CompactClient.compact_input(...)` with a full-response timeout.
+Important correction to earlier drafts of this record:
 
-The remote V2 core appends a request-only `compaction_trigger`, invokes the unary compact endpoint through `ModelClientSession`, and receives `output: Vec<ResponseItem>`. Codex then internally exposes those items to the V2 collector as response events.
+- legacy remote compaction uses unary `/responses/compact` through `compact_conversation_history()` / `CompactClient.compact_input(...)`;
+- **remote compaction V2 does not use that unary endpoint**;
+- `run_remote_compact_v2_attempt()` appends a request-only `compaction_trigger` to the prompt and calls `ModelClientSession.stream()`;
+- for the configured UWA `wire_api=responses` provider with WebSockets disabled, `ModelClientSession.stream()` enters the ordinary HTTP Responses transport;
+- therefore native remote V2 reaches the normal provider Responses endpoint (`/v1/responses`), not `/v1/responses/compact`.
 
-The V2 collector accepts the attempt only when exactly one returned output item deserializes as:
+This distinction is exact-release behavior, not an inference from endpoint names.
+
+## Exact remote V2 response contract
+
+The V2 collector consumes the ordinary Responses stream and accepts the compact attempt only when exactly one `response.output_item.done` item deserializes as:
 
 ```text
 ResponseItem::Compaction
 ```
 
-The required unary wire shape is therefore equivalent to:
+Equivalent Responses item shape:
 
 ```json
 {
-  "output": [
-    {
-      "type": "compaction",
-      "encrypted_content": "<opaque compaction payload>"
-    }
-  ]
+  "type": "compaction",
+  "encrypted_content": "<opaque compaction payload>"
 }
 ```
 
-If exactly one compaction item is not present, Codex returns a fatal protocol error.
+If the collector receives zero or more than one `Compaction` item, Codex returns a fatal protocol error.
 
-## Current UWA compact contract
+The request-side `compaction_trigger` is a control item and must not become durable model-visible conversation content.
 
-`app/api/codex_compact.py` currently implements a legacy unary replacement-history adapter. It:
+## Current UWA behavior
 
-1. converts compact history into a no-tools ChatGPT Web summarization request;
-2. builds a normal assistant Responses message;
-3. returns unary JSON containing assistant message item(s).
+Current ordinary UWA Codex Responses handling translates normal Responses input into ChatGPT Web messages and emits normal assistant `message` / `function_call` items. It does not yet implement a dedicated `compaction_trigger` request path or emit a `type=compaction` item.
 
-This P1.1 contract is already proven by direct macOS HTTP validation, but its output item type is not the Codex 0.153.4 remote V2 type.
+P1.1 remains valid but is a separate legacy endpoint proof: `POST /v1/responses/compact` unary assistant replacement-history output works directly. That does not satisfy Codex 0.153.4 remote V2 because V2 runs through ordinary `/v1/responses`.
 
 ## Consequence
 
-The Azure-name capability shim is necessary for native Codex to select remote compaction, but it is not sufficient.
-
-Against the current endpoint the predictable sequence would be:
+The Azure-name capability shim is necessary for Codex 0.153.4 to select remote V2, but enabling it now would predictably fail:
 
 ```text
 native threshold reached
 → Codex selects remote V2
-→ unary POST /v1/responses/compact reaches UWA
-→ UWA returns output=[assistant message]
-→ Codex V2 receives zero Compaction items
-→ remote compaction fails
+→ ordinary POST /v1/responses with trailing compaction_trigger
+→ UWA treats it as a normal Responses turn
+→ no Compaction output item is emitted
+→ Codex V2 collector fails exact-one-Compaction contract
 ```
 
-Therefore the real macOS capability shim remains disabled until the item-shape/continuity repair is green.
+Therefore the real macOS capability shim remains disabled until the ordinary Responses V2 compaction protocol repair is green.
 
 ## Required repair
 
-Keep P1.1 legacy unary behavior for requests without the V2 trigger. For a compact request containing `compaction_trigger`:
+Implement the V2 path in the ordinary Codex Responses bridge, not in the legacy unary compact route:
 
-1. remove the request-only trigger before web summarization;
-2. generate the same bounded no-tools ChatGPT Web summary;
-3. encode that summary in a UWA-owned bounded opaque compaction envelope;
-4. return unary `output` with exactly one `type=compaction` item carrying that envelope in `encrypted_content`;
-5. teach ordinary UWA Codex Responses browser translation to decode only UWA-owned compaction envelopes back into model-visible compacted context;
-6. fail closed on unknown/corrupt envelopes rather than silently dropping context;
-7. keep compact content private and never log the envelope or summary body.
+1. detect exactly one trailing `compaction_trigger` in a remote-compaction request;
+2. reject malformed/ambiguous trigger placement fail-closed;
+3. remove the request-only trigger before constructing model-visible ChatGPT Web history;
+4. disable client tools/tool choice for the backing compaction summarization;
+5. generate the same bounded durable-thread summary through ChatGPT Web;
+6. encode that summary into a UWA-owned bounded opaque envelope with versioning and integrity validation;
+7. emit normal Responses SSE containing exactly one `response.output_item.done` with `type=compaction` and the envelope in `encrypted_content`;
+8. emit a valid terminal `response.completed` with non-zero bounded usage compatible with Codex TokenCount accounting;
+9. on later ordinary Responses input, decode only valid UWA-owned compaction envelopes into model-visible compact context before browser translation;
+10. reject foreign/corrupt/oversized envelopes rather than silently dropping or exposing opaque content;
+11. never log the summary or envelope body.
 
-The schema field name `encrypted_content` is upstream terminology. UWA must not claim that its local envelope is OpenAI encryption. The local envelope is only opaque transport state with explicit bounds/integrity checks.
+The upstream field name is `encrypted_content`. UWA does not claim that its own local envelope is OpenAI encryption; it is only opaque transport state for this local compatibility bridge.
 
-## Continuity note
+## Continuity requirements
 
-Codex records the compact response ID as compaction metadata, but its compact request/response transport remains unary. The next implementation must preserve client-supplied compacted history semantics; it must not rely on the browser model understanding an OpenAI encrypted blob. UWA therefore needs its own envelope decode step when a later normal Responses input contains the returned compaction item.
+Codex installs the returned Compaction item into replacement history. Later turns can therefore replay that item as part of ordinary Responses input. UWA must reconstruct a model-visible compact summary from its own envelope without requiring ChatGPT Web to understand the opaque upstream field.
+
+The implementation must remain correct across process-local affinity loss by relying on the client-supplied compacted history plus existing private UWA Responses persistence, rather than on an in-memory-only summary map.
 
 ## Regression requirements
 
-- legacy P1.1 unary assistant-message behavior stays green;
-- V2 detection requires a `compaction_trigger` item;
-- trigger is not sent to the backing web model;
-- V2 unary response contains exactly one `type=compaction` item;
+- P1.1 legacy `/v1/responses/compact` behavior remains unchanged and green;
+- ordinary V2 request detection requires exactly one valid trailing `compaction_trigger`;
+- malformed trigger input fails closed;
+- trigger never reaches ChatGPT Web as conversation content;
+- tools are unavailable during compaction summarization;
+- V2 stream emits exactly one `type=compaction` output item;
+- completed response is valid and includes non-zero usage;
 - UWA envelope round-trip preserves Unicode summary text;
-- corrupted/foreign compaction envelope fails closed;
-- ordinary browser translation rewrites a UWA compaction item into an assistant compact-context message without exposing the raw envelope;
-- no tools are available during compact summarization;
-- compact summary/envelope contents are never logged;
+- corrupted, foreign and oversized envelopes fail closed;
+- later normal browser translation decodes a valid UWA compaction item into model-visible compact context without exposing raw envelope data;
+- summary/envelope contents are never written to public logs or tracked files;
 - public-repo safety remains green.
 
 ## Gate
 
-Do not run the native remote-compaction macOS test until the unary V2 item/envelope repair and CI are green.
+Do not run the native remote-compaction macOS test until the ordinary Responses V2 compaction path, regression suite and CI are green.
