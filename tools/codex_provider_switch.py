@@ -38,11 +38,13 @@ except ModuleNotFoundError:  # direct execution: python3 tools/codex_provider_sw
     from codex_uwa_memory_guard import restore as restore_memories
 
 OFFICIAL_PIN_KEYS = {"model_provider", "model", "model_reasoning_effort"}
+AUTO_COMPACT_SCOPE_KEY = "model_auto_compact_token_limit_scope"
 UWA_RESTORE_KEYS = {
     "approval_policy",
     "sandbox_mode",
     "model_context_window",
     "model_auto_compact_token_limit",
+    AUTO_COMPACT_SCOPE_KEY,
     "model_catalog_json",
 }
 ROOT_KEYS = OFFICIAL_PIN_KEYS  # backward-compatible public constant/tests
@@ -53,6 +55,13 @@ UWA_ROOT_VALUES: tuple[tuple[str, str], ...] = (
     ("model_reasoning_effort", '"high"'),
     ("approval_policy", '"on-request"'),
     ("sandbox_mode", '"workspace-write"'),
+    # Codex defaults this to ``total``. Browser-backed Responses include a
+    # sizeable stable prefix (tools/instructions) in sampled usage, so charging
+    # that prefix against every post-compaction turn can immediately retrigger
+    # auto-compaction even after the compacted history itself is well below the
+    # threshold. ``body_after_prefix`` is Codex's native carried-window mode and
+    # still keeps the full context-window hard cap independent.
+    (AUTO_COMPACT_SCOPE_KEY, '"body_after_prefix"'),
 )
 
 UWA_PROVIDER_TABLE = """[model_providers.uwa]
@@ -116,6 +125,14 @@ def _top_provider(text: str) -> str | None:
             return value[1:-1]
         return value
     return None
+
+
+def _root_entry(text: str, key: str) -> dict[str, object]:
+    root, _ = _split_root_and_sections(text)
+    for line in root:
+        if _key_name(line) == key:
+            return {"present": True, "rhs": _key_rhs(line)}
+    return {"present": False, "rhs": None}
 
 
 def _validate_toml(text: str) -> None:
@@ -209,6 +226,29 @@ def _load_state(path: Path | None) -> dict[str, object] | None:
     return data
 
 
+def _upgrade_existing_restore_state(path: Path, current_text: str) -> bool:
+    """Add newly managed scope to an older state before overwriting UWA config.
+
+    Older V1 state files predate ``model_auto_compact_token_limit_scope``. When
+    the operator is already in UWA mode, the current config is still the only
+    source that can preserve an explicit pre-migration scope. Capture it before
+    ``uwa_text`` replaces the root value.
+    """
+
+    path = path.expanduser()
+    if not path.exists():
+        return False
+    data = _load_state(path)
+    assert data is not None
+    root = data.get("root")
+    assert isinstance(root, dict)
+    if AUTO_COMPACT_SCOPE_KEY in root:
+        return False
+    root[AUTO_COMPACT_SCOPE_KEY] = _root_entry(current_text, AUTO_COMPACT_SCOPE_KEY)
+    _write_state(path, data)
+    return True
+
+
 def _restore_entries(state: Mapping[str, object] | None) -> dict[str, dict[str, object]] | None:
     if state is None:
         return None
@@ -218,13 +258,20 @@ def _restore_entries(state: Mapping[str, object] | None) -> dict[str, dict[str, 
     result: dict[str, dict[str, object]] = {}
     for key in UWA_RESTORE_KEYS:
         entry = root.get(key)
+        # Backward compatibility for a state created before UWA managed this
+        # scope. Such a state must not authorize official_text to delete a scope
+        # that the old switch never owned. A normal UWA re-apply upgrades the
+        # state first via _upgrade_existing_restore_state().
+        if entry is None and key == AUTO_COMPACT_SCOPE_KEY:
+            result[key] = {"managed": False, "present": False, "rhs": None}
+            continue
         if not isinstance(entry, dict) or not isinstance(entry.get("present"), bool):
             raise RuntimeError(f"provider restore state is invalid for {key}")
         present = bool(entry["present"])
         rhs = entry.get("rhs")
         if present and not isinstance(rhs, str):
             raise RuntimeError(f"provider restore state is missing value for {key}")
-        result[key] = {"present": present, "rhs": rhs if present else None}
+        result[key] = {"managed": True, "present": present, "rhs": rhs if present else None}
     return result
 
 
@@ -238,11 +285,12 @@ def official_text(
     values: list[tuple[str, str]] = []
 
     if restore is not None:
-        remove_keys.update(UWA_RESTORE_KEYS)
         for key in sorted(UWA_RESTORE_KEYS):
             entry = restore[key]
-            if entry["present"]:
-                values.append((key, str(entry["rhs"])))
+            if entry.get("managed", True):
+                remove_keys.add(key)
+                if entry["present"]:
+                    values.append((key, str(entry["rhs"])))
 
     root_text, sections = _build_root_override(
         text,
@@ -315,7 +363,9 @@ def write_uwa(
         if _top_provider(original) != "uwa":
             _write_state(state_path, _capture_restore_state(original))
             state_written = True
-        elif not state_path.exists() and legacy_official_path is not None:
+        elif state_path.exists():
+            state_written = _upgrade_existing_restore_state(state_path, original)
+        elif legacy_official_path is not None:
             legacy_official_path = legacy_official_path.expanduser()
             if legacy_official_path.exists():
                 legacy_text = legacy_official_path.read_text(encoding="utf-8")
@@ -420,10 +470,7 @@ def _listener_pids(*, runner: Runner = subprocess.run) -> list[int]:
 
 
 def _listener_cwd(pid: int, *, runner: Runner = subprocess.run) -> Path | None:
-    result = _run(
-        ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
-        runner=runner,
-    )
+    result = _run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], runner=runner)
     if result.returncode != 0:
         return None
     for line in result.stdout.splitlines():
@@ -576,6 +623,8 @@ def main() -> int:
         print(f"CONFIG={path}")
         for key in sorted(ROOT_KEYS):
             print(f"{key}={status.get(key, '<default>')}")
+        parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+        print(f"{AUTO_COMPACT_SCOPE_KEY}={parsed.get(AUTO_COMPACT_SCOPE_KEY, '<default>')}")
         print(f"UWA_RESTORE_STATE={'PRESENT' if state_path.exists() else 'ABSENT'}")
         return 0
 
@@ -595,10 +644,13 @@ def main() -> int:
         print(f"UWA_MODE_CHANGED={'YES' if changed else 'NO'}")
         if backup is not None:
             print(f"BACKUP={backup}")
-        print(f"UWA_RESTORE_STATE={'UPDATED' if state_written else ('PRESENT' if state_path.exists() else 'ABSENT')}")
+        print(
+            f"UWA_RESTORE_STATE={'UPDATED' if state_written else ('PRESENT' if state_path.exists() else 'ABSENT')}"
+        )
         print('model_provider="uwa"')
         print('model="chatgpt"')
         print('model_reasoning_effort="high"')
+        print(f'{AUTO_COMPACT_SCOPE_KEY}="body_after_prefix"')
         print("AUTH=UNCHANGED")
         return 0
 
