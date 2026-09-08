@@ -25,6 +25,8 @@ P1.2 deterministic staged recovery harness CI #473   PASS
 P1.3 lost-affinity/restart fallback CI #478           PASS
 P1.3 stable identity/stale fencing CI #483           PASS
 P1.3 uncertain tool-effect retry safety CI #486      PASS
+Hybrid H0 metadata route audit                       PASS / CI
+Hybrid H1 exact route/model/effort guard             PASS / CI
 UWA reasoning-effort semantics documented            PASS
 ```
 
@@ -93,27 +95,41 @@ P1.3 / M2 is PASS / CLOSED.
 
 Detailed closure: `docs/CODEX_P1_3_MINIMAL_CONTINUITY_CLOSED_2026-09-08.md`.
 
-## Current gate: Desktop UI D1-D5
+## Current gate: Hybrid Routing Safety + Desktop UI
 
-Release-critical work is now at the actual ChatGPT Desktop Codex UI gate:
+A pre-D1 event confirmed an existing Desktop thread as `openai / gpt-6-astra / ultra` while earlier sessions were `uwa / chatgpt / high`. The resumed official thread consumed official allowance. D1 itself had not started.
+
+This proves that configured provider state alone cannot tell the operator which route an existing Desktop thread will use. The release now has a narrow Hybrid Routing Safety block inside M3.
+
+Current status:
 
 ```text
-D1 real Desktop local tool round trip                    CURRENT
-D2 same Desktop thread continuation                     pending
-D3 full Desktop app restart + history resume            pending
-D4 Desktop + UWA restart + same-thread recovery         pending
-D5 clean official-account restore                       pending
-Medium/High request/page verification                   folded into Desktop gate
+H0 metadata-only route audit helper                     PASS / CI
+H1 exact provider/model/effort fail-closed guard         PASS / CI
+H2 tiny fresh Desktop route probe                        CURRENT / live pending
+H3 explicit official -> UWA stateful handoff             pending
+H4 private metadata-only transition ledger               marker foundation present
+H5 synthetic hybrid acceptance                           pending
+D1 real Desktop local tool round trip                     blocked on H2
+D2 same Desktop thread continuation                      pending
+D3 full Desktop app restart + history resume             pending
+D4 Desktop + UWA restart + same-thread recovery          pending
+D5 clean official-account restore                        pending
+Medium/High request/page verification                    folded into Desktop gate
 ```
 
-CLI/protocol evidence cannot substitute for these scenarios.
+`tools/codex_route_audit.py` intentionally uses only authoritative Codex metadata events and UWA metadata-only traces. It never recursively searches rollout bodies, and UWA expectation PASS requires a real post-marker UWA wire request. Exact expected provider/model/effort values act as the first-release quality floor: a long task must not start on an unproven or weaker route.
+
+Detailed routing design: `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`.
+CI record: `docs/CODEX_HYBRID_ROUTE_AUDIT_CI_PASS_2026-09-08.md`.
 
 ## Accelerated release-critical path
 
 ```text
 M1 P1.2 same-thread post-remote recovery                  PASS / CLOSED
 M2 P1.3 minimal continuity blockers                       PASS / CLOSED
-M3 Desktop UI D1-D5 + Medium/High request/page verification CURRENT
+M3a Hybrid Routing Safety H0-H5                           CURRENT
+M3b Desktop UI D1-D5 + Medium/High verification           CURRENT after route probe
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license checks
@@ -127,11 +143,15 @@ broad P2 concurrency / browser-lease governance
 broad P3 MCP/schema/capability normalization
 expanded P4 evidence/trust-order framework
 full P5 doctor/preflight productization
+fully automatic unsupported/private quota polling
+background automatic thread migration
+provider cost optimization / generalized routing engine
+rich routing dashboard / automatic task classifier
 optional first-party ChatGPT page-runtime research
 broad cleanup of unrelated generic upstream UWA surface
 ```
 
-Detailed decision: `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`.
+The fast-release strategy is unchanged: only the minimal route-safety layer required to prevent silent premium quota spend or silent model downgrade was added to the merge-critical path.
 
 ## Reasoning effort
 
@@ -141,13 +161,13 @@ Medium  supported when the Responses request carries medium
 Low     unsupported / fail closed
 ```
 
-UWA applies Medium/High to ChatGPT Web and verifies the page state. A visible Desktop slider alone is not proof that the effort reached UWA; explicit Medium/High request+page validation is folded into the Desktop gate.
+UWA applies Medium/High to ChatGPT Web and verifies the page state. Cross-provider model families are not treated as numerically equivalent. If a task requires an exact official model/reasoning tier or exact UWA route, that expectation must be proven before the long task starts.
 
 Detailed semantics: `docs/CODEX_REASONING_EFFORT_SEMANTICS_2026-09-08.md`.
 
 ## External reference refresh
 
-Reviewed/refreshed `yyjeqhc/webcodex`, `Waishnav/devspace`, `XiaoDuoYa/codex-with-chatgpt`, and `alexanderradahl/mac-developer-bridge`. No architecture pivot: official Codex remains the only local executor.
+Reviewed/refreshed `yyjeqhc/webcodex`, `Waishnav/devspace`, `XiaoDuoYa/codex-with-chatgpt`, and `alexanderradahl/mac-developer-bridge`. No architecture pivot: Codex remains the local executor.
 
 Useful reliability ideas remain tracked for post-main hardening, but feature parity with adjacent projects is not a merge blocker.
 
@@ -179,6 +199,8 @@ P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact live                      PASS
 P1.2 same-thread post-remote recovery                PASS / CLOSED
 P1.3 minimal continuity blockers                     PASS / CLOSED
+Hybrid Routing Safety H0/H1                         PASS / CI
+Hybrid Routing Safety H2-H5                         CURRENT / mandatory
 Desktop UI D1-D5 + Medium/High verification          CURRENT / mandatory
 real-project long-task pilot                         pending / mandatory
 final regression / safety / docs                     pending / mandatory
