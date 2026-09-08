@@ -20,6 +20,7 @@ P1.2 native auto-compact trigger/local fallback   PASS
 P1.2 remote-capability shim implementation/CI     PASS (#351)
 P1.2 remote V2 protocol implementation/CI         PASS (#380)
 P1.2 UWA provider precondition live               PASS
+UWA reasoning-effort semantics documented         PASS
 Codex Desktop UI live gate                        REQUIRED / pending
 ```
 
@@ -130,9 +131,26 @@ Records:
 - `docs/CODEX_P1_REMOTE_V2_LIVE_PRECONDITION_FAILURE_2026-09-08.md` — initial invalid attempt plus closed transient DNS blocker;
 - `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md` — successful UWA-mode precondition gate.
 
+## Reasoning-effort semantics
+
+UWA currently treats the actual Responses request plus verified ChatGPT Web state as authoritative, not the visual position of a Codex Desktop slider by itself.
+
+Current contract:
+
+```text
+UWA default                       high
+request effort=medium             supported -> verify Medium / 中 on ChatGPT Web
+request effort=high               supported -> verify High / 高 on ChatGPT Web
+request effort=low/light          unsupported / fail closed
+```
+
+The managed UWA provider defaults to `model_reasoning_effort="high"`. Medium and High are intentionally distinct bridge modes. A Desktop slider movement only counts as effective after a dedicated Desktop acceptance proves that the intended `reasoning.effort` reached UWA and the web page was switched/verified accordingly.
+
+Detailed record: `docs/CODEX_REASONING_EFFORT_SEMANTICS_2026-09-08.md`.
+
 ## Current gate: native remote compaction macOS live
 
-The protocol implementation and UWA-mode precondition are both green. The next single gate is real Codex 0.153.4 on macOS with the fail-closed Azure-name compatibility helper enabled for a fresh CLI process.
+The protocol implementation and UWA-mode precondition are both green. The current single gate is real Codex 0.153.4 on macOS with the fail-closed Azure-name compatibility helper enabled for a fresh CLI process.
 
 Required evidence:
 
@@ -166,6 +184,23 @@ Adopted roadmap principles:
 
 Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
 
+## Repository provenance and post-main standalone extraction
+
+The current GitHub repository is an actual fork of `lumingya/universal-web-api` and retains upstream AGPL-3.0 code/history. The project also contains substantial newly implemented Codex Web Bridge code. The project should describe both facts directly rather than claim that all code was only conceptually inspired.
+
+There is no requirement to rewrite working upstream-derived browser/runtime foundations merely to create a clearer repository. The planned post-main goal is a curated standalone research repository that:
+
+- keeps the bridge core and the upstream runtime pieces it genuinely needs;
+- removes unrelated generic UWA surface only after import/runtime dependency proof;
+- preserves AGPL-3.0 and required copyright/license notices for reused code;
+- carries an explicit upstream/attribution document;
+- gives new users a bridge-first README, install path and provider-mode explanation;
+- reruns the full CI/live acceptance matrix before its first stable release.
+
+Do not perform this extraction during current hardening. Start only after the verified V2 release candidate has been merged to `main`.
+
+Detailed plan: `docs/POST_MAIN_STANDALONE_REPOSITORY_PLAN_2026-09-08.md`.
+
 ## Current status
 
 ```text
@@ -177,7 +212,9 @@ P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact macOS live                CURRENT
 P1.2 same-thread post-remote recovery                 pending
 P1.3 lost-affinity/restart + identity fencing         pending
+Desktop UI reasoning Medium/High verification         pending / part of UI gate
 Desktop UI D1-D5                                      pending / mandatory
+post-main standalone repository extraction            planned / after main merge
 ```
 
 ## Production-hardening order
@@ -190,18 +227,23 @@ P2 per-continuation serialization + concurrency planes
    + browser lease/generation/heartbeat/reclaim fencing
    + shared specialized-adapter governance
 P3 MCP/schema/capability fidelity + protocol-edge normalization
-Desktop UI live acceptance D1-D5
+Desktop UI live acceptance D1-D5 + reasoning Medium/High verification
 P1.4 real-project long-task pilot with independent diff/test/tool evidence review
 P4 bounded evidence/trust-order/sanitization hardening
 P5 doctor/preflight + runtime/build identity + verified disable path
    + optional first-party page-runtime submission research
 final release gate
+→ merge verified V2 to main
+→ S1 dependency/import audit + core manifest
+→ S2 create attributed standalone repository
+→ S3 full CI/live parity acceptance
+→ S4 first standalone research release
 ```
 
 ## Continuity layers
 
 1. Codex Desktop / CLI thread history.
-2. Private UWA Responses persistence at `~/.uwa/codex_responses.sqlite3`.
+2. UWA private Responses persistence at `~/.uwa/codex_responses.sqlite3`.
 3. Process-local ChatGPT web-session / call-id affinity.
 4. Git-tracked handoff documents as long-term project truth.
 
