@@ -104,6 +104,22 @@ UWA 模式
 
 provider switch 不修改登录凭据。切回 official 模式时会移除 UWA 的顶层 provider/model/reasoning pin，让正常账号模式重新接管模型选择。
 
+### UWA 推理强度：Medium 与 High 有实际区别
+
+当前 bridge 不把 Codex Desktop 中“看起来选中了哪个强度”直接当成事实。真正有效的强度以 **送到 UWA 的 Responses `reasoning.effort` + ChatGPT Web 页面验证结果** 为准。
+
+当前语义：
+
+```text
+High    支持；也是 versioned UWA provider 的默认值
+Medium  支持；当真实 Responses request 携带 medium 时，UWA 会把网页切到 Medium / 中并验证
+Low     当前不支持；bridge 会 fail closed，不会偷偷当成 High
+```
+
+因此 Medium 和 High 在 UWA 模式下不是同一个档位。Desktop 的滑块/菜单只有在后续 Desktop UI 验收中证明“UI 选择 → request effort → 网页 Medium/High”完整贯通后，才能视为真正生效。
+
+详细语义：`docs/CODEX_REASONING_EFFORT_SEMANTICS_2026-09-08.md`。
+
 ## 架构
 
 ```text
@@ -353,6 +369,7 @@ P1.2 native auto-compact local fallback  PASS
 P1.2 remote V2 implementation/CI         PASS
 P1.2 UWA provider precondition live      PASS
 P1.2 native remote compact macOS live    CURRENT
+Desktop reasoning Medium/High            pending / part of UI gate
 Desktop UI D1-D5                         pending / mandatory
 ```
 
@@ -364,10 +381,14 @@ Desktop UI D1-D5                         pending / mandatory
 P1.2 native remote compact macOS live
 → same-thread post-remote recovery
 → P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
-→ Desktop UI D1-D5 live acceptance
+→ Desktop UI D1-D5 + Medium/High reasoning live acceptance
 → real-project long-task pilot
 → P2-P5 production hardening / final release gate
+→ merge verified V2 to main
+→ post-main standalone repository extraction + parity acceptance
 ```
+
+独立仓库阶段不会重写已经工作的 upstream-derived 基础代码。目标是从已验证的 `main` 做依赖审计和核心提取，保留实际需要的 upstream runtime、AGPL-3.0 和明确 attribution，同时去掉与 Codex Web Bridge 无关的通用 UWA 表面积，让后来者更容易安装、理解和使用。详细计划见 `docs/POST_MAIN_STANDALONE_REPOSITORY_PLAN_2026-09-08.md`。
 
 不为了阶段性状态频繁重写 README。详细阶段结果、失败、诊断、实验数据和 checkpoint 应写入 `docs/`，README 只做长期稳定入口。
 
@@ -399,18 +420,19 @@ DevTools           local only
 
 ## 设计参考与 Attribution
 
-V2 研究并借鉴了以下公开项目的设计思路：
+当前仓库本身是 `lumingya/universal-web-api` 的 fork，并实际复用了其浏览器/API/runtime 基础；这部分继续受 upstream AGPL-3.0 与相应 copyright/license 义务约束。
 
-- `lumingya/universal-web-api`：浏览器/API 基础，AGPL-3.0。
+V2 另外研究和借鉴了以下公开项目的设计思路：
+
 - `FlameFront-end/chatgpt-gateway`：浏览器 tool-call round trip 与结构化工具证据，MIT。
 - `lininn/codex-proxy`：Responses translation 分层，MIT。
 - `mehdic/codex-proxy`：sticky session、TTL、queue、SSE keepalive，MIT。
 - OpenAI `codex-responses-api-proxy`：Responses 协议诊断和 paired private dumps，Apache-2.0。
 - `yyjeqhc/webcodex`、`Waishnav/devspace`、`XiaoDuoYa/codex-with-chatgpt`、`alexanderradahl/mac-developer-bridge`：身份/lease、MCP/证据治理、doctor/preflight 与 ChatGPT coding bridge 可靠性参考。
 
-详细来源、许可证、借鉴内容和差异见 `docs/REFERENCES_AND_ATTRIBUTION.md`。
+除 `lumingya/universal-web-api` 这个实际 upstream 基础外，其他参考项目目前主要作为设计与可靠性研究来源；若未来直接复用任何具体代码，会在对应文件和 attribution 文档中单独标明。
 
-当前 V2 新增代码根据这些设计原则独立实现，没有直接复制上述参考项目的源文件。仓库继续保留 upstream Git history 和既有 AGPL-3.0 许可证义务。
+详细来源、许可证、实际复用内容、设计借鉴内容和差异见 `docs/REFERENCES_AND_ATTRIBUTION.md`。
 
 ## 项目说明 / 非商业与非官方声明
 
