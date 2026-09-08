@@ -38,11 +38,12 @@ Hybrid H0 route audit                               PASS / CI
 Hybrid H1 route/model/effort guard                  PASS / CI
 Hybrid H2 fresh Desktop route probe                 PASS / LIVE
 Hybrid H3-H5                                        CURRENT / mandatory
-Codex Desktop D1                                    READY / CURRENT
-Codex Desktop D2-D5                                 pending / mandatory
+Codex Desktop D1                                    PASS / LIVE / CLOSED
+Codex Desktop D2                                    READY / CURRENT
+Codex Desktop D3-D5                                 pending / mandatory
 ```
 
-Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。最新 fresh Desktop probe 又实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。当前 release-critical 主线已经回到 Desktop D1，并继续保留 H3-H5 作为 `main` 前的最小 Hybrid Routing Safety 工作。
+Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。fresh Desktop probe 实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。随后 Desktop D1 也已实机通过：实际 Codex Desktop UI 完成多文件修改和测试，独立 checker 返回 `ACCEPTANCE_PASS`，metadata-only trace 证明真实 `exec_command` function call 与 completed Responses turn。当前 release-critical 主线进入 Desktop D2 same-thread continuation，并继续保留 H3-H5 作为 `main` 前的最小 Hybrid Routing Safety 工作。
 
 详细记录：
 
@@ -51,6 +52,7 @@ Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continu
 - `docs/CODEX_P1_3_MINIMAL_CONTINUITY_CLOSED_2026-09-08.md`
 - `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`
 - `docs/CODEX_HYBRID_H2_FRESH_ROUTE_PROBE_PASS_2026-09-08.md`
+- `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`
 - `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`
 
 ## 快速开始
@@ -383,8 +385,9 @@ P1.3 minimal continuity                  PASS / CLOSED
 Hybrid H0-H2                             PASS
 Hybrid H3-H5                             CURRENT / mandatory
 Desktop reasoning Medium/High            pending / part of UI gate
-Desktop UI D1                            READY / CURRENT
-Desktop UI D2-D5                         pending / mandatory
+Desktop UI D1                            PASS / LIVE / CLOSED
+Desktop UI D2                            READY / CURRENT
+Desktop UI D3-D5                         pending / mandatory
 ```
 
 操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
@@ -397,7 +400,7 @@ Desktop UI D2-D5                         pending / mandatory
 P1.2 same-thread post-remote recovery          PASS / CLOSED
 → P1.3 最小 continuity blockers               PASS / CLOSED
 → Hybrid Routing Safety H0-H5                 H0-H2 PASS / H3-H5 CURRENT
-→ Desktop UI D1-D5 + Medium/High reasoning    D1 READY
+→ Desktop UI D1-D5 + Medium/High reasoning    D1 PASS / D2 CURRENT
 → 一个 real-project long-task pilot
 → final A-F / compaction / restart regression
 → CI + public-repo safety + docs/provenance/license
