@@ -30,6 +30,7 @@ Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
 D5 lifecycle code repair                              PASS / 18 focused tests / CI
+D5 repaired official lifecycle rerun                  PASS / LIVE
 ```
 
 ## Current gate
@@ -49,7 +50,8 @@ D1 real Desktop local tool round trip                 PASS / LIVE / CLOSED
 D2 same Desktop thread continuation                   PASS / LIVE / CLOSED
 D3 full Desktop app restart + history resume          PASS / LIVE / CLOSED
 D4 Desktop + UWA restart + same-thread recovery       PASS / LIVE / CLOSED
-D5 clean official-account restore                     BLOCKED / repaired live rerun pending
+D5 official restore lifecycle                         PASS / LIVE
+D5 harmless real official-provider request            pending quota availability
 Medium/High request/page verification                 folded into Desktop gate
 ```
 
@@ -113,7 +115,20 @@ replacement healthy listener appeared on TCP 8199
 
 The root cause was confirmed from process ancestry: the old provider-switch stop path killed the active `main.py` listener while leaving the repository-owned `start.py` launcher alive, allowing immediate respawn. Commit `143b396` removes the independent listener-only shutdown semantics and routes provider-switch shutdown through the hardened launcher-aware lifecycle path. Focused provider-switch/lifecycle tests pass 18/18, and the Security hardening GitHub Actions run for `143b396` completed successfully.
 
-The next live gate is a repaired D5 lifecycle rerun from a known healthy UWA state. It must prove that the launcher, listener, TCP 8199 and pidfile stay absent after the official switch. The final harmless official-provider request remains pending while official Codex quota is unavailable.
+D5 repaired lifecycle rerun:
+
+```text
+T+0   start.py=0 main.py=0 TCP8199=0 pidfile=NO
+T+3   start.py=0 main.py=0 TCP8199=0 pidfile=NO
+T+10  start.py=0 main.py=0 TCP8199=0 pidfile=NO
+T+20  start.py=0 main.py=0 TCP8199=0 pidfile=NO
+lifecycle STATUS=STOPPED
+provider/model/effort=account defaults
+UWA_RESTORE_STATE=ABSENT
+working tree=clean
+```
+
+This closes the listener respawn defect at the lifecycle level. The final harmless real official-provider request remains pending until official Codex quota is available.
 
 Detailed records:
 
@@ -122,6 +137,7 @@ Detailed records:
 - `docs/CODEX_DESKTOP_D3_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Accelerated release-critical path
@@ -130,7 +146,7 @@ Detailed records:
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5                                  CURRENT; D1-D4 PASS, D5 live rerun pending
+M3b Desktop UI D1-D5                                  CURRENT; lifecycle PASS, final official request pending
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license
