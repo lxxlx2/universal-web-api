@@ -115,16 +115,9 @@ Tracked implementation now exists in:
 - installation ordering in `app/api/routes.py`
 - `tools/codex_remote_compaction_trigger_probe.py` for V2-specific live evidence
 
-The first implementation CI attempt, Security hardening #372 / run `34184935625`, reached Python compile and public-repository safety successfully. Focused pytest then failed during collection because the lightweight `security-tests` matrix installs only `pytest` while importing the full app runtime requires FastAPI/runtime dependencies:
+CI attempt #372 / run `34184935625` proved the new V2 module compiled and public-repository safety passed, then failed during focused-test collection because the lightweight security matrix intentionally lacked FastAPI/runtime dependencies. The tests were moved to the existing full-dependency `upstream-regression` job.
 
-```text
-py_compile new V2 module              PASS
-public-repo-safety                    PASS
-focused pytest collection             FAIL
-ModuleNotFoundError: fastapi
-```
-
-This is classified as a CI-layer dependency placement defect, not a remote-compaction protocol failure. The repair leaves the lightweight cross-platform security matrix dependency footprint unchanged and executes the new runtime-level regression under the existing `upstream-regression` job, which already installs `requirements.txt` and automatically discovers the new tests.
+CI attempt #378 / run `34185372863` then executed the full reproducible regression suite: 492 tests passed and one new acceptance-wrapper test failed. The failure was an import-identity defect in the test itself: the same `codex_large_context_acceptance.py` file had been loaded once as `tools.codex_large_context_acceptance` and once as top-level `codex_large_context_acceptance`, producing two Python module objects. The wrapper and delegated trigger probe use the same top-level module at runtime; the test incorrectly compared that state with the separately imported package module. This is classified as acceptance-test plumbing, not a V2 protocol failure.
 
 ## Gate
 
