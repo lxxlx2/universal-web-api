@@ -11,6 +11,8 @@ validate the workspace, write the token, and read it back.
 from __future__ import annotations
 
 import argparse
+import ast
+import hashlib
 import json
 import os
 import shutil
@@ -62,8 +64,30 @@ def _guard_trace_dir(path: Path) -> Path:
     return resolved
 
 
+def _private_trace_text(path: Path) -> str:
+    """Read a private trace, including TimeoutExpired bytes-literal captures.
+
+    Nothing returned by this helper is printed directly.  It exists only so the
+    public diagnostic can derive metadata from the private trace without
+    exposing prompt, command or tool-output bodies.
+    """
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if text.endswith("\nTIMEOUT\n"):
+        text = text[: -len("\nTIMEOUT\n")]
+    stripped = text.strip()
+    if stripped.startswith(("b'", 'b"')):
+        try:
+            value = ast.literal_eval(stripped)
+        except (SyntaxError, ValueError):
+            return text
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+    return text
+
+
 def _parse_trace(path: Path) -> base.ExecObservation:
-    return base.parse_exec_jsonl(path.read_text(encoding="utf-8", errors="replace"), 0)
+    return base.parse_exec_jsonl(_private_trace_text(path), 0)
 
 
 def _recover_thread_id(trace_dir: Path) -> str | None:
@@ -105,6 +129,127 @@ def _command_contract(commands: list[str]) -> dict[str, bool]:
         "result_referenced_twice": result_ref_count >= 2,
         "read_back": read_back,
     }
+
+
+def _command_semantics(command: str) -> dict[str, Any]:
+    result_rel = base.RESULT_RELATIVE.as_posix()
+    lower = command.lower()
+    private_markers = (
+        ".codex",
+        ".uwa/",
+        ".uwa\\",
+        "rollout",
+        "sqlite",
+        "prompts.md",
+        "mdfind ",
+        "find ~",
+        "grep -r ~",
+        "rg ",
+    )
+    write_markers = (">", "tee ", "printf ", "echo ", "write_text", "open(")
+    read_markers = ("cat ", "sed ", "head ", "tail ", "awk ", "read_text", "read_bytes")
+    return {
+        "is_workspace_guard": (
+            "pwd" in command and base.MARKER in command and base.SCENARIO in command
+        ),
+        "refs_result_path": result_rel in command,
+        "contains_conversation_token": base.TOKEN in command,
+        "write_like": result_rel in command and any(marker in lower for marker in write_markers),
+        "read_like": result_rel in command and any(marker in lower for marker in read_markers),
+        "private_search": any(marker in lower for marker in private_markers),
+        "sha256": hashlib.sha256(command.encode("utf-8", errors="replace")).hexdigest()[:16],
+        "length": len(command),
+    }
+
+
+def _safe_error_summary(raw: str) -> dict[str, Any]:
+    count = 0
+    skill_budget_warning = False
+    http_403 = False
+    transport = False
+    transport_markers = (
+        "connection reset",
+        "connection refused",
+        "broken pipe",
+        "transport",
+        "network error",
+    )
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or str(event.get("type") or "").lower() != "error":
+            continue
+        count += 1
+        message = str(event.get("message") or event.get("error") or "").lower()
+        skill_budget_warning = skill_budget_warning or (
+            "skill" in message and ("budget" in message or "warning" in message)
+        )
+        http_403 = http_403 or "403" in message or "forbidden" in message
+        transport = transport or any(marker in message for marker in transport_markers)
+    return {
+        "count": count,
+        "skill_budget_warning": skill_budget_warning,
+        "http_403": http_403,
+        "transport": transport,
+    }
+
+
+def _partial_timeout_summary(trace_path: Path, thread_id: str, root: Path) -> dict[str, Any]:
+    raw = _private_trace_text(trace_path) if trace_path.exists() else ""
+    observation = base.parse_exec_jsonl(raw, 0)
+    thread_state = "UNKNOWN"
+    if observation.thread_ids:
+        thread_state = "YES" if base._verify_thread(observation, thread_id) else "NO"
+    result_path = root / base.RESULT_RELATIVE
+    result_bytes = result_path.read_bytes() if result_path.exists() else b""
+    return {
+        "trace_exists": trace_path.exists(),
+        "same_thread": thread_state,
+        "agent_message_count": len(observation.agent_messages),
+        "completed_command_count": len(observation.commands),
+        "file_change_count": observation.file_change_count,
+        "mcp_call_count": observation.mcp_call_count,
+        "commands": [_command_semantics(command) for command in observation.commands],
+        "errors": _safe_error_summary(raw),
+        "result_exists": result_path.exists(),
+        "result_exact": result_bytes == (base.TOKEN + "\n").encode("utf-8"),
+    }
+
+
+def _print_partial_timeout_summary(summary: dict[str, Any]) -> None:
+    print("===== SAFE PARTIAL RECOVERY DIAGNOSTIC =====")
+    print(f"PARTIAL_TRACE_EXISTS={'YES' if summary['trace_exists'] else 'NO'}")
+    print(f"PARTIAL_SAME_THREAD={summary['same_thread']}")
+    print(f"PARTIAL_AGENT_MESSAGE_COUNT={summary['agent_message_count']}")
+    print(f"PARTIAL_COMPLETED_COMMAND_COUNT={summary['completed_command_count']}")
+    print(f"PARTIAL_FILE_CHANGE_COUNT={summary['file_change_count']}")
+    print(f"PARTIAL_MCP_CALL_COUNT={summary['mcp_call_count']}")
+    for index, command in enumerate(summary["commands"], start=1):
+        prefix = f"PARTIAL_COMMAND_{index}"
+        print(f"{prefix}_IS_WORKSPACE_GUARD={'YES' if command['is_workspace_guard'] else 'NO'}")
+        print(f"{prefix}_REFS_RESULT_PATH={'YES' if command['refs_result_path'] else 'NO'}")
+        print(
+            f"{prefix}_CONTAINS_CONVERSATION_TOKEN="
+            f"{'YES' if command['contains_conversation_token'] else 'NO'}"
+        )
+        print(f"{prefix}_WRITE_LIKE={'YES' if command['write_like'] else 'NO'}")
+        print(f"{prefix}_READ_LIKE={'YES' if command['read_like'] else 'NO'}")
+        print(f"{prefix}_PRIVATE_SEARCH={'YES' if command['private_search'] else 'NO'}")
+        print(f"{prefix}_SHA256={command['sha256']}")
+        print(f"{prefix}_LEN={command['length']}")
+    errors = summary["errors"]
+    print(f"PARTIAL_ERROR_ITEM_COUNT={errors['count']}")
+    print(
+        "PARTIAL_ERROR_SKILL_BUDGET_WARNING="
+        f"{'YES' if errors['skill_budget_warning'] else 'NO'}"
+    )
+    print(f"PARTIAL_ERROR_HTTP_403={'YES' if errors['http_403'] else 'NO'}")
+    print(f"PARTIAL_ERROR_TRANSPORT={'YES' if errors['transport'] else 'NO'}")
+    print(f"PARTIAL_RESULT_EXISTS={'YES' if summary['result_exists'] else 'NO'}")
+    print(f"PARTIAL_RESULT_EXACT={'YES' if summary['result_exact'] else 'NO'}")
+    print("SAFE_PARTIAL_RECOVERY_DIAG_DONE")
 
 
 def _write_evidence(root: Path, payload: dict[str, Any]) -> None:
@@ -155,16 +300,21 @@ def run(root: Path, *, codex: str, trace_dir: Path, timeout_sec: int) -> int:
         print("RUN_FAIL conversation_token_already_in_workspace")
         return 1
 
+    recovery_trace = trace_dir / "post-remote-recovery.jsonl"
     try:
         final = base._run_codex_turn(
             codex=str(codex_path),
             root=root,
             prompt=build_recovery_prompt(),
-            trace_path=trace_dir / "post-remote-recovery.jsonl",
+            trace_path=recovery_trace,
             thread_id=thread_id,
             timeout_sec=timeout_sec,
         )
     except RuntimeError as exc:
+        if recovery_trace.exists():
+            _print_partial_timeout_summary(
+                _partial_timeout_summary(recovery_trace, thread_id, root)
+            )
         print(f"RUN_FAIL recovery_turn={exc}")
         return 1
 
