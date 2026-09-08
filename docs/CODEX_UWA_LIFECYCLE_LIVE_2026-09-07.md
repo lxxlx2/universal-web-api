@@ -9,8 +9,8 @@ The repository-managed lifecycle implementation and thin `~/bin/codex-uwa*` wrap
 ## Before
 
 ```text
-OLD_PID=57575
-OLD_CWD=/Users/jerson/universal-web-api
+OLD_PID=<old-listener>
+OLD_CWD=<verified-repository-checkout>
 ```
 
 The listener was the verified UWA checkout.
@@ -18,7 +18,7 @@ The listener was the verified UWA checkout.
 ## Versioned stop
 
 ```text
-STOPPED_LISTENERS=57575
+STOPPED_LISTENERS=<old-listener>
 PORT_EMPTY=YES
 PORT_8199_EMPTY=YES
 ```
@@ -32,7 +32,7 @@ CODEX_UWA_MEMORIES_DISABLED
 generate_memories=false
 use_memories=false
 OLD_LISTENER_PIDS=NONE
-NEW_LISTENER_PIDS=67555
+NEW_LISTENER_PIDS=<different-new-listener>
 LISTENER_REPLACED=YES
 HEALTH=PASS
 ```
@@ -42,10 +42,10 @@ The installed `codex-uwa` wrapper delegated to the repository lifecycle tool and
 ## Independent post-start verification
 
 ```text
-OLD_PID=57575
-NEW_PID=67555
+OLD_PID=<old-listener>
+NEW_PID=<different-new-listener>
 LISTENER_REPLACED=YES
-NEW_CWD=/Users/jerson/universal-web-api
+NEW_CWD=<verified-repository-checkout>
 SERVICE=healthy
 BROWSER_CONNECTED=True
 HEALTH_PASS=YES
@@ -67,8 +67,8 @@ The versioned lifecycle now proves all of the following on macOS:
 7. UWA mode automatically disables Codex Memories;
 8. the user-facing `~/bin` commands are thin wrappers whose lifecycle behavior comes from the current Git checkout.
 
-## Remaining Git-external dependency
+## Historical note
 
-`~/bin/codex-uwa` still temporarily calls `~/.uwa/config_switch.py uwa` for the exact Codex UWA provider configuration contract. That is now the final known unversioned runtime helper in the normal mode-switch path.
+At the time of this acceptance, `~/bin/codex-uwa` still called a private local provider-config helper. That dependency was subsequently migrated into repository-tracked `tools/codex_provider_switch.py`; normal operation no longer depends on the private helper.
 
-Next gate: inspect and migrate the `~/.uwa/config_switch.py` UWA contract into repository-tracked code, remove the wrapper dependency on that private helper, validate the fully versioned switch once, then begin P1.2 synthetic large-context compaction / recovery.
+Live process identifiers are intentionally redacted in the public record. The acceptance result depends on replacement/ownership/health semantics, not on publishing machine-local PIDs.
