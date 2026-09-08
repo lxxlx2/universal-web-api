@@ -80,6 +80,31 @@ CI history:
 
 Run #380: `34185500715`.
 
+## External reference refresh
+
+Reviewed/refreshed on 2026-09-08:
+
+- `yyjeqhc/webcodex` through `79e61cc85008bf35e4eea02abd137531afdba968`;
+- `Waishnav/devspace` at `d74ece04adc2a80ebed07c2798407b3be668b0f1`;
+- `XiaoDuoYa/codex-with-chatgpt` at `a9f91cd98df1bc82686f57d5bc2b2993394c93be`;
+- `alexanderradahl/mac-developer-bridge` at `fea70d1a3c5524164f2159f6063ba685fef91324`.
+
+No architecture pivot. Official Codex remains the only local executor.
+
+Roadmap additions:
+
+```text
+P1.3 typed bridge/session metadata outside model business tool args
+P2 browser lease/generation/heartbeat/reclaim fencing
+P2/P3 shared specialized-adapter governance
+P3 protocol-edge version normalization / MCP-schema fidelity
+P4 independent diff/test/tool evidence review + bounded sanitization/trust order
+P5 doctor/preflight + verified disable path
+P5 optional first-party ChatGPT page-runtime submission research
+```
+
+Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
+
 ## Current gate: native remote compact macOS live
 
 Required output:
