@@ -87,9 +87,9 @@ The upstream field name is `encrypted_content`. UWA does not claim that its own 
 
 ## Continuity requirements
 
-Codex installs the returned Compaction item into replacement history. Later turns can therefore replay that item as part of ordinary Responses input. UWA must reconstruct a model-visible compact summary from its own envelope without requiring ChatGPT Web to understand the opaque upstream field.
+Codex installs the returned Compaction item into replacement history. Exact 0.153.4 HTTP `ResponsesApiRequest` has no `previous_response_id` field, so the saved `compaction_response_id` is Codex-side checkpoint metadata rather than a server continuation handle. The next ordinary HTTP turn replays the compacted client history. UWA therefore reconstructs model-visible compact context directly from the replayed UWA-owned envelope.
 
-The implementation must remain correct across process-local affinity loss by relying on the client-supplied compacted history plus existing private UWA Responses persistence, rather than on an in-memory-only summary map.
+This keeps post-compact recovery independent of an in-memory-only summary map or a compact-response ID registration step. Existing private Responses persistence and web-session affinity remain useful for the broader bridge, but remote-V2 summary recovery itself is carried by the client-replayed compacted history.
 
 ## Regression requirements
 
@@ -113,6 +113,7 @@ Tracked implementation now exists in:
 - `app/services/codex_remote_compaction_v2.py`
 - `tests/test_codex_remote_compaction_v2.py`
 - installation ordering in `app/api/routes.py`
+- `tools/codex_remote_compaction_trigger_probe.py` for V2-specific live evidence
 
 The first implementation CI attempt, Security hardening #372 / run `34184935625`, reached Python compile and public-repository safety successfully. Focused pytest then failed during collection because the lightweight `security-tests` matrix installs only `pytest` while importing the full app runtime requires FastAPI/runtime dependencies:
 
@@ -123,7 +124,7 @@ focused pytest collection             FAIL
 ModuleNotFoundError: fastapi
 ```
 
-This is classified as a CI-layer dependency placement defect, not a remote-compaction protocol failure. The repair is to leave the lightweight cross-platform security matrix dependency footprint unchanged and execute the new runtime-level regression under the existing `upstream-regression` job, which already installs `requirements.txt` and automatically discovers this test file.
+This is classified as a CI-layer dependency placement defect, not a remote-compaction protocol failure. The repair leaves the lightweight cross-platform security matrix dependency footprint unchanged and executes the new runtime-level regression under the existing `upstream-regression` job, which already installs `requirements.txt` and automatically discovers the new tests.
 
 ## Gate
 
