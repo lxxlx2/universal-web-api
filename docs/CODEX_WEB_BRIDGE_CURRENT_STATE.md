@@ -19,6 +19,7 @@ P1.2 rollout TokenCount persistence               PASS
 P1.2 native auto-compact trigger/local fallback   PASS
 P1.2 remote-capability shim implementation/CI     PASS (#351)
 P1.2 remote V2 protocol implementation/CI         PASS (#380)
+P1.2 UWA provider precondition live               PASS
 Codex Desktop UI live gate                        REQUIRED / pending
 ```
 
@@ -102,9 +103,33 @@ CI history:
 
 Security hardening #380 / run `34185500715` is the implementation CI gate.
 
+## UWA provider precondition live: PASS
+
+The first native remote-V2 live attempt was invalid because Codex was not in the managed UWA provider mode. That precondition has now been corrected and live-verified:
+
+```text
+MODEL_PROVIDER_UWA=YES
+MODEL_CHATGPT=YES
+REASONING_HIGH=YES
+APPROVAL_ON_REQUEST=YES
+SANDBOX_WORKSPACE_WRITE=YES
+PROVIDER_NAME_BASELINE=YES
+LOOPBACK_BASE_URL=YES
+WIRE_API_RESPONSES=YES
+OPENAI_AUTH_DISABLED=YES
+WEBSOCKETS_DISABLED=YES
+UWA_PROVIDER_CONTRACT_PASS=YES
+SERVICE=healthy
+BROWSER_CONNECTED=True
+HEALTH_PASS=YES
+UWA_REMOTE_V2_PRECONDITION_PASS
+```
+
+Record: `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md`.
+
 ## Current gate: native remote compaction macOS live
 
-The protocol implementation is no longer blocked on code/CI. The next single gate is real Codex 0.153.4 on macOS with the fail-closed Azure-name compatibility helper enabled for a fresh CLI process.
+The protocol implementation and UWA-mode precondition are both green. The next single gate is real Codex 0.153.4 on macOS with the fail-closed Azure-name compatibility helper enabled for a fresh CLI process.
 
 Required evidence:
 
@@ -145,6 +170,7 @@ P1.1 legacy compact endpoint/direct live             PASS
 P1.2 native threshold/local fallback                 PASS
 P1.2 remote capability shim implementation/CI        PASS
 P1.2 remote V2 ordinary Responses implementation/CI  PASS
+P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact macOS live                CURRENT
 P1.2 same-thread post-remote recovery                 pending
 P1.3 lost-affinity/restart + identity fencing         pending
