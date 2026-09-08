@@ -17,7 +17,8 @@ Desktop D1 tool round trip                PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation       PASS / LIVE / CLOSED
 Desktop D3 Desktop app restart resume     PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart resume   PASS / LIVE / CLOSED
-Desktop D5 official-account switch        BLOCKED / CURRENT
+Desktop D5 official restore lifecycle     PASS / LIVE
+Desktop D5 harmless official task         pending quota availability
 Desktop gate overall                      REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -112,7 +113,7 @@ The installed `codex-uwa*` commands are the thin wrappers produced by `tools/ins
 
 Detailed record: `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`.
 
-## D5: restore normal official-account mode and model selection — BLOCKED
+## D5: restore normal official-account mode and model selection — LIFECYCLE PASS
 
 Goal: prove the project can be exited cleanly and normal Codex Desktop account usage is restored without pinning a model.
 
@@ -123,21 +124,25 @@ cd ~/universal-web-api
 python3 tools/codex_provider_switch.py official
 ```
 
-The first D5 live run successfully restored Memories and account-default provider/model/reasoning configuration, preserved authentication and removed the private UWA restore state. However, after the switch reported the current UWA listener stopped, a fresh healthy TCP 8199 listener appeared immediately. D5 therefore remains blocked until official switching converges on the hardened versioned lifecycle stop behavior and a clean rerun proves that UWA stays stopped.
+The first D5 live run restored Memories and account-default provider/model/reasoning configuration, preserved authentication and removed the private UWA restore state. It also exposed a real lifecycle defect: the old provider-switch stop path terminated the active `main.py` listener while leaving the repository-owned `start.py` launcher alive, so a fresh healthy TCP 8199 listener respawned immediately.
 
-Detailed failure record: `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`.
+Commit `143b396` repaired that defect by routing the provider-switch stop path through the hardened launcher-aware `codex_uwa_lifecycle.stop_uwa()` implementation. Focused provider-switch/lifecycle coverage passes 18/18 and the corresponding Security hardening GitHub Actions run succeeded.
 
-After the lifecycle blocker is repaired, verify in Codex mode:
+The repaired live rerun then passed the shutdown and no-respawn gate. At T+0, T+3, T+10 and T+20 seconds, metadata-only checks all observed zero repository-owned `start.py`, zero repository-owned `main.py`, zero TCP 8199 listeners and no UWA pidfile. The lifecycle helper reported `STATUS=STOPPED`. Provider status remained at signed-in account defaults with `UWA_RESTORE_STATE=ABSENT`, and the repository working tree remained clean.
 
-1. UWA remains stopped after the official switch;
-2. the model picker is controlled by the signed-in account/workspace rather than a README/CLI hard-coded model;
-3. any currently available model can be selected, including Astra when the account/rollout permits it;
-4. a harmless local Codex task can run successfully when official quota is available.
+Detailed records:
 
-A quota-limit response after a clean official restore is not a bridge-routing failure. If official quota is exhausted, record the clean restore separately and complete the harmless-task proof after the official allowance resets.
+- `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
+
+D5 now has one remaining item:
+
+1. run one harmless real Codex task through the restored official provider when official quota is available.
+
+The lifecycle, account-default selection and restore-state portions are already live PASS. A quota-limit response after a clean official restore is not a bridge-routing failure. Do not bypass quota restrictions to finish this item.
 
 Do not record account identifiers or usage amounts in the public repository.
 
 ## Final Desktop gate
 
-Desktop UI overall becomes PASS only after D1-D5 are recorded with non-sensitive evidence. The final merge gate requires this document, README, canonical state, progress tracking and the Draft PR to agree on the same result.
+Desktop UI overall becomes PASS only after the remaining D5 harmless official-provider request is recorded with non-sensitive evidence. The final merge gate requires this document, README, canonical state, progress tracking and the Draft PR to agree on the same result.
