@@ -17,7 +17,7 @@ Desktop D1 tool round trip                PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation       PASS / LIVE / CLOSED
 Desktop D3 Desktop app restart resume     PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart resume   PASS / LIVE / CLOSED
-Desktop D5 official-account switch        READY / CURRENT
+Desktop D5 official-account switch        BLOCKED / CURRENT
 Desktop gate overall                      REQUIRED BEFORE MAIN MERGE
 ```
 
@@ -112,7 +112,7 @@ The installed `codex-uwa*` commands are the thin wrappers produced by `tools/ins
 
 Detailed record: `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`.
 
-## D5: restore normal official-account mode and model selection
+## D5: restore normal official-account mode and model selection — BLOCKED
 
 Goal: prove the project can be exited cleanly and normal Codex Desktop account usage is restored without pinning a model.
 
@@ -123,11 +123,13 @@ cd ~/universal-web-api
 python3 tools/codex_provider_switch.py official
 ```
 
-The command automatically quits Desktop, stops the verified UWA listener, restores saved Memories settings, removes only top-level provider/model/reasoning pins, preserves authentication and the UWA provider definition, and reopens Desktop.
+The first D5 live run successfully restored Memories and account-default provider/model/reasoning configuration, preserved authentication and removed the private UWA restore state. However, after the switch reported the current UWA listener stopped, a fresh healthy TCP 8199 listener appeared immediately. D5 therefore remains blocked until official switching converges on the hardened versioned lifecycle stop behavior and a clean rerun proves that UWA stays stopped.
 
-In Codex mode verify:
+Detailed failure record: `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`.
 
-1. UWA is not required for the session;
+After the lifecycle blocker is repaired, verify in Codex mode:
+
+1. UWA remains stopped after the official switch;
 2. the model picker is controlled by the signed-in account/workspace rather than a README/CLI hard-coded model;
 3. any currently available model can be selected, including Astra when the account/rollout permits it;
 4. a harmless local Codex task can run successfully when official quota is available.
