@@ -28,6 +28,7 @@ Hybrid H2 fresh Desktop route probe                   PASS / LIVE / CLOSED
 Desktop D1 local tool round trip                      PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
+Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
 ```
 
 ## Current gate
@@ -46,8 +47,8 @@ H5 synthetic hybrid acceptance                        pending
 D1 real Desktop local tool round trip                 PASS / LIVE / CLOSED
 D2 same Desktop thread continuation                   PASS / LIVE / CLOSED
 D3 full Desktop app restart + history resume          PASS / LIVE / CLOSED
-D4 Desktop + UWA restart + same-thread recovery       READY / CURRENT
-D5 clean official-account restore                     pending
+D4 Desktop + UWA restart + same-thread recovery       PASS / LIVE / CLOSED
+D5 clean official-account restore                     BLOCKED / CURRENT
 Medium/High request/page verification                 folded into Desktop gate
 ```
 
@@ -84,11 +85,40 @@ post-marker request/response = 3 / 3
 ROUTE_EXPECTATION_PASS = YES
 ```
 
+D4:
+
+```text
+context: PASS
+ACCEPTANCE_PASS
+session identity before/after Desktop + UWA boundary = MATCH
+route = uwa / chatgpt / high
+post-marker request/response = 3 / 3
+post-restart exec_command present = YES
+completed Responses turn = YES
+ROUTE_EXPECTATION_PASS = YES
+```
+
+D5 first run:
+
+```text
+official config restore = PASS
+Memories restore = PASS
+authentication preserved = YES
+account-default provider/model/effort = PASS
+private restore state removed = YES
+UWA remains stopped = FAIL
+replacement healthy listener appeared on TCP 8199
+```
+
+The leading diagnosis is duplicated UWA stop logic in `tools/codex_provider_switch.py`. Its official switch uses a weaker listener-only stop helper while `tools/codex_uwa_lifecycle.py` already contains the hardened launcher-aware fail-closed stop implementation. Collect process-parent evidence, converge on one lifecycle implementation, add regression coverage, then rerun D5.
+
 Detailed records:
 
 - `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`
 - `docs/CODEX_DESKTOP_D2_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D3_LIVE_PASS_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Accelerated release-critical path
@@ -97,7 +127,7 @@ Detailed records:
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5                                  CURRENT; D1-D3 PASS, D4 CURRENT
+M3b Desktop UI D1-D5                                  CURRENT; D1-D4 PASS, D5 BLOCKED
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license
