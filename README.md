@@ -32,18 +32,25 @@ P1.2 remote capability shim implementation/CI       PASS
 P1.2 remote V2 ordinary Responses implementation/CI PASS
 P1.2 UWA provider precondition live                 PASS
 P1.2 native remote compact macOS live               PASS
-P1.2 same-thread post-remote recovery               CURRENT
-Codex Desktop UI live gate                          REQUIRED / pending
+P1.2 same-thread post-remote recovery               PASS / CLOSED
+P1.3 minimal continuity blockers                    PASS / CLOSED
+Hybrid H0 route audit                               PASS / CI
+Hybrid H1 route/model/effort guard                  PASS / CI
+Hybrid H2 fresh Desktop route probe                 PASS / LIVE
+Hybrid H3-H5                                        CURRENT / mandatory
+Codex Desktop D1                                    READY / CURRENT
+Codex Desktop D2-D5                                 pending / mandatory
 ```
 
-Codex 0.153.4 的 native remote V2 compaction 已在真实 macOS 环境通过：阈值跨越、Codex rollout compaction marker、UWA remote route/success marker 和 `AUTO_COMPACT_MODE=REMOTE` 全部成立。P1.2 现在只剩 remote compact 后同一 thread 恢复原始 conversation-only context + 真实本地 write/read 的最终恢复 gate。
+Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。最新 fresh Desktop probe 又实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。当前 release-critical 主线已经回到 Desktop D1，并继续保留 H3-H5 作为 `main` 前的最小 Hybrid Routing Safety 工作。
 
 详细记录：
 
 - `docs/CODEX_P1_REMOTE_V2_LIVE_PASS_2026-09-08.md`
-- `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md`
-- `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`
-- `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
+- `docs/CODEX_P1_REMOTE_V2_RECOVERY_CLOSED_2026-09-08.md`
+- `docs/CODEX_P1_3_MINIMAL_CONTINUITY_CLOSED_2026-09-08.md`
+- `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`
+- `docs/CODEX_HYBRID_H2_FRESH_ROUTE_PROBE_PASS_2026-09-08.md`
 - `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`
 
 ## 快速开始
@@ -371,9 +378,13 @@ P1.2 native auto-compact local fallback  PASS
 P1.2 remote V2 implementation/CI         PASS
 P1.2 UWA provider precondition live      PASS
 P1.2 native remote compact macOS live    PASS
-P1.2 post-remote same-thread recovery    CURRENT
+P1.2 post-remote same-thread recovery    PASS / CLOSED
+P1.3 minimal continuity                  PASS / CLOSED
+Hybrid H0-H2                             PASS
+Hybrid H3-H5                             CURRENT / mandatory
 Desktop reasoning Medium/High            pending / part of UI gate
-Desktop UI D1-D5                         pending / mandatory
+Desktop UI D1                            READY / CURRENT
+Desktop UI D2-D5                         pending / mandatory
 ```
 
 操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
@@ -383,10 +394,10 @@ Desktop UI D1-D5                         pending / mandatory
 当前不再用广义 P2-P5 功能扩展阻塞首个稳定 `main`。只保留真正影响正确性和用户可用性的 release-critical gates：
 
 ```text
-P1.2 same-thread post-remote recovery
-→ P1.3 最小 continuity blockers
-   lost-affinity/restart + identity fencing + uncertain-effect reconciliation
-→ Desktop UI D1-D5 + Medium/High reasoning live acceptance
+P1.2 same-thread post-remote recovery          PASS / CLOSED
+→ P1.3 最小 continuity blockers               PASS / CLOSED
+→ Hybrid Routing Safety H0-H5                 H0-H2 PASS / H3-H5 CURRENT
+→ Desktop UI D1-D5 + Medium/High reasoning    D1 READY
 → 一个 real-project long-task pilot
 → final A-F / compaction / restart regression
 → CI + public-repo safety + docs/provenance/license
@@ -400,7 +411,7 @@ P1.2 same-thread post-remote recovery
 
 独立仓库阶段不会重写已经工作的 upstream-derived 基础代码。目标是从已验证的 `main` 做依赖审计和核心提取，保留实际需要的 upstream runtime、AGPL-3.0 和明确 attribution，同时去掉与 Codex Web Bridge 无关的通用 UWA 表面积，让后来者更容易安装、理解和使用。详细计划见 `docs/POST_MAIN_STANDALONE_REPOSITORY_PLAN_2026-09-08.md`。
 
-不为了阶段性状态频繁重写 README。详细阶段结果、失败、诊断、实验数据和 checkpoint 应写入 `docs/`，README 只做长期稳定入口。
+不为了阶段性状态频繁重写 README。详细阶段结果、失败、诊断、实验数据和 checkpoint 应写入 `docs/`，README 只做长期稳定入口；当 release-critical 阶段发生实质变化时同步更新这里的摘要。
 
 ## 安全默认值
 
