@@ -53,6 +53,21 @@ Operational rule for this state:
 - cancel the stalled Desktop turn only after confirming zero post-marker wire activity and a clean working tree
 - restart the managed UWA/Desktop lifecycle before retrying with a tiny local probe
 
+## CLI retry stream-disconnect evidence
+
+A subsequent local `codex exec --json` retry created a Codex thread and started a turn, while UWA health metadata showed one tracked browser request occupying the ChatGPT tab for several minutes. During that in-flight period the metadata-only wire trace still showed zero post-marker request/response files.
+
+The CLI eventually terminated with:
+
+```text
+stream disconnected before completion: stream closed before response.completed
+turn.failed
+```
+
+After termination, UWA health reported no running request, the tracked request as cancelled, and the browser tab in an error state. The working tree remained clean and the branch head was unchanged locally and remotely.
+
+This refines the earlier observation: zero post-marker wire files do not by themselves prove that no UWA request is in flight. The health request-manager state is additional live evidence. The failed CLI retry also proves a real stream-completion defect or timeout path in the current D5 repair workflow. No repair side effect occurred, so retrying the same repair through this unstable path is not required before applying the already-understood lifecycle fix directly and validating it with focused tests plus the D5 live rerun.
+
 The repair remains release-critical:
 
 ```text
