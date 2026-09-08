@@ -62,3 +62,16 @@ Desktop D5    BLOCKED / CURRENT
 Do not run the harmless official-route request yet. First stop the surviving managed launcher through the versioned lifecycle path, fix the lifecycle duplication, run focused regression tests, and repeat the D5 official restore from a known UWA state.
 
 No account identifiers, usage amounts, private prompts, thread ids, browser ids, raw PIDs, cookies, credentials, or private trace contents are recorded here.
+
+## Implemented lifecycle repair checkpoint
+
+The confirmed provider-switch lifecycle defect has been repaired in code.
+
+`tools/codex_provider_switch.py` now delegates UWA shutdown to the authoritative launcher-aware `tools/codex_uwa_lifecycle.stop_uwa()` path instead of maintaining an independent listener-only shutdown implementation.
+
+The compatibility `stop_uwa_listener()` wrapper preserves the existing provider-switch return contract while reusing hardened lifecycle ownership validation, launcher-first termination, empty-port verification, escalation behavior, and pidfile cleanup.
+
+Focused provider-switch and lifecycle regression coverage passes with 18 tests.
+
+Desktop D5 remains BLOCKED until the repaired live UWA-to-official restore is rerun successfully. The final harmless official-provider task remains pending while official Codex quota is unavailable.
+

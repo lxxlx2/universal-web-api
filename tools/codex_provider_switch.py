@@ -24,7 +24,6 @@ import json
 import os
 import platform
 import shutil
-import signal
 import subprocess
 import time
 import tomllib
@@ -34,8 +33,10 @@ from typing import Callable, Mapping, Sequence
 
 try:
     from tools.codex_uwa_memory_guard import restore as restore_memories
-except ModuleNotFoundError:  # direct execution: python3 tools/codex_provider_switch.py
+    from tools.codex_uwa_lifecycle import stop_uwa as stop_uwa_lifecycle
+except ModuleNotFoundError:
     from codex_uwa_memory_guard import restore as restore_memories
+    from codex_uwa_lifecycle import stop_uwa as stop_uwa_lifecycle
 
 OFFICIAL_PIN_KEYS = {"model_provider", "model", "model_reasoning_effort"}
 AUTO_COMPACT_SCOPE_KEY = "model_auto_compact_token_limit_scope"
@@ -453,31 +454,6 @@ def quit_desktop_apps(
     return stopped
 
 
-def _listener_pids(*, runner: Runner = subprocess.run) -> list[int]:
-    result = _run(
-        ["lsof", "-nP", f"-tiTCP:{UWA_PORT}", "-sTCP:LISTEN"],
-        runner=runner,
-    )
-    if result.returncode not in (0, 1):
-        raise RuntimeError(f"failed to inspect TCP {UWA_PORT} listener")
-    pids: list[int] = []
-    for line in result.stdout.splitlines():
-        try:
-            pids.append(int(line.strip()))
-        except ValueError:
-            continue
-    return pids
-
-
-def _listener_cwd(pid: int, *, runner: Runner = subprocess.run) -> Path | None:
-    result = _run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], runner=runner)
-    if result.returncode != 0:
-        return None
-    for line in result.stdout.splitlines():
-        if line.startswith("n") and len(line) > 1:
-            return Path(line[1:]).expanduser()
-    return None
-
 
 def stop_uwa_listener(
     *,
@@ -486,50 +462,14 @@ def stop_uwa_listener(
     sleeper: Sleeper = time.sleep,
     timeout_sec: float = 10.0,
 ) -> list[int]:
-    """Stop only UWA listeners whose cwd proves they belong to this checkout."""
-
-    repo_root = repo_root.resolve()
-    pids = _listener_pids(runner=runner)
-    if not pids:
-        return []
-
-    for pid in pids:
-        cwd = _listener_cwd(pid, runner=runner)
-        if cwd is None or cwd.resolve() != repo_root:
-            raise RuntimeError(
-                f"refusing to stop TCP {UWA_PORT} listener {pid}: "
-                f"cwd={cwd!s} expected={repo_root}"
-            )
-
-    for pid in pids:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-
-    deadline = time.monotonic() + timeout_sec
-    while time.monotonic() < deadline:
-        if not _listener_pids(runner=runner):
-            return pids
-        sleeper(0.25)
-
-    for pid in _listener_pids(runner=runner):
-        cwd = _listener_cwd(pid, runner=runner)
-        if cwd is None or cwd.resolve() != repo_root:
-            raise RuntimeError(
-                f"refusing SIGKILL for TCP {UWA_PORT} listener {pid}: "
-                f"cwd={cwd!s} expected={repo_root}"
-            )
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-
-    sleeper(0.25)
-    remaining = _listener_pids(runner=runner)
-    if remaining:
-        raise RuntimeError(f"TCP {UWA_PORT} listener still alive: {remaining}")
-    return pids
+    stopped = stop_uwa_lifecycle(
+        repo_root=repo_root,
+        port=UWA_PORT,
+        timeout_sec=timeout_sec,
+        runner=runner,
+        sleeper=sleeper,
+    )
+    return list(stopped)
 
 
 def open_desktop_app(*, runner: Runner = subprocess.run) -> str:

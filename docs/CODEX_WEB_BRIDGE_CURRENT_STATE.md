@@ -135,3 +135,6 @@ The actual Responses request plus verified ChatGPT Web state is authoritative. A
 Every completed live stage, important failure, repair and disruptive checkpoint is committed before moving on. README, this canonical state, progress tracking, Desktop acceptance and the Draft PR should stay aligned as closely as practical.
 
 Never commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, Responses SQLite contents, live thread/process/browser identifiers, Codex memory workspace content, local hybrid handoff prompts, or private project source captured during acceptance.
+
+D5 lifecycle repair implemented: the official provider switch now reuses the hardened launcher-aware UWA lifecycle shutdown. Focused provider-switch/lifecycle regression coverage passes with 18 tests. Desktop D5 remains BLOCKED pending the repaired live official-restore rerun.
+

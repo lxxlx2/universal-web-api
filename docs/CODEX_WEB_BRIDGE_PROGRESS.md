@@ -152,3 +152,6 @@ The standalone extraction keeps genuinely required upstream runtime and preserve
 ## Recording discipline
 
 Every live result, failure, repair and disruptive checkpoint is committed before the next step. README, canonical current state, this file, Desktop acceptance and the Draft PR should stay aligned as closely as practical. Public records contain only non-sensitive acceptance evidence and omit real account, thread, process, browser and private trace identifiers.
+
+D5 lifecycle repair implemented: the official provider switch now reuses the hardened launcher-aware UWA lifecycle shutdown. Focused provider-switch/lifecycle regression coverage passes with 18 tests. Desktop D5 remains BLOCKED pending the repaired live official-restore rerun.
+

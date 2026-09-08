@@ -39,11 +39,13 @@ Hybrid H1 route/model/effort guard                  PASS / CI
 Hybrid H2 fresh Desktop route probe                 PASS / LIVE
 Hybrid H3-H5                                        CURRENT / mandatory
 Codex Desktop D1                                    PASS / LIVE / CLOSED
-Codex Desktop D2                                    READY / CURRENT
-Codex Desktop D3-D5                                 pending / mandatory
+Codex Desktop D2                                    PASS / LIVE / CLOSED
+Codex Desktop D3                                    PASS / LIVE / CLOSED
+Codex Desktop D4                                    PASS / LIVE / CLOSED
+Codex Desktop D5                                    BLOCKED / live rerun pending
 ```
 
-Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。fresh Desktop probe 实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。随后 Desktop D1 也已实机通过：实际 Codex Desktop UI 完成多文件修改和测试，独立 checker 返回 `ACCEPTANCE_PASS`，metadata-only trace 证明真实 `exec_command` function call 与 completed Responses turn。当前 release-critical 主线进入 Desktop D2 same-thread continuation，并继续保留 H3-H5 作为 `main` 前的最小 Hybrid Routing Safety 工作。
+Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。fresh Desktop probe 实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。随后 Desktop D1-D4 已完成实机验收，覆盖真实本地工具、多轮上下文、Desktop 重启恢复以及 Desktop + UWA 双重重启恢复。Desktop D5 在 official restore 中发现旧 provider switch 只终止 listener、遗留 `start.py` launcher 并导致 listener respawn；该生命周期缺陷现已完成代码修复和 focused regression，当前等待 repaired live D5 rerun。H3-H5 仍作为 `main` 前的最小 Hybrid Routing Safety 工作。
 
 详细记录：
 

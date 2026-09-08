@@ -2,6 +2,8 @@ import json
 import tomllib
 from pathlib import Path
 
+from tools import codex_provider_switch as provider_switch
+
 from tools.codex_provider_switch import (
     official_text,
     switch_to_official,
@@ -347,3 +349,47 @@ def test_switch_to_official_can_skip_desktop_and_uwa_automation(tmp_path: Path):
     assert stopped_pids == []
     assert reopened == "SKIPPED"
     assert top_level_status(path.read_text(encoding="utf-8")) == {}
+
+def test_stop_uwa_listener_delegates_to_hardened_lifecycle(monkeypatch, tmp_path: Path):
+    calls = {}
+
+    def fake_stop_uwa(**kwargs):
+        calls.update(kwargs)
+        return (9101, 9102)
+
+    monkeypatch.setattr(provider_switch, "stop_uwa_lifecycle", fake_stop_uwa)
+
+    stopped = provider_switch.stop_uwa_listener(
+        repo_root=tmp_path,
+        timeout_sec=3.5,
+        sleeper=lambda _: None,
+    )
+
+    assert stopped == [9101, 9102]
+    assert calls["repo_root"] == tmp_path
+    assert calls["port"] == provider_switch.UWA_PORT
+    assert calls["timeout_sec"] == 3.5
+
+
+def test_switch_to_official_default_stop_path_uses_hardened_wrapper(monkeypatch, tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text('model_provider = "uwa"\n', encoding="utf-8")
+    events = []
+
+    def fake_stop():
+        events.append("stop")
+        return [9201]
+
+    monkeypatch.setattr(provider_switch, "stop_uwa_listener", fake_stop)
+
+    _, changed, stopped_apps, stopped_pids, reopened = provider_switch.switch_to_official(
+        path,
+        automate_desktop=False,
+        restore_fn=lambda _: None,
+    )
+
+    assert changed is True
+    assert events == ["stop"]
+    assert stopped_apps == []
+    assert stopped_pids == [9201]
+    assert reopened == "SKIPPED"
