@@ -47,34 +47,51 @@ Tracked helper/test:
 
 Security hardening #351 / run `34164070091` passed. Aligned docs/public-safety #355 / run `34164304589` also passed.
 
-## Current blocker: remote V2 compaction item/envelope protocol
+## Current blocker: remote V2 ordinary Responses protocol
 
-The real macOS Azure-name shim has NOT been enabled yet because a pre-live exact-release audit found an additional output-item mismatch.
+The real macOS Azure-name shim has NOT been enabled yet because exact Codex 0.153.4 source shows remote compaction V2 is a different transport path from legacy `/responses/compact`.
 
-Important corrected transport fact: Codex 0.153.4 `/responses/compact` is still **unary HTTP**. `ModelClientSession` calls `CompactClient.compact_input(...)` and receives `output: Vec<ResponseItem>`; the client later exposes those items internally to the V2 collector.
+Exact routing:
 
-Current UWA P1.1 unary response contains assistant message items. Remote V2 requires the unary output list to contain exactly one:
+```text
+legacy remote compaction
+→ compact_conversation_history()
+→ unary /responses/compact
+
+remote compaction V2
+→ append compaction_trigger
+→ ModelClientSession.stream()
+→ ordinary Responses transport
+→ /v1/responses for UWA
+```
+
+For UWA, `wire_api=responses` and `supports_websockets=false`, so remote V2 necessarily uses ordinary HTTP Responses streaming.
+
+Codex's V2 collector requires that stream to contain exactly one output item:
 
 ```text
 type = compaction
 encrypted_content = <opaque payload>
 ```
 
-The V2 collector fails if the Compaction item count is not exactly one. Enabling the capability shim against the current P1.1 item shape would therefore be a predictable failure.
+Current UWA ordinary Responses handling does not yet special-case `compaction_trigger` or emit `ResponseItem::Compaction`, so enabling the capability shim now would be a predictable failure.
+
+P1.1 remains valid as a separate legacy unary endpoint proof; it does not close V2.
 
 Detailed blocker: `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`.
 
 ## Current repair gate
 
-Preserve P1.1 behavior for compact requests without `compaction_trigger`. For V2 trigger requests:
+Implement remote V2 in the ordinary Codex Responses bridge:
 
-1. remove the request-only trigger before web summarization;
-2. generate the bounded no-tools summary;
-3. encode it in a UWA-owned bounded opaque envelope with integrity checks;
-4. return unary `output` containing exactly one `type=compaction` item;
-5. decode only UWA-owned compaction envelopes into model-visible compact context on later normal Codex Responses turns;
-6. fail closed on foreign/corrupt envelopes;
-7. never log summary or envelope contents.
+1. recognize one valid trailing `compaction_trigger` and reject malformed trigger placement;
+2. strip the trigger before model-visible browser translation;
+3. run bounded no-tools ChatGPT Web compaction summarization;
+4. wrap the summary in a versioned, bounded, integrity-checked UWA opaque envelope;
+5. emit exactly one `type=compaction` item in normal Responses SSE plus a valid completed event/usage;
+6. decode only valid UWA-owned envelopes on later ordinary Responses turns into model-visible compact context;
+7. fail closed on foreign/corrupt/oversized envelopes;
+8. never log summary or envelope content.
 
 The upstream field is named `encrypted_content`; UWA does not claim its local envelope is OpenAI encryption.
 
@@ -84,7 +101,7 @@ The upstream field is named `encrypted_content`; UWA does not claim its local en
 P1.1 legacy compact endpoint/direct live             PASS
 P1.2 native threshold/local fallback                 PASS
 P1.2 remote capability shim implementation/CI        PASS
-P1.2 remote V2 unary item/envelope protocol repair   CURRENT
+P1.2 remote V2 ordinary Responses protocol repair    CURRENT
 P1.2 native remote compact macOS live                BLOCKED on repair
 P1.2 same-thread post-remote recovery                 pending
 P1.3 lost-affinity/restart + identity fencing         pending
@@ -94,7 +111,7 @@ Desktop UI D1-D5                                      pending / mandatory
 ## Production-hardening order
 
 ```text
-P1.2 V2 item/envelope repair → CI → native remote compact live → same-thread recovery
+P1.2 V2 Responses repair → CI → native remote compact live → same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop UI live acceptance D1-D5
 P1.4 real-project long-task pilot
