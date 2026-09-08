@@ -29,8 +29,7 @@ Desktop D1 local tool round trip                      PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
-D5 lifecycle code repair                              PASS / 18 focused tests / CI
-D5 repaired official lifecycle rerun                  PASS / LIVE
+Desktop D5 official restore + harmless task           PASS / LIVE / CLOSED
 ```
 
 ## Current gate
@@ -43,16 +42,16 @@ Current status:
 H0 metadata-only route audit helper                   PASS / CI
 H1 exact provider/model/effort fail-closed guard      PASS / CI
 H2 tiny fresh Desktop route probe                     PASS / LIVE / CLOSED
-H3 explicit official -> UWA stateful handoff          pending
+H3 explicit official -> UWA stateful handoff          CURRENT; official source half PASS
 H4 private metadata-only transition ledger            marker foundation present
 H5 synthetic hybrid acceptance                        pending
 D1 real Desktop local tool round trip                 PASS / LIVE / CLOSED
 D2 same Desktop thread continuation                   PASS / LIVE / CLOSED
 D3 full Desktop app restart + history resume          PASS / LIVE / CLOSED
 D4 Desktop + UWA restart + same-thread recovery       PASS / LIVE / CLOSED
-D5 official restore lifecycle                         PASS / LIVE
-D5 harmless real official-provider request            pending quota availability
-Medium/High request/page verification                 folded into Desktop gate
+D5 clean official-account restore + harmless task     PASS / LIVE / CLOSED
+Desktop UI D1-D5                                      PASS / LIVE / CLOSED
+Medium/High request/page verification                 folded into Desktop/UWA gate
 ```
 
 ## Desktop evidence
@@ -101,7 +100,7 @@ completed Responses turn = YES
 ROUTE_EXPECTATION_PASS = YES
 ```
 
-D5 first run:
+D5 first run exposed the lifecycle defect:
 
 ```text
 official config restore = PASS
@@ -128,7 +127,36 @@ UWA_RESTORE_STATE=ABSENT
 working tree=clean
 ```
 
-This closes the listener respawn defect at the lifecycle level. The final harmless real official-provider request remains pending until official Codex quota is available.
+D5 final harmless official task after quota became available:
+
+```text
+actual Codex Desktop fresh conversation = YES
+account-controlled model picker = GPT-6 Astra available
+selected reasoning tier = Light
+independent checker = OFFICIAL_SOURCE_PASS
+OFFICIAL_EFFECT_COUNT = 1
+latest route = openai / gpt-6-astra / low
+UWA health = unavailable by design
+post-marker UWA request/response = 0 / 0
+provider=openai route expectation = PASS
+```
+
+This closes Desktop D5 and the full Desktop D1-D5 gate. The successful official source effect remains intentionally uncommitted in the synthetic workspace for H3.
+
+H3 next step:
+
+```text
+source official effect already present exactly once
+→ record private handoff checkpoint
+→ switch managed config to UWA
+→ verify UWA health + route marker
+→ start fresh UWA Desktop thread in same workspace
+→ inspect existing diff
+→ append one UWA continuation effect
+→ prove official effect count remains exactly one
+→ prove UWA effect count exactly one
+→ verify uwa / chatgpt / high route
+```
 
 Detailed records:
 
@@ -138,6 +166,7 @@ Detailed records:
 - `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Accelerated release-critical path
@@ -145,8 +174,8 @@ Detailed records:
 ```text
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
-M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5                                  CURRENT; lifecycle PASS, final official request pending
+M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 source half PASS
+M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license
