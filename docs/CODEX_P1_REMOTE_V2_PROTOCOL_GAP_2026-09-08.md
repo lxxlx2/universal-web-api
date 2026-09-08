@@ -15,25 +15,20 @@ rust-v0.153.4
 3d2ee51ca2d5db578f328aa75e20aa22c0197c9a
 ```
 
-Important correction to earlier drafts of this record:
-
 - legacy remote compaction uses unary `/responses/compact` through `compact_conversation_history()` / `CompactClient.compact_input(...)`;
-- **remote compaction V2 does not use that unary endpoint**;
-- `run_remote_compact_v2_attempt()` appends a request-only `compaction_trigger` to the prompt and calls `ModelClientSession.stream()`;
-- for the configured UWA `wire_api=responses` provider with WebSockets disabled, `ModelClientSession.stream()` enters the ordinary HTTP Responses transport;
-- therefore native remote V2 reaches the normal provider Responses endpoint (`/v1/responses`), not `/v1/responses/compact`.
-
-This distinction is exact-release behavior, not an inference from endpoint names.
+- remote compaction V2 does not use that unary endpoint;
+- `run_remote_compact_v2_attempt()` appends a request-only `compaction_trigger` and calls `ModelClientSession.stream()`;
+- UWA has `wire_api=responses` and WebSockets disabled, so remote V2 uses ordinary HTTP Responses at `/v1/responses`.
 
 ## Exact remote V2 response contract
 
-The V2 collector consumes the ordinary Responses stream and accepts the compact attempt only when exactly one `response.output_item.done` item deserializes as:
+The V2 collector accepts the attempt only when exactly one output item deserializes as:
 
 ```text
 ResponseItem::Compaction
 ```
 
-Equivalent Responses item shape:
+Equivalent item:
 
 ```json
 {
@@ -42,83 +37,79 @@ Equivalent Responses item shape:
 }
 ```
 
-If the collector receives zero or more than one `Compaction` item, Codex returns a fatal protocol error.
+The request-side `compaction_trigger` is control state and must not become model-visible durable history.
 
-The request-side `compaction_trigger` is a control item and must not become durable model-visible conversation content.
+## Implemented repair
 
-## Current UWA behavior
+The ordinary Codex Responses bridge now:
 
-Current ordinary UWA Codex Responses handling translates normal Responses input into ChatGPT Web messages and emits normal assistant `message` / `function_call` items. It does not yet implement a dedicated `compaction_trigger` request path or emit a `type=compaction` item.
+1. validates exactly one trailing `compaction_trigger` and rejects malformed placement;
+2. removes the request-only trigger before browser translation;
+3. disables tools/tool choice during bounded ChatGPT Web compaction summarization;
+4. encodes the summary into a versioned, bounded, integrity-checked UWA-owned opaque envelope;
+5. emits exactly one `type=compaction` output item and a valid `response.completed` with non-zero usage;
+6. decodes only valid UWA-owned envelopes into model-visible compact context on future client-replayed history;
+7. rejects foreign/corrupt/oversized envelopes fail-closed;
+8. never logs summary/envelope bodies.
 
-P1.1 remains valid but is a separate legacy endpoint proof: `POST /v1/responses/compact` unary assistant replacement-history output works directly. That does not satisfy Codex 0.153.4 remote V2 because V2 runs through ordinary `/v1/responses`.
+The upstream field name is `encrypted_content`; UWA does not claim its local envelope is OpenAI encryption.
 
-## Consequence
+## Continuity semantics
 
-The Azure-name capability shim is necessary for Codex 0.153.4 to select remote V2, but enabling it now would predictably fail:
+Exact 0.153.4 HTTP `ResponsesApiRequest` has no `previous_response_id` field. The recorded `compaction_response_id` is therefore Codex-side checkpoint metadata, not a server continuation handle. After compaction, Codex replays compacted history on later HTTP turns, and UWA reconstructs model-visible compact context from the replayed envelope.
 
-```text
-native threshold reached
-→ Codex selects remote V2
-→ ordinary POST /v1/responses with trailing compaction_trigger
-→ UWA treats it as a normal Responses turn
-→ no Compaction output item is emitted
-→ Codex V2 collector fails exact-one-Compaction contract
-```
-
-Therefore the real macOS capability shim remains disabled until the ordinary Responses V2 compaction protocol repair is green.
-
-## Required repair
-
-Implement the V2 path in the ordinary Codex Responses bridge, not in the legacy unary compact route:
-
-1. detect exactly one trailing `compaction_trigger` in a remote-compaction request;
-2. reject malformed/ambiguous trigger placement fail-closed;
-3. remove the request-only trigger before constructing model-visible ChatGPT Web history;
-4. disable client tools/tool choice for the backing compaction summarization;
-5. generate the same bounded durable-thread summary through ChatGPT Web;
-6. encode that summary into a UWA-owned bounded opaque envelope with versioning and integrity validation;
-7. emit normal Responses SSE containing exactly one `response.output_item.done` with `type=compaction` and the envelope in `encrypted_content`;
-8. emit a valid terminal `response.completed` with non-zero bounded usage compatible with Codex TokenCount accounting;
-9. on later ordinary Responses input, decode only valid UWA-owned compaction envelopes into model-visible compact context before browser translation;
-10. reject foreign/corrupt/oversized envelopes rather than silently dropping or exposing opaque content;
-11. never log the summary or envelope body.
-
-The upstream field name is `encrypted_content`. UWA does not claim that its own local envelope is OpenAI encryption; it is only opaque transport state for this local compatibility bridge.
-
-## Continuity requirements
-
-Codex installs the returned Compaction item into replacement history. Exact 0.153.4 HTTP `ResponsesApiRequest` has no `previous_response_id` field, so the saved `compaction_response_id` is Codex-side checkpoint metadata rather than a server continuation handle. The next ordinary HTTP turn replays the compacted client history. UWA therefore reconstructs model-visible compact context directly from the replayed UWA-owned envelope.
-
-This keeps post-compact recovery independent of an in-memory-only summary map or a compact-response ID registration step. Existing private Responses persistence and web-session affinity remain useful for the broader bridge, but remote-V2 summary recovery itself is carried by the client-replayed compacted history.
-
-## Regression requirements
-
-- P1.1 legacy `/v1/responses/compact` behavior remains unchanged and green;
-- ordinary V2 request detection requires exactly one valid trailing `compaction_trigger`;
-- malformed trigger input fails closed;
-- trigger never reaches ChatGPT Web as conversation content;
-- tools are unavailable during compaction summarization;
-- V2 stream emits exactly one `type=compaction` output item;
-- completed response is valid and includes non-zero usage;
-- UWA envelope round-trip preserves Unicode summary text;
-- corrupted, foreign and oversized envelopes fail closed;
-- later normal browser translation decodes a valid UWA compaction item into model-visible compact context without exposing raw envelope data;
-- summary/envelope contents are never written to public logs or tracked files;
-- public-repo safety remains green.
-
-## Implementation checkpoint
-
-Tracked implementation now exists in:
+## Tracked implementation
 
 - `app/services/codex_remote_compaction_v2.py`
 - `tests/test_codex_remote_compaction_v2.py`
 - installation ordering in `app/api/routes.py`
-- `tools/codex_remote_compaction_trigger_probe.py` for V2-specific live evidence
+- `tools/codex_remote_compaction_trigger_probe.py`
+- `tests/test_codex_remote_compaction_trigger_probe.py`
 
-CI attempt #372 / run `34184935625` proved the new V2 module compiled and public-repository safety passed, then failed during focused-test collection because the lightweight security matrix intentionally lacked FastAPI/runtime dependencies. The tests were moved to the existing full-dependency `upstream-regression` job.
+## CI history
 
-CI attempt #378 / run `34185372863` then executed the full reproducible regression suite: 492 tests passed and one new acceptance-wrapper test failed. The failure was an import-identity defect in the test itself: the same `codex_large_context_acceptance.py` file had been loaded once as `tools.codex_large_context_acceptance` and once as top-level `codex_large_context_acceptance`, producing two Python module objects. The wrapper and delegated trigger probe use the same top-level module at runtime; the test incorrectly compared that state with the separately imported package module. This is classified as acceptance-test plumbing, not a V2 protocol failure.
+Attempt #372 / run `34184935625`:
 
-## Gate
+```text
+new V2 module py_compile      PASS
+public-repo-safety            PASS
+focused test collection       FAIL: security matrix lacked full runtime dependencies
+```
 
-Do not run the native remote-compaction macOS test until the ordinary Responses V2 compaction path, regression suite and CI are green.
+The runtime-level test was moved to the existing `upstream-regression` job, which installs `requirements.txt`.
+
+Attempt #378 / run `34185372863`:
+
+```text
+492 passed
+1 failed: probe-wrapper test imported the same support module under two Python module names
+```
+
+That acceptance-test import-identity defect was repaired.
+
+Attempt #380 / run `34185500715`:
+
+```text
+public-repo-safety                  PASS
+security-tests macOS 3.11 / 3.13   PASS
+security-tests Ubuntu 3.11 / 3.13  PASS
+upstream reproducible regression   PASS
+```
+
+The protocol repair is therefore implementation/CI PASS.
+
+## Current gate
+
+Run the native remote-compaction macOS acceptance with the fail-closed capability helper enabled for a fresh Codex CLI process. Required evidence:
+
+```text
+THRESHOLD_CROSSED=YES
+PRE_TRIGGER_OVER_HARD_CAP=NO
+ROLLOUT_COMPACT_MARKER_DELTA>=1
+REMOTE_COMPACT_ROUTE_DELTA>=1
+REMOTE_COMPACT_SUCCESS_DELTA>=1
+AUTO_COMPACT_MODE=REMOTE
+AUTO_COMPACT_TRIGGER_PROBE_PASS
+```
+
+After this gate, P1.2 still requires same-thread post-remote-compaction recovery of the conversation-only synthetic token through a real local write/read.
