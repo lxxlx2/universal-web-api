@@ -120,6 +120,24 @@ AUTO_COMPACT_TRIGGER_PROBE_PASS
 
 After this passes, P1.2 still requires a separate same-thread post-remote-compaction recovery of the conversation-only synthetic token through a real local write/read.
 
+## Adjacent bridge design refresh
+
+A 2026-09-08 review covered refreshed `yyjeqhc/webcodex` plus three newly formalized references: `Waishnav/devspace`, `XiaoDuoYa/codex-with-chatgpt`, and `alexanderradahl/mac-developer-bridge`.
+
+Decision: no architecture pivot. Official Codex remains the only local executor.
+
+Adopted roadmap principles:
+
+- keep bridge/session/generation/correlation metadata outside model-authored business tool arguments;
+- centralize governance for future specialized adapters;
+- add browser lease/generation/heartbeat/reclaim fencing;
+- strengthen independent diff/test/tool evidence review in the real-project pilot;
+- make evidence trust ordering and bounded sanitization explicit;
+- add doctor/preflight plus verified disable/kill diagnostics;
+- research first-party ChatGPT page-runtime submission only as a later optional transport after the current browser path is stable.
+
+Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
+
 ## Current status
 
 ```text
@@ -138,9 +156,17 @@ Desktop UI D1-D5                                      pending / mandatory
 ```text
 P1.2 native remote compact live → same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
+     + typed bridge metadata outside business tool args
+P2 per-continuation serialization + concurrency planes
+   + browser lease/generation/heartbeat/reclaim fencing
+   + shared specialized-adapter governance
+P3 MCP/schema/capability fidelity + protocol-edge normalization
 Desktop UI live acceptance D1-D5
-P1.4 real-project long-task pilot
-P2-P5 production hardening / final release gate
+P1.4 real-project long-task pilot with independent diff/test/tool evidence review
+P4 bounded evidence/trust-order/sanitization hardening
+P5 doctor/preflight + runtime/build identity + verified disable path
+   + optional first-party page-runtime submission research
+final release gate
 ```
 
 ## Continuity layers
