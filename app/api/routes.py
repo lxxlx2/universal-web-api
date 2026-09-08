@@ -23,9 +23,6 @@ from app.api.provider import router as provider_router
 from app.services.codex_required_tool_language_patch import (
     install_codex_required_tool_language_patch,
 )
-from app.services.codex_required_tool_continuation_patch import (
-    install_codex_required_tool_continuation_patch,
-)
 from app.services.codex_workspace_refusal_language_patch import (
     install_codex_workspace_refusal_language_patch,
 )
@@ -35,7 +32,6 @@ from app.services.codex_stream_compat import install_codex_stream_compat
 
 
 install_codex_required_tool_language_patch()
-install_codex_required_tool_continuation_patch()
 install_codex_workspace_refusal_language_patch()
 
 # Install the remote-compaction V2 protocol shim before the generic runtime
