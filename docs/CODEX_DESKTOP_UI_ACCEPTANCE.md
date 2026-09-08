@@ -15,8 +15,8 @@ P1.1 compact live                         PASS
 versioned UWA lifecycle CI                PASS
 Desktop D1 tool round trip                PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation       PASS / LIVE / CLOSED
-Desktop D3 Desktop app restart resume     READY / CURRENT
-Desktop D4 Desktop + UWA restart resume   pending
+Desktop D3 Desktop app restart resume     PASS / LIVE / CLOSED
+Desktop D4 Desktop + UWA restart resume   READY / CURRENT
 Desktop D5 official-account switch        pending
 Desktop gate overall                      REQUIRED BEFORE MAIN MERGE
 ```
@@ -71,21 +71,25 @@ The second turn stayed in the same Desktop conversation, did not manually repeat
 
 Detailed record: `docs/CODEX_DESKTOP_D2_LIVE_PASS_2026-09-09.md`.
 
-## D3: Desktop application restart resume
+## D3: Desktop application restart resume — PASS
 
 Goal: prove Desktop history can restore the same Codex thread after the desktop application itself exits.
 
-Procedure:
+Verified live result:
 
-1. prepare the `context` scenario;
-2. in a fresh Desktop Codex thread send `context_1` and receive `CONTEXT_READY`;
-3. fully quit ChatGPT Desktop;
-4. reopen ChatGPT Desktop;
-5. select Codex and reopen the exact same thread from history;
-6. send `context_2` without repeating the token;
-7. run the context checker.
+```text
+independent checker                         context: PASS / ACCEPTANCE_PASS
+route                                       uwa / chatgpt / high
+session identity before/after app restart   MATCH
+post-marker UWA requests                    3
+post-marker UWA responses                   3
+latest UWA status                           completed
+route expectation                           PASS
+```
 
-PASS requires `CONTEXT_PASS` plus `ACCEPTANCE_PASS` after a real application restart.
+The actual Desktop application was exited and reopened, the same history thread was resumed, and the second turn recovered the conversation-only acceptance context and passed the local checker. Real thread/session identifiers and process identifiers are intentionally excluded from the public record.
+
+Detailed record: `docs/CODEX_DESKTOP_D3_LIVE_PASS_2026-09-09.md`.
 
 ## D4: Desktop + UWA restart resume
 
