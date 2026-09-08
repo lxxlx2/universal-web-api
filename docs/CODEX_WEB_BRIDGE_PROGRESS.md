@@ -41,30 +41,41 @@ Tracked files:
 - `tests/test_codex_remote_compaction_compat.py`
 - `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
 
-## Current remote V2 protocol blocker
+## Corrected remote V2 route
 
-Exact Codex 0.153.4 client inspection corrected an initial assumption: `/responses/compact` is unary HTTP. The client calls `CompactClient.compact_input(...)` and obtains `output: Vec<ResponseItem>`.
+Exact Codex 0.153.4 inspection established two separate paths:
 
-The current P1.1 UWA endpoint already has the correct unary transport, but returns assistant message item(s). Remote V2 requires exactly one returned `ResponseItem::Compaction` carrying `encrypted_content`. The V2 collector explicitly fails when the Compaction item count is not exactly one.
+```text
+legacy remote compact
+→ unary /responses/compact
 
-Therefore the capability shim remains un-applied on the real macOS config until the item/envelope repair is green.
+remote compact V2
+→ prompt input + compaction_trigger
+→ ModelClientSession.stream()
+→ ordinary Responses transport
+→ /v1/responses for UWA
+```
+
+The V2 collector accepts only one `ResponseItem::Compaction`. Since UWA currently handles the trigger request as an ordinary model turn and emits normal message/function-call items, capability selection alone would fail.
+
+P1.1 remains a valid legacy endpoint proof but is not the V2 protocol implementation.
 
 Detailed blocker: `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`.
 
 ## Current gate
 
-```text
-legacy compact request without compaction_trigger
-→ keep existing P1.1 assistant-message output
+Implement the ordinary Responses V2 compaction path:
 
-V2 compact request with compaction_trigger
-→ remove trigger before web summarization
-→ bounded no-tools summary
-→ UWA opaque bounded envelope
-→ unary output=[type=compaction]
+```text
+/v1/responses + trailing compaction_trigger
+→ validate/strip request-only trigger
+→ bounded no-tools ChatGPT Web summary
+→ versioned bounded integrity-checked UWA opaque envelope
+→ SSE output exactly one type=compaction item
+→ response.completed with usable usage
 ```
 
-Later normal UWA Codex Responses translation must decode only UWA-owned envelopes back into model-visible compact context and fail closed on foreign/corrupt envelopes. Summary/envelope bodies must never be logged.
+Later ordinary Responses translation must decode only valid UWA-owned envelopes into model-visible compact context and fail closed on foreign/corrupt/oversized envelopes. Summary/envelope bodies must never be logged.
 
 After repair/regression/CI, enable the capability shim live and rerun the small-step threshold probe. Then prove same-thread post-remote-compaction recovery before P1.2 closure.
 
@@ -74,7 +85,7 @@ After repair/regression/CI, enable the capability shim live and rerun the small-
 P1.1 legacy compact endpoint/live                    PASS
 P1.2 native trigger/local fallback                   PASS
 P1.2 remote capability shim implementation/CI        PASS
-P1.2 remote V2 unary item/envelope repair            CURRENT
+P1.2 remote V2 ordinary Responses repair             CURRENT
 P1.2 native remote compact live                      BLOCKED on repair
 P1.2 same-thread post-remote recovery                pending
 P1.3 affinity/restart/uncertain-effect               pending
