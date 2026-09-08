@@ -54,13 +54,17 @@ jobs:
           app/services/codex_responses_state.py
           app/services/codex_wire_observability.py
           app/services/codex_web_session_affinity.py
+          app/services/codex_remote_compaction_v2.py
           app/services/codex_v2_runtime_hardening.py
           app/services/codex_stream_compat.py
           app/services/codex_workspace_refusal_language_patch.py
           app/api/codex_compat.py
           app/api/codex_responses.py
           app/api/codex_responses_v2.py
-      - run: python -m pytest -q tests/test_security_hardening.py
+      - run: >-
+          python -m pytest -q
+          tests/test_security_hardening.py
+          tests/test_codex_remote_compaction_v2.py
 
   upstream-regression:
     runs-on: ubuntu-latest
