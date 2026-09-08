@@ -6,7 +6,7 @@ Canonical handoff for `codex-web-bridge-v2`.
 
 Run official Codex Desktop / Codex CLI as the local coding agent while routing model inference through UWA to logged-in ChatGPT Web. Codex remains authoritative for filesystem, shell, edits, tests, Git, sandbox and approval. CLI/protocol acceptance is necessary but does not replace the mandatory Desktop UI gate.
 
-## Verified live acceptance
+## Verified acceptance / CI
 
 ```text
 Stage A-F protocol/CLI acceptance                 PASS
@@ -18,6 +18,7 @@ P1.2 stream/usage compatibility                   PASS
 P1.2 rollout TokenCount persistence               PASS
 P1.2 native auto-compact trigger/local fallback   PASS
 P1.2 remote-capability shim implementation/CI     PASS (#351)
+P1.2 remote V2 protocol implementation/CI         PASS (#380)
 Codex Desktop UI live gate                        REQUIRED / pending
 ```
 
@@ -45,13 +46,11 @@ Tracked helper/test:
 - `tools/codex_remote_compaction_compat.py`
 - `tests/test_codex_remote_compaction_compat.py`
 
-Security hardening #351 / run `34164070091` passed. Aligned docs/public-safety #355 / run `34164304589` also passed.
+Security hardening #351 / run `34164070091` passed.
 
-## Current blocker: remote V2 ordinary Responses protocol
+## Remote V2 ordinary Responses protocol: implementation/CI PASS
 
-The real macOS Azure-name shim has NOT been enabled yet because exact Codex 0.153.4 source shows remote compaction V2 is a different transport path from legacy `/responses/compact`.
-
-Exact routing:
+Exact 0.153.4 routing:
 
 ```text
 legacy remote compaction
@@ -65,35 +64,61 @@ remote compaction V2
 → /v1/responses for UWA
 ```
 
-For UWA, `wire_api=responses` and `supports_websockets=false`, so remote V2 necessarily uses ordinary HTTP Responses streaming.
-
-Codex's V2 collector requires that stream to contain exactly one output item:
+For UWA, `wire_api=responses` and `supports_websockets=false`, so remote V2 uses ordinary HTTP Responses streaming. The V2 collector requires exactly one output item:
 
 ```text
 type = compaction
 encrypted_content = <opaque payload>
 ```
 
-Current UWA ordinary Responses handling does not yet special-case `compaction_trigger` or emit `ResponseItem::Compaction`, so enabling the capability shim now would be a predictable failure.
+Tracked implementation now:
 
-P1.1 remains valid as a separate legacy unary endpoint proof; it does not close V2.
+- validates exactly one trailing request-only `compaction_trigger`;
+- strips it before ChatGPT Web summarization;
+- disables tools during bounded compaction summarization;
+- encodes the summary into a versioned/bounded/integrity-checked UWA opaque envelope;
+- emits exactly one Responses `type=compaction` output plus completed/non-zero usage;
+- decodes only valid UWA envelopes back into model-visible compact context on later replayed HTTP history;
+- fails closed on foreign/corrupt/oversized envelopes;
+- logs only bounded metadata, never summary/envelope bodies.
 
-Detailed blocker: `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`.
+Exact HTTP `ResponsesApiRequest` has no `previous_response_id`, so `compaction_response_id` is Codex-side checkpoint metadata. Post-compact recovery is carried by replayed compacted history, which the UWA envelope decoder handles directly.
 
-## Current repair gate
+Tracked files:
 
-Implement remote V2 in the ordinary Codex Responses bridge:
+- `app/services/codex_remote_compaction_v2.py`
+- `tests/test_codex_remote_compaction_v2.py`
+- `tools/codex_remote_compaction_trigger_probe.py`
+- `tests/test_codex_remote_compaction_trigger_probe.py`
+- `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`
 
-1. recognize one valid trailing `compaction_trigger` and reject malformed trigger placement;
-2. strip the trigger before model-visible browser translation;
-3. run bounded no-tools ChatGPT Web compaction summarization;
-4. wrap the summary in a versioned, bounded, integrity-checked UWA opaque envelope;
-5. emit exactly one `type=compaction` item in normal Responses SSE plus a valid completed event/usage;
-6. decode only valid UWA-owned envelopes on later ordinary Responses turns into model-visible compact context;
-7. fail closed on foreign/corrupt/oversized envelopes;
-8. never log summary or envelope content.
+CI history:
 
-The upstream field is named `encrypted_content`; UWA does not claim its local envelope is OpenAI encryption.
+```text
+#372  compile/public safety PASS; CI dependency-layer placement failure
+#378  492 passed; one probe-test import-identity failure
+#380  all jobs PASS, including upstream reproducible regression
+```
+
+Security hardening #380 / run `34185500715` is the implementation CI gate.
+
+## Current gate: native remote compaction macOS live
+
+The protocol implementation is no longer blocked on code/CI. The next single gate is real Codex 0.153.4 on macOS with the fail-closed Azure-name compatibility helper enabled for a fresh CLI process.
+
+Required evidence:
+
+```text
+THRESHOLD_CROSSED=YES
+PRE_TRIGGER_OVER_HARD_CAP=NO
+ROLLOUT_COMPACT_MARKER_DELTA>=1
+REMOTE_COMPACT_ROUTE_DELTA>=1
+REMOTE_COMPACT_SUCCESS_DELTA>=1
+AUTO_COMPACT_MODE=REMOTE
+AUTO_COMPACT_TRIGGER_PROBE_PASS
+```
+
+After this passes, P1.2 still requires a separate same-thread post-remote-compaction recovery of the conversation-only synthetic token through a real local write/read.
 
 ## Current status
 
@@ -101,8 +126,8 @@ The upstream field is named `encrypted_content`; UWA does not claim its local en
 P1.1 legacy compact endpoint/direct live             PASS
 P1.2 native threshold/local fallback                 PASS
 P1.2 remote capability shim implementation/CI        PASS
-P1.2 remote V2 ordinary Responses protocol repair    CURRENT
-P1.2 native remote compact macOS live                BLOCKED on repair
+P1.2 remote V2 ordinary Responses implementation/CI  PASS
+P1.2 native remote compact macOS live                CURRENT
 P1.2 same-thread post-remote recovery                 pending
 P1.3 lost-affinity/restart + identity fencing         pending
 Desktop UI D1-D5                                      pending / mandatory
@@ -111,7 +136,7 @@ Desktop UI D1-D5                                      pending / mandatory
 ## Production-hardening order
 
 ```text
-P1.2 V2 Responses repair → CI → native remote compact live → same-thread recovery
+P1.2 native remote compact live → same-thread recovery
 P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
 Desktop UI live acceptance D1-D5
 P1.4 real-project long-task pilot
