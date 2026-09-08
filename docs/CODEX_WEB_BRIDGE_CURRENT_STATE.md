@@ -32,6 +32,7 @@ Desktop D1 real local-tool round trip                 PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
+D5 lifecycle code repair                              PASS / focused tests / CI
 ```
 
 Detailed historical evidence remains in the dedicated `docs/CODEX_*` live/closure records.
@@ -74,7 +75,7 @@ D3 proved Desktop history recovery after a full app exit/reopen. The same sessio
 
 D4 proved recovery across both Desktop and UWA process boundaries. The same Desktop session identity survived the double restart, the context checker passed, the post-restart route remained `uwa / chatgpt / high`, and metadata-only traces proved real `exec_command` calls plus a completed Responses turn.
 
-D5 exposed a lifecycle blocker. The official switch correctly restored Memories and account-default model/provider/reasoning configuration, preserved authentication and removed the private restore state. However, after reporting the active UWA listener stopped, a fresh healthy TCP 8199 listener appeared immediately. The leading diagnosis is duplicated stop semantics in `tools/codex_provider_switch.py`: its local stop helper terminates the listener but does not perform the launcher/supervisor cleanup already implemented by `tools/codex_uwa_lifecycle.py`. D5 remains blocked until this is repaired and rerun.
+D5 exposed a confirmed lifecycle blocker. The official switch correctly restored Memories and account-default model/provider/reasoning configuration, preserved authentication and removed the private restore state. The first live run then showed that the old provider-switch stop path killed only the active `main.py` listener while leaving the repository-owned `start.py` launcher alive, which immediately recreated a healthy TCP 8199 listener. Commit `143b396` repairs this by making the provider switch delegate to the hardened launcher-aware `codex_uwa_lifecycle.stop_uwa()` path. Focused provider-switch/lifecycle regression coverage passes with 18 tests, and the Security hardening GitHub Actions run for `143b396` succeeded. D5 remains blocked only until the repaired live official-restore rerun proves that the launcher, listener, TCP 8199 and pidfile stay absent. The final harmless official-provider request also remains pending while official Codex quota is unavailable.
 
 Detailed records:
 
@@ -91,7 +92,7 @@ Detailed records:
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5                                  CURRENT; D1-D4 PASS, D5 BLOCKED
+M3b Desktop UI D1-D5                                  CURRENT; D1-D4 PASS, D5 live rerun pending
 M4 one real-project long-task pilot                   pending
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/license       pending
@@ -135,6 +136,3 @@ The actual Responses request plus verified ChatGPT Web state is authoritative. A
 Every completed live stage, important failure, repair and disruptive checkpoint is committed before moving on. README, this canonical state, progress tracking, Desktop acceptance and the Draft PR should stay aligned as closely as practical.
 
 Never commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, Responses SQLite contents, live thread/process/browser identifiers, Codex memory workspace content, local hybrid handoff prompts, or private project source captured during acceptance.
-
-D5 lifecycle repair implemented: the official provider switch now reuses the hardened launcher-aware UWA lifecycle shutdown. Focused provider-switch/lifecycle regression coverage passes with 18 tests. Desktop D5 remains BLOCKED pending the repaired live official-restore rerun.
-
