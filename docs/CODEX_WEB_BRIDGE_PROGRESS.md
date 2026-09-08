@@ -16,7 +16,7 @@ versioned lifecycle/provider switch CI/live          PASS
 P1.2 stream/usage + TokenCount                       PASS
 P1.2 native auto-compact trigger/local fallback live PASS
 P1.2 remote capability shim implementation/CI #351   PASS
-aligned CI/public-safety #355                        PASS
+P1.2 remote V2 implementation/CI #380                PASS
 ```
 
 ## Native trigger live evidence
@@ -41,43 +41,60 @@ Tracked files:
 - `tests/test_codex_remote_compaction_compat.py`
 - `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
 
-## Corrected remote V2 route
+## Remote V2 implementation
 
-Exact Codex 0.153.4 inspection established two separate paths:
+Exact Codex 0.153.4 route:
 
 ```text
-legacy remote compact
-→ unary /responses/compact
-
 remote compact V2
-→ prompt input + compaction_trigger
+→ prompt history + trailing compaction_trigger
 → ModelClientSession.stream()
-→ ordinary Responses transport
-→ /v1/responses for UWA
+→ ordinary Responses HTTP
+→ /v1/responses
 ```
 
-The V2 collector accepts only one `ResponseItem::Compaction`. Since UWA currently handles the trigger request as an ordinary model turn and emits normal message/function-call items, capability selection alone would fail.
-
-P1.1 remains a valid legacy endpoint proof but is not the V2 protocol implementation.
-
-Detailed blocker: `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`.
-
-## Current gate
-
-Implement the ordinary Responses V2 compaction path:
+The implementation in `app/services/codex_remote_compaction_v2.py` now:
 
 ```text
-/v1/responses + trailing compaction_trigger
-→ validate/strip request-only trigger
-→ bounded no-tools ChatGPT Web summary
-→ versioned bounded integrity-checked UWA opaque envelope
-→ SSE output exactly one type=compaction item
-→ response.completed with usable usage
+valid trailing trigger
+→ strip trigger
+→ no-tools bounded ChatGPT Web compact summary
+→ UWA versioned/bounded/integrity-checked opaque envelope
+→ exactly one type=compaction output item
+→ response.completed with non-zero usage
 ```
 
-Later ordinary Responses translation must decode only valid UWA-owned envelopes into model-visible compact context and fail closed on foreign/corrupt/oversized envelopes. Summary/envelope bodies must never be logged.
+On future client-replayed compacted history, only valid UWA envelopes are decoded into model-visible compact context. Foreign/corrupt/oversized envelopes fail closed.
 
-After repair/regression/CI, enable the capability shim live and rerun the small-step threshold probe. Then prove same-thread post-remote-compaction recovery before P1.2 closure.
+Exact 0.153.4 HTTP Responses requests do not use `previous_response_id`, so post-compact summary recovery is based on client-replayed compacted history rather than a compact-response server handle.
+
+Live evidence now uses `tools/codex_remote_compaction_trigger_probe.py`, which counts V2-specific metadata markers rather than the legacy `/responses/compact` route.
+
+CI history:
+
+```text
+#372 compile/public-safety PASS; lightweight CI dependency placement defect
+#378 492 tests PASS; one wrapper test module-identity defect
+#380 all jobs PASS
+```
+
+Run #380: `34185500715`.
+
+## Current gate: native remote compact macOS live
+
+Required output:
+
+```text
+THRESHOLD_CROSSED=YES
+PRE_TRIGGER_OVER_HARD_CAP=NO
+ROLLOUT_COMPACT_MARKER_DELTA>=1
+REMOTE_COMPACT_ROUTE_DELTA>=1
+REMOTE_COMPACT_SUCCESS_DELTA>=1
+AUTO_COMPACT_MODE=REMOTE
+AUTO_COMPACT_TRIGGER_PROBE_PASS
+```
+
+After that, run a separate same-thread recovery gate that recovers the first-turn conversation-only synthetic token through a real local write/read without searching local session/history stores.
 
 ## Current status
 
@@ -85,8 +102,8 @@ After repair/regression/CI, enable the capability shim live and rerun the small-
 P1.1 legacy compact endpoint/live                    PASS
 P1.2 native trigger/local fallback                   PASS
 P1.2 remote capability shim implementation/CI        PASS
-P1.2 remote V2 ordinary Responses repair             CURRENT
-P1.2 native remote compact live                      BLOCKED on repair
+P1.2 remote V2 implementation/CI                     PASS
+P1.2 native remote compact live                      CURRENT
 P1.2 same-thread post-remote recovery                pending
 P1.3 affinity/restart/uncertain-effect               pending
 Desktop UI live gate D1-D5                           pending / mandatory
