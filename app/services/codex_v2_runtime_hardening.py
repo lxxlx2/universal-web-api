@@ -177,19 +177,39 @@ def _remember_call_response(call_ids: List[str], response_id: str) -> None:
     with _CALL_RESPONSE_LOCK:
         _prune_call_response_ids_locked(now)
         for call_id in safe_ids:
-            _CALL_RESPONSE_IDS[call_id] = (now, response_key)
+            existing = _CALL_RESPONSE_IDS.get(call_id)
+            if existing is None:
+                _CALL_RESPONSE_IDS[call_id] = (now, response_key)
+            else:
+                existing_response = str(existing[1] or "").strip()
+                if not existing_response:
+                    _CALL_RESPONSE_IDS[call_id] = (now, "")
+                elif existing_response == response_key:
+                    _CALL_RESPONSE_IDS[call_id] = (now, response_key)
+                else:
+                    _CALL_RESPONSE_IDS[call_id] = (now, "")
+                    logger.warning(
+                        "[CODEX_V2_RUNTIME] fenced conflicting call_id continuation identity; "
+                        "affinity resolution disabled for this call id"
+                    )
             _CALL_RESPONSE_IDS.move_to_end(call_id)
         _prune_call_response_ids_locked(now)
 
 
 def _resolve_call_response(call_ids: List[str]) -> str:
+    keys = [str(call_id or "").strip() for call_id in call_ids if str(call_id or "").strip()]
     with _CALL_RESPONSE_LOCK:
         _prune_call_response_ids_locked()
-        for call_id in reversed(call_ids):
-            value = _CALL_RESPONSE_IDS.get(str(call_id or "").strip())
+        for call_id in keys:
+            value = _CALL_RESPONSE_IDS.get(call_id)
+            if value is not None and not str(value[1] or "").strip():
+                _CALL_RESPONSE_IDS.move_to_end(call_id)
+                return ""
+        for call_id in reversed(keys):
+            value = _CALL_RESPONSE_IDS.get(call_id)
             if value is not None:
-                _CALL_RESPONSE_IDS.move_to_end(str(call_id or "").strip())
-                return value[1]
+                _CALL_RESPONSE_IDS.move_to_end(call_id)
+                return str(value[1] or "").strip()
     return ""
 
 
