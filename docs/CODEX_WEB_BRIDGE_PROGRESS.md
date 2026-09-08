@@ -29,6 +29,7 @@ Desktop D1 local tool round trip                      PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
+D5 lifecycle code repair                              PASS / 18 focused tests / CI
 ```
 
 ## Current gate
@@ -48,7 +49,7 @@ D1 real Desktop local tool round trip                 PASS / LIVE / CLOSED
 D2 same Desktop thread continuation                   PASS / LIVE / CLOSED
 D3 full Desktop app restart + history resume          PASS / LIVE / CLOSED
 D4 Desktop + UWA restart + same-thread recovery       PASS / LIVE / CLOSED
-D5 clean official-account restore                     BLOCKED / CURRENT
+D5 clean official-account restore                     BLOCKED / repaired live rerun pending
 Medium/High request/page verification                 folded into Desktop gate
 ```
 
@@ -110,7 +111,9 @@ UWA remains stopped = FAIL
 replacement healthy listener appeared on TCP 8199
 ```
 
-The leading diagnosis is duplicated UWA stop logic in `tools/codex_provider_switch.py`. Its official switch uses a weaker listener-only stop helper while `tools/codex_uwa_lifecycle.py` already contains the hardened launcher-aware fail-closed stop implementation. Collect process-parent evidence, converge on one lifecycle implementation, add regression coverage, then rerun D5.
+The root cause was confirmed from process ancestry: the old provider-switch stop path killed the active `main.py` listener while leaving the repository-owned `start.py` launcher alive, allowing immediate respawn. Commit `143b396` removes the independent listener-only shutdown semantics and routes provider-switch shutdown through the hardened launcher-aware lifecycle path. Focused provider-switch/lifecycle tests pass 18/18, and the Security hardening GitHub Actions run for `143b396` completed successfully.
+
+The next live gate is a repaired D5 lifecycle rerun from a known healthy UWA state. It must prove that the launcher, listener, TCP 8199 and pidfile stay absent after the official switch. The final harmless official-provider request remains pending while official Codex quota is unavailable.
 
 Detailed records:
 
@@ -127,7 +130,7 @@ Detailed records:
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS
-M3b Desktop UI D1-D5                                  CURRENT; D1-D4 PASS, D5 BLOCKED
+M3b Desktop UI D1-D5                                  CURRENT; D1-D4 PASS, D5 live rerun pending
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license
@@ -152,6 +155,3 @@ The standalone extraction keeps genuinely required upstream runtime and preserve
 ## Recording discipline
 
 Every live result, failure, repair and disruptive checkpoint is committed before the next step. README, canonical current state, this file, Desktop acceptance and the Draft PR should stay aligned as closely as practical. Public records contain only non-sensitive acceptance evidence and omit real account, thread, process, browser and private trace identifiers.
-
-D5 lifecycle repair implemented: the official provider switch now reuses the hardened launcher-aware UWA lifecycle shutdown. Focused provider-switch/lifecycle regression coverage passes with 18 tests. Desktop D5 remains BLOCKED pending the repaired live official-restore rerun.
-
