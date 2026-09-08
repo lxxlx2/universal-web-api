@@ -48,6 +48,18 @@ The supported interpretation is now:
 
 The exact mechanism by which Desktop chooses provider state for an existing conversation still requires route-specific testing. The leading hypothesis is that an existing Desktop conversation carries or reconstructs its own official provider/model state independently of the current top-level local override.
 
+## Additional UI-only observation
+
+Later the same evening, after the user opened the usage/status view, the existing Desktop conversation again displayed `GPT-6 Astra Ultra` in the model selector even though the user had not sent a new prompt, changed the model, restarted the application, or otherwise initiated a new coding action. The official usage-limit banner was still visible.
+
+This is a UI-state observation only. It must not be classified as a new request, a new provider execution, or additional quota consumption. It reinforces the release-critical distinction between:
+
+- the model/effort label currently rendered for an existing Desktop conversation;
+- the managed top-level Codex provider configuration;
+- the provider/model/effort actually used by the next request, which requires fresh metadata evidence.
+
+The observation therefore strengthens the requirement for H2 fresh-thread route probing and metadata-only route confirmation before any long Desktop task. UI presentation by itself is not accepted as route proof.
+
 ## Current gate status
 
 ```text
