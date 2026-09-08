@@ -22,6 +22,9 @@ P1.2 native remote V2 compaction macOS live          PASS
 P1.2 same-thread token continuity live               PASS
 P1.2 body-after-prefix anti-thrash migration live    PASS
 P1.2 deterministic staged recovery harness CI #473   PASS
+P1.3 lost-affinity/restart fallback CI #478           PASS
+P1.3 stable identity/stale fencing CI #483           PASS
+P1.3 uncertain tool-effect retry safety CI #486      PASS
 UWA reasoning-effort semantics documented            PASS
 ```
 
@@ -63,7 +66,7 @@ model_auto_compact_token_limit_scope = "body_after_prefix"
 
 Provider switching preserves the user's pre-UWA value and restores it on official mode. The old one-turn guard -> write -> read choreography is no longer treated as the product continuity criterion; a deterministic staged harness now covers those three client-tool steps as separate bounded resumed turns and passed complete CI #473.
 
-P1.2 / M1 is therefore PASS / CLOSED.
+P1.2 / M1 is PASS / CLOSED.
 
 Detailed records:
 
@@ -72,34 +75,52 @@ Detailed records:
 - `docs/CODEX_P1_BODY_AFTER_PREFIX_LIVE_MIGRATION_PASS_2026-09-08.md`
 - `docs/CODEX_P1_REMOTE_V2_RECOVERY_CLOSED_2026-09-08.md`
 
-## Current gate: accelerated P1.3
+## P1.3 closure evidence
 
-Release-critical work has moved to the minimal continuity blockers:
+The accelerated continuity gate was deliberately limited to three correctness blockers. All are now closed:
 
 ```text
-1. lost-affinity / UWA-restart fallback correctness
-2. stable continuation identity / stale-generation fencing
-3. uncertain tool-effect reconciliation before retry
+lost-affinity / UWA restart fallback                 PASS
+stable continuation identity / stale fencing         PASS
+uncertain tool-effect retry safety                   PASS
 ```
 
-P1.3 should stay narrow: only correctness behavior that can lose, duplicate, or mis-associate work blocks the first `main` merge.
+The live Stage F restart already proved real recovery after process-local affinity was lost. Focused regressions now guarantee persisted-history fallback, fail-closed orphan tool output handling, immutable response/conversation binding, conflicting call-id fencing, no retry after a real function call, no retry after response.failed, and bounded repair only before any client tool effect can occur.
+
+Full Security hardening CI runs #478, #483 and #486 passed across public-repo-safety, Ubuntu/macOS and upstream regression jobs.
+
+P1.3 / M2 is PASS / CLOSED.
+
+Detailed closure: `docs/CODEX_P1_3_MINIMAL_CONTINUITY_CLOSED_2026-09-08.md`.
+
+## Current gate: Desktop UI D1-D5
+
+Release-critical work is now at the actual ChatGPT Desktop Codex UI gate:
+
+```text
+D1 real Desktop local tool round trip                    CURRENT
+D2 same Desktop thread continuation                     pending
+D3 full Desktop app restart + history resume            pending
+D4 Desktop + UWA restart + same-thread recovery         pending
+D5 clean official-account restore                       pending
+Medium/High request/page verification                   folded into Desktop gate
+```
+
+CLI/protocol evidence cannot substitute for these scenarios.
 
 ## Accelerated release-critical path
 
 ```text
 M1 P1.2 same-thread post-remote recovery                  PASS / CLOSED
-M2 P1.3 minimal continuity blockers                       CURRENT
-   - lost-affinity/restart fallback correctness
-   - stable identity / stale-generation fencing
-   - uncertain tool-effect reconciliation before retry
-M3 Desktop UI D1-D5 + Medium/High request/page verification
+M2 P1.3 minimal continuity blockers                       PASS / CLOSED
+M3 Desktop UI D1-D5 + Medium/High request/page verification CURRENT
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
 M6 CI green + public-repo safety + docs/provenance/license checks
 M7 branch-topology inspection + merge verified V2 to main
 ```
 
-Moved to post-main hardening unless required by a failure in M2-M6:
+Moved to post-main hardening unless required by a failure in M3-M6:
 
 ```text
 broad P2 concurrency / browser-lease governance
@@ -128,7 +149,7 @@ Detailed semantics: `docs/CODEX_REASONING_EFFORT_SEMANTICS_2026-09-08.md`.
 
 Reviewed/refreshed `yyjeqhc/webcodex`, `Waishnav/devspace`, `XiaoDuoYa/codex-with-chatgpt`, and `alexanderradahl/mac-developer-bridge`. No architecture pivot: official Codex remains the only local executor.
 
-Useful reliability ideas remain tracked for P1.3/post-main hardening, but feature parity with adjacent projects is not a merge blocker.
+Useful reliability ideas remain tracked for post-main hardening, but feature parity with adjacent projects is not a merge blocker.
 
 Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
 
@@ -157,8 +178,8 @@ P1.2 remote V2 implementation/CI                     PASS
 P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact live                      PASS
 P1.2 same-thread post-remote recovery                PASS / CLOSED
-P1.3 minimal continuity blockers                     CURRENT
-Desktop UI D1-D5 + Medium/High verification          pending / mandatory
+P1.3 minimal continuity blockers                     PASS / CLOSED
+Desktop UI D1-D5 + Medium/High verification          CURRENT / mandatory
 real-project long-task pilot                         pending / mandatory
 final regression / safety / docs                     pending / mandatory
 post-main standalone repository extraction           planned
