@@ -29,15 +29,25 @@ post-switch STATUS=HEALTHY
 
 Therefore D5 cannot be marked PASS. A clean official restore requires the managed UWA service to remain stopped after the switch.
 
-## Leading diagnosis
+## Confirmed root cause
 
-`tools/codex_provider_switch.py` currently contains a separate `stop_uwa_listener()` implementation. It verifies listener ownership and stops the listening process, but it does not perform the launcher/supervisor cleanup used by the hardened lifecycle manager.
+Metadata-only process ancestry collected immediately after the failure confirmed the respawn mechanism:
 
-`tools/codex_uwa_lifecycle.py` has the stronger authoritative stop path. It discovers owned launcher candidates from the private pidfile and process ancestry, stops launchers before listeners, requires the port to become empty, escalates fail-closed when required, and removes the stale pidfile.
+```text
+launchd
+  -> repository-owned start.py launcher
+       -> repository-owned main.py TCP 8199 listener
 
-The live symptom is consistent with the weaker provider-switch stop terminating the current listener while an owned launcher/supervisor survives and recreates a new listener.
+private ~/.uwa/uwa.pid -> start.py launcher
+```
 
-This is a leading diagnosis pending local process-parent evidence. The repair should converge official switching on the versioned lifecycle stop implementation rather than maintaining two independent stop semantics.
+The replacement `main.py` listener was a child of the still-running repository `start.py` launcher. The launcher itself was detached under launchd, and the private UWA pidfile still referenced that launcher. This proves that the first official switch stopped only the then-current listening child while leaving the launcher alive, allowing it to recreate the listener.
+
+`tools/codex_provider_switch.py` currently contains a separate `stop_uwa_listener()` implementation. It verifies listener ownership and terminates the listening process, but it does not perform the launcher/supervisor cleanup used by the hardened lifecycle manager.
+
+`tools/codex_uwa_lifecycle.py` already contains the authoritative stop path. It discovers owned launcher candidates from the private pidfile and process ancestry, stops launchers before listeners, requires the port to become empty, escalates fail-closed when required, and removes the stale pidfile.
+
+The release-critical repair is to make official switching reuse the versioned lifecycle stop implementation so provider switching and the installed `codex-uwa-stop` command have one stop contract.
 
 ## Release impact
 
@@ -49,6 +59,6 @@ Desktop D4    PASS / CLOSED
 Desktop D5    BLOCKED / CURRENT
 ```
 
-Do not run the harmless official-route request yet. First collect metadata-only process ancestry evidence, fix the lifecycle duplication, run focused regression tests, and repeat the D5 official restore from a known UWA state.
+Do not run the harmless official-route request yet. First stop the surviving managed launcher through the versioned lifecycle path, fix the lifecycle duplication, run focused regression tests, and repeat the D5 official restore from a known UWA state.
 
 No account identifiers, usage amounts, private prompts, thread ids, browser ids, raw PIDs, cookies, credentials, or private trace contents are recorded here.
