@@ -30,20 +30,19 @@ P1.2 stream/usage + TokenCount                      PASS
 P1.2 native auto-compact trigger/local fallback     PASS
 P1.2 remote capability shim implementation/CI       PASS
 P1.2 remote V2 ordinary Responses implementation/CI PASS
+P1.2 UWA provider precondition live                 PASS
 P1.2 native remote compact macOS live               CURRENT
 Codex Desktop UI live gate                          REQUIRED / pending
 ```
 
-当前主线仍在 P1 production hardening。Codex 0.153.4 的 remote compaction V2 普通 Responses 协议已经实现并通过 CI #380：请求在 `/v1/responses` 输入末尾携带 `compaction_trigger`，UWA 返回恰好一个 `type=compaction` item，并能在后续客户端重放的 compacted history 中恢复 UWA 自己的 bounded opaque envelope。
-
-当前单一 gate 是在真实 macOS Codex 0.153.4 上启用 fail-closed Azure-name capability helper，验证 native remote compaction；通过后再做 same-thread post-remote recovery。
+当前主线已经从基础 tool-loop 验收进入 P1 production hardening。Codex 0.153.4 remote compaction V2 的普通 Responses 协议实现和 CI 已经完成，UWA provider 前置条件也已在真实 macOS 环境通过。当前唯一 gate 是启用 fail-closed Azure-name capability shim 后运行 native remote-compaction live probe。
 
 详细记录：
 
+- `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md`
 - `docs/CODEX_P1_REMOTE_V2_PROTOCOL_GAP_2026-09-08.md`
 - `docs/CODEX_P1_REMOTE_COMPACTION_CAPABILITY_AUDIT_2026-09-08.md`
 - `docs/CODEX_P1_AUTO_COMPACT_TRIGGER_LIVE_PASS_2026-09-08.md`
-- `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`
 
 ## 架构
 
@@ -255,7 +254,7 @@ Codex 0.153.4 remote compaction V2 的真实路径是：
 → encrypted_content=<opaque transport payload>
 ```
 
-这条普通 Responses 协议已经实现并通过 CI #380。UWA 使用自己可验证、有限大小、带完整性校验的 opaque envelope 做本地兼容状态，不宣称它是 OpenAI encryption；foreign/corrupt/oversized envelope fail closed。当前只差真实 macOS native remote-compaction 和 compact 后同线程恢复验收。
+该普通 Responses V2 路径已完成实现和 CI。UWA 使用自己可验证、有限大小的 opaque envelope 做本地兼容状态，不宣称它是 OpenAI encryption。当前正在进行真实 macOS native remote-compaction live gate。
 
 ## Codex Memories
 
@@ -329,7 +328,8 @@ aggregate A-F checker                    PASS
 P1.1 legacy Responses compact            PASS
 P1.2 stream / usage / TokenCount         PASS
 P1.2 native auto-compact local fallback  PASS
-P1.2 remote V2 implementation / CI       PASS
+P1.2 remote V2 implementation/CI         PASS
+P1.2 UWA provider precondition live      PASS
 P1.2 native remote compact macOS live    CURRENT
 Desktop UI D1-D5                         pending / mandatory
 ```
@@ -342,12 +342,9 @@ Desktop UI D1-D5                         pending / mandatory
 P1.2 native remote compact macOS live
 → same-thread post-remote recovery
 → P1.3 lost-affinity / restart + identity fencing + uncertain-effect recovery
-→ P2 concurrency planes + browser lease/generation fencing
-→ P3 protocol/schema/capability hardening
 → Desktop UI D1-D5 live acceptance
-→ real-project long-task pilot with independent diff/test/tool evidence review
-→ P4-P5 diagnostics / preflight / final production hardening
-→ final release gate
+→ real-project long-task pilot
+→ P2-P5 production hardening / final release gate
 ```
 
 不为了阶段性状态频繁重写 README。详细阶段结果、失败、诊断、实验数据和 checkpoint 应写入 `docs/`，README 只做长期稳定入口。
@@ -387,15 +384,9 @@ V2 研究并借鉴了以下公开项目的设计思路：
 - `lininn/codex-proxy`：Responses translation 分层，MIT。
 - `mehdic/codex-proxy`：sticky session、TTL、queue、SSE keepalive，MIT。
 - OpenAI `codex-responses-api-proxy`：Responses 协议诊断和 paired private dumps，Apache-2.0。
-- `yyjeqhc/webcodex`：identity/fencing/uncertain-effect/concurrency/schema discipline，Apache-2.0。
-- `Waishnav/devspace`：workspace roots、doctor/preflight、protocol-edge normalization，MIT。
-- `XiaoDuoYa/codex-with-chatgpt`：control/data-plane separation、independent execution review，MIT。
-- `alexanderradahl/mac-developer-bridge`：browser lease lifecycle、audit/disable、page-runtime transport research，MIT。
+- `yyjeqhc/webcodex`、`Waishnav/devspace`、`XiaoDuoYa/codex-with-chatgpt`、`alexanderradahl/mac-developer-bridge`：身份/lease、MCP/证据治理、doctor/preflight 与 ChatGPT coding bridge 可靠性参考。
 
-详细来源、许可证、借鉴内容和差异见：
-
-- `docs/REFERENCES_AND_ATTRIBUTION.md`
-- `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`
+详细来源、许可证、借鉴内容和差异见 `docs/REFERENCES_AND_ATTRIBUTION.md`。
 
 当前 V2 新增代码根据这些设计原则独立实现，没有直接复制上述参考项目的源文件。仓库继续保留 upstream Git history 和既有 AGPL-3.0 许可证义务。
 
