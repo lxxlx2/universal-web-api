@@ -24,8 +24,11 @@ P1.2 native remote V2 compaction macOS live          PASS
 P1.2 same-thread post-remote token continuity live   PASS
 P1.2 body-after-prefix anti-thrash migration live    PASS
 P1.2 deterministic staged recovery harness CI        PASS (#473)
+P1.3 lost-affinity/restart fallback                  PASS (#478)
+P1.3 stable identity/stale fencing                   PASS (#483)
+P1.3 uncertain tool-effect retry safety              PASS (#486)
 UWA reasoning-effort semantics documented            PASS
-Codex Desktop UI live gate                           REQUIRED / pending
+Codex Desktop UI live gate                           CURRENT / REQUIRED
 ```
 
 ## P1.2 native remote V2 compaction: CLOSED
@@ -65,17 +68,34 @@ Detailed records:
 
 P1.2 / merge-critical M1 is PASS / CLOSED.
 
-## Current gate: P1.3 minimal continuity blockers
+## P1.3 minimal continuity blockers: CLOSED
 
-Accelerated P1.3 is now the active merge-critical gate. It intentionally covers only correctness blockers that can corrupt or duplicate work across restart/lost-affinity boundaries:
+Accelerated P1.3 was intentionally limited to correctness blockers that could corrupt, duplicate or mis-associate work across restart/lost-affinity boundaries. All three are now closed:
 
 ```text
-1. lost-affinity / UWA-restart fallback correctness
-2. stable continuation identity / stale-generation fencing
-3. uncertain tool-effect reconciliation before retry
+lost-affinity / UWA-restart fallback correctness          PASS
+stable continuation identity / stale-generation fencing   PASS
+uncertain tool-effect reconciliation before retry          PASS
 ```
 
-Broad concurrency governance, browser lease frameworks, MCP normalization and productized doctor/preflight remain post-main unless one of these three blockers proves they are required.
+Evidence includes the real Stage F UWA restart recovery, focused fallback regressions, immutable response/conversation binding, conflicting call-id fencing, bounded required-tool retry rules and full Security hardening CI runs #478, #483 and #486.
+
+Broad concurrency governance, browser lease frameworks, MCP normalization and productized doctor/preflight remain post-main unless a later live gate proves they are required.
+
+Detailed closure: `docs/CODEX_P1_3_MINIMAL_CONTINUITY_CLOSED_2026-09-08.md`.
+
+## Current gate: Desktop UI D1-D5
+
+The active merge-critical gate is now real ChatGPT Desktop Codex validation on macOS. CLI evidence cannot substitute for this gate.
+
+```text
+D1 real Desktop local tool round trip                    CURRENT
+D2 same Desktop thread continuation                     pending
+D3 full Desktop app restart + history resume            pending
+D4 Desktop + UWA restart + same-thread recovery         pending
+D5 clean official-account restore                       pending
+Medium/High request -> ChatGPT Web verification         folded into Desktop gate
+```
 
 ## Accelerated main-merge path
 
@@ -85,11 +105,8 @@ Merge-blocking sequence:
 
 ```text
 M1 P1.2 same-thread post-remote recovery                  PASS / CLOSED
-M2 P1.3 minimal continuity blockers                       CURRENT
-   - lost-affinity/restart fallback correctness
-   - stable identity / stale-generation fencing
-   - uncertain tool-effect reconciliation before retry
-M3 Desktop UI D1-D5
+M2 P1.3 minimal continuity blockers                       PASS / CLOSED
+M3 Desktop UI D1-D5                                      CURRENT
    - real Desktop local tool round trip
    - same-thread continuation
    - Desktop restart/history resume
@@ -134,7 +151,7 @@ Detailed record: `docs/CODEX_REASONING_EFFORT_SEMANTICS_2026-09-08.md`.
 
 Reviewed/refreshed references include `yyjeqhc/webcodex`, `Waishnav/devspace`, `XiaoDuoYa/codex-with-chatgpt`, and `alexanderradahl/mac-developer-bridge`.
 
-Decision: no architecture pivot. Official Codex remains the only local executor. Useful reliability ideas are tracked for P1.3/post-main hardening, but adjacent-project feature parity does not enter the current release-critical path.
+Decision: no architecture pivot. Official Codex remains the only local executor. Useful reliability ideas are tracked for post-main hardening, but adjacent-project feature parity does not enter the current release-critical path.
 
 Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
 
@@ -165,8 +182,8 @@ P1.2 remote V2 ordinary Responses implementation/CI  PASS
 P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact macOS live                PASS
 P1.2 same-thread post-remote recovery                PASS / CLOSED
-P1.3 minimal continuity blockers                     CURRENT
-Desktop UI D1-D5 + Medium/High verification          pending / mandatory
+P1.3 minimal continuity blockers                     PASS / CLOSED
+Desktop UI D1-D5 + Medium/High verification          CURRENT / mandatory
 real-project pilot                                   pending / mandatory
 final regression/safety/docs                         pending / mandatory
 post-main standalone repository extraction           planned
