@@ -119,8 +119,8 @@ UWA_ROOT_CONTRACT=PASS
 UWA_PROVIDER_CONTRACT=PASS
 MODEL_SPECIFIC_OVERRIDES_CLEARED=YES
 RESTORE_STATE=PRESENT
-OLD_PID=67555
-NEW_PID=29522
+OLD_PID=<old-listener>
+NEW_PID=<different-new-listener>
 LISTENER_REPLACED=YES
 HEALTH=PASS
 SERVICE=healthy
@@ -133,16 +133,10 @@ UWA_RESTORE_STATE=PRESENT
 VERSIONED_PROVIDER_SWITCH_LIVE_PASS
 ```
 
-The local focused pytest command in that operator script did **not** run because the checked-out venv did not contain pytest:
-
-```text
-/Users/jerson/universal-web-api/venv/bin/python: No module named pytest
-```
-
-The following unconditional `echo FOCUSED_TESTS=PASS` was therefore a harness-command false positive and is not counted as local test evidence. This does not invalidate the gate because the same provider/wrapper regression suite was already covered by successful CI #289, while the real macOS switch/restart/health semantics were independently exercised live.
+The local focused pytest command in that operator script did **not** run because the checked-out venv did not contain pytest. The following unconditional `echo FOCUSED_TESTS=PASS` was therefore a harness-command false positive and is not counted as local test evidence. This does not invalidate the gate because the same provider/wrapper regression suite was already covered by successful CI #289, while the real macOS switch/restart/health semantics were independently exercised live.
 
 ## Conclusion
 
 The final known Git-external executable dependency in the normal UWA entry path is closed. `~/.uwa/config_switch.py` may remain on disk as legacy private state, but versioned operation does not depend on it.
 
-Current development gate moves to P1.2 native Codex large-context compaction / stress / recovery.
+Live process identifiers are intentionally redacted in the public record; the proof is listener replacement/ownership/health, not a machine-local PID value.
