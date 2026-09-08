@@ -18,6 +18,7 @@ P1.2 native auto-compact trigger/local fallback live PASS
 P1.2 remote capability shim implementation/CI #351   PASS
 P1.2 remote V2 implementation/CI #380                PASS
 P1.2 UWA provider precondition live                  PASS
+UWA reasoning-effort semantics documented            PASS
 ```
 
 ## Native trigger live evidence
@@ -108,6 +109,20 @@ Records:
 - `docs/CODEX_P1_REMOTE_V2_LIVE_PRECONDITION_FAILURE_2026-09-08.md` — initial invalid attempt plus closed transient DNS blocker;
 - `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md` — successful UWA-mode precondition gate.
 
+## Reasoning effort
+
+The current bridge supports two real web reasoning modes, not three equivalent UI positions:
+
+```text
+High    supported and the managed UWA default
+Medium  supported when the Responses request carries medium
+Low     unsupported / fail closed
+```
+
+UWA applies Medium/High to ChatGPT Web and verifies the selected page state. The visual Codex Desktop slider alone is not proof that a reasoning change reached UWA. Add explicit Medium/High request+page verification to the Desktop gate.
+
+Detailed semantics: `docs/CODEX_REASONING_EFFORT_SEMANTICS_2026-09-08.md`.
+
 ## External reference refresh
 
 Reviewed/refreshed on 2026-09-08:
@@ -133,9 +148,32 @@ P5 optional first-party ChatGPT page-runtime submission research
 
 Detailed review: `docs/EXTERNAL_CODING_BRIDGE_REVIEW_2026-09-08.md`.
 
+## Repository cleanup / standalone plan
+
+The current repository is an actual fork of `lumingya/universal-web-api` and legitimately reuses upstream AGPL-3.0 browser/API/runtime code. The V2 branch also adds substantial project-specific Codex bridge implementation. The standalone project should say this clearly; no clean-room rewrite is required.
+
+Do not prune the current fork during hardening. The standalone extraction begins only after the verified V2 release candidate is merged to `main`.
+
+Planned post-main phases:
+
+```text
+S1 dependency/import audit + core manifest
+S2 create clearer standalone repository
+   - retain actually required upstream-derived runtime
+   - retain AGPL/license/copyright attribution
+   - add explicit UPSTREAM/attribution documentation
+   - exclude unrelated generic UWA surface only when dependency proof allows
+S3 rerun full CI + CLI/Desktop/live parity acceptance
+S4 publish first standalone research release
+```
+
+The old fork remains available as development/provenance history at least through the first stable standalone release.
+
+Detailed plan: `docs/POST_MAIN_STANDALONE_REPOSITORY_PLAN_2026-09-08.md`.
+
 ## Current gate: native remote compact macOS live
 
-The UWA provider precondition is now green. The next valid run enables the narrow Azure-name compatibility shim and immediately verifies that every managed provider field except `name` remains unchanged before launching the remote-V2-specific small-step probe.
+The UWA provider precondition is green and the live probe is currently being executed against the managed UWA provider + narrow Azure-name capability shim.
 
 Required output:
 
@@ -162,7 +200,21 @@ P1.2 UWA provider precondition live                  PASS
 P1.2 native remote compact live                      CURRENT
 P1.2 same-thread post-remote recovery                pending
 P1.3 affinity/restart/uncertain-effect               pending
+Desktop Medium/High reasoning verification           pending / UI gate
 Desktop UI live gate D1-D5                           pending / mandatory
+post-main standalone repository extraction            planned
+```
+
+## Release and extraction order
+
+```text
+current P1.2 → P1.3 → P2-P5 → Desktop D1-D5 → real-project pilot
+→ final regression / public-repo safety / docs
+→ merge verified V2 to main
+→ S1 core dependency audit
+→ S2 standalone attributed extraction
+→ S3 parity acceptance
+→ S4 standalone research release
 ```
 
 ## Recording discipline
