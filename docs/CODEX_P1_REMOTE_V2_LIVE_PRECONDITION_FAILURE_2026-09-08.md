@@ -2,7 +2,7 @@
 
 ## Classification
 
-This attempt is **INVALID PRECONDITION**, not a remote-compaction protocol failure.
+The first attempt is **INVALID PRECONDITION**, not a remote-compaction protocol failure.
 
 Observed live output:
 
@@ -27,7 +27,7 @@ The fail-closed capability helper behaved correctly: it refused to modify the Co
 
 The probe therefore did not execute under the intended UWA provider contract. Its final `seed_contract` failure cannot be used to evaluate native remote compaction V2.
 
-No conclusion about the remote V2 protocol implementation should be drawn from this run.
+No conclusion about the remote V2 protocol implementation should be drawn from that run.
 
 ## Incidental shell issue
 
@@ -37,46 +37,53 @@ The pasted zsh command contained standalone `#` comment lines. The user's intera
 zsh: command not found: #
 ```
 
-This did not cause the provider precondition failure, but future operator commands should avoid standalone comment lines or explicitly enable interactive comments.
+This did not cause the provider precondition failure. Future operator commands avoid standalone comment lines.
 
-## Operator network transient before precondition retry
+## Subsequent transient network blocker
 
-The first retry command stopped at `git pull --ff-only` before any UWA/provider mutation because the local Mac could not resolve GitHub DNS:
+Before the corrective UWA-mode precondition run, a separate operator attempt stopped at:
 
 ```text
-fatal: unable to access 'https://github.com/lxxlx2/universal-web-api.git/': Could not resolve host: github.com
+fatal: unable to access 'https://github.com/lxxlx2/universal-web-api.git/':
+Could not resolve host: github.com
 ```
 
-Classification: **operator-network transient / no product signal**.
+The command used `set -e`, so it exited at `git pull --ff-only` before executing the provider switch, memory guard, UWA config verification, health check, capability shim, or any Codex acceptance turn.
 
-At failure time Git had already reported that the local branch was on `codex-web-bridge-v2` and up to date with its currently known `origin/codex-web-bridge-v2`. Because the shell was running with `set -e`, no later provider-switch, memory-guard, contract verification, or remote-compaction probe step executed.
+This is classified **OPERATOR NETWORK / DNS TRANSIENT**, not a UWA/Codex product failure and not a remote-compaction protocol attempt.
 
-The next action is therefore only to confirm DNS/HTTPS access to GitHub and complete a fast-forward pull. Do not run the UWA/provider precondition sequence until network reachability is restored.
+## Resolution
 
-## Valid next gate
+The intended corrective precondition run was then rerun successfully. Current evidence is recorded separately in:
 
-Before rerunning the native remote-compaction probe:
+- `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md`
 
-1. confirm local GitHub DNS/HTTPS reachability and complete `git pull --ff-only`;
-2. explicitly switch the versioned Codex config into UWA mode;
-3. verify `model_provider = "uwa"` and the managed UWA root/provider contract;
-4. enable the fail-closed remote-compaction capability shim;
-5. verify only the provider display name changed to `Azure`;
-6. use a fresh Codex CLI process for the remote V2 probe.
-
-The UWA listener itself was healthy during the invalid attempt:
+Key resolution markers:
 
 ```text
+MODEL_PROVIDER_UWA=YES
+MODEL_CHATGPT=YES
+REASONING_HIGH=YES
+APPROVAL_ON_REQUEST=YES
+SANDBOX_WORKSPACE_WRITE=YES
+PROVIDER_NAME_BASELINE=YES
+LOOPBACK_BASE_URL=YES
+WIRE_API_RESPONSES=YES
+OPENAI_AUTH_DISABLED=YES
+WEBSOCKETS_DISABLED=YES
+UWA_PROVIDER_CONTRACT_PASS=YES
 SERVICE=healthy
 BROWSER_CONNECTED=True
 HEALTH_PASS=YES
+UWA_REMOTE_V2_PRECONDITION_PASS
 ```
 
 ## Gate status
 
 ```text
 P1.2 remote V2 implementation/CI             PASS
-P1.2 native remote compact macOS attempt #1  INVALID PRECONDITION
-precondition retry #1                        BLOCKED: operator GitHub DNS
+P1.2 native remote compact attempt #1        INVALID PRECONDITION
+P1.2 transient GitHub DNS blocker            CLOSED / non-product
+P1.2 UWA provider precondition live          PASS
 P1.2 native remote compact macOS live        CURRENT
 ```
