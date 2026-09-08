@@ -46,6 +46,7 @@ jobs:
           tools/codex_large_context_live.py
           tools/codex_auto_compact_trigger_probe.py
           tools/codex_remote_compaction_trigger_probe.py
+          tools/codex_remote_compaction_recovery.py
           tools/codex_remote_compaction_compat.py
           app/services/client_tool_policy.py
           app/services/tool_calling.py
