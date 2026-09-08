@@ -26,12 +26,17 @@ from app.services.codex_required_tool_language_patch import (
 from app.services.codex_workspace_refusal_language_patch import (
     install_codex_workspace_refusal_language_patch,
 )
+from app.services.codex_remote_compaction_v2 import install_codex_remote_compaction_v2
 from app.services.codex_v2_runtime_hardening import install_codex_v2_runtime_hardening
 from app.services.codex_stream_compat import install_codex_stream_compat
 
 
 install_codex_required_tool_language_patch()
 install_codex_workspace_refusal_language_patch()
+
+# Install the remote-compaction V2 protocol shim before the generic runtime
+# wrappers so hardening and stream compatibility wrap its specialized stream.
+install_codex_remote_compaction_v2()
 
 # Install the transport boundary after the V2 module is imported and before the
 # first request can reach its router. Optional tracing/persistence/affinity
@@ -49,8 +54,8 @@ router = APIRouter()
 
 # Codex 路由顺序是协议的一部分：
 # - codex_compat 负责 Codex 专用模型目录；
-# - codex_compact 负责 unary /v1/responses/compact；
-# - codex_responses_v2 先执行 V2 观测与“明确要求工具”协议约束；
+# - codex_compact 负责 legacy unary /v1/responses/compact；
+# - codex_responses_v2 负责普通 Responses V2、远程 compaction trigger、观测与工具约束；
 # - codex_responses 保留已验证的 ChatGPT Web/Responses 实现作为底层；
 # - 通用 chat_router 最后兜底其他 OpenAI-compatible 请求。
 router.include_router(codex_compat_router)
