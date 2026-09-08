@@ -125,7 +125,10 @@ HEALTH_PASS=YES
 UWA_REMOTE_V2_PRECONDITION_PASS
 ```
 
-Record: `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md`.
+Records:
+
+- `docs/CODEX_P1_REMOTE_V2_LIVE_PRECONDITION_FAILURE_2026-09-08.md` — initial invalid attempt plus closed transient DNS blocker;
+- `docs/CODEX_P1_REMOTE_V2_PRECONDITION_LIVE_PASS_2026-09-08.md` — successful UWA-mode precondition gate.
 
 ## Current gate: native remote compaction macOS live
 
