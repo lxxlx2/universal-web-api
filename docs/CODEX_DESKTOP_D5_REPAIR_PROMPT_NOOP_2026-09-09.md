@@ -31,6 +31,28 @@ Retry the repair in a fresh local Codex Desktop conversation. Combine the worksp
 
 The retry instruction must explicitly require the agent to continue immediately after confirming the expected local path and branch, and must prohibit replying with `LOCAL_WORKSPACE_OK` or stopping after the environment check.
 
+## Subsequent pre-wire stall observation
+
+A later fresh Desktop retry showed `Thinking` for several minutes while the connected ChatGPT browser composer visibly contained an unsent tool-output-format reminder. During that retry, a post-marker metadata audit reported:
+
+```text
+configured route = uwa / chatgpt / high
+UWA health = healthy
+browser connected = yes
+post-marker UWA wire requests = 0
+post-marker UWA wire responses = 0
+working tree = clean
+```
+
+The all-recent trace still ended on an earlier `completed` request. Therefore the visible browser composer state is not accepted as proof that the current Desktop retry crossed the UWA wire boundary. The retry is classified as a pre-wire or pre-capture stall until additional evidence says otherwise.
+
+Operational rule for this state:
+
+- do not click the browser send button manually
+- do not assume a model turn or local tool side effect occurred
+- cancel the stalled Desktop turn only after confirming zero post-marker wire activity and a clean working tree
+- restart the managed UWA/Desktop lifecycle before retrying with a tiny local probe
+
 The repair remains release-critical:
 
 ```text
