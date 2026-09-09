@@ -548,8 +548,93 @@ class WorkflowExecutorSendMixin:
             logger.debug(f"[SEND] Arena 主动打断执行异常: {exc}")
             return False
 
+    def _chatgpt_composer_send_ready(self, send_selector: str) -> bool:
+        """Return True when ChatGPT's active composer exposes a real ready send button."""
+        tab = getattr(self, "tab", None)
+        if tab is None or not hasattr(tab, "run_js"):
+            return False
+
+        current_url = str(getattr(tab, "url", "") or "").lower()
+        if "chatgpt.com" not in current_url:
+            return False
+
+        selector = self._to_query_selector(send_selector) or '[data-testid="send-button"]'
+        selector_json = json.dumps(selector, ensure_ascii=False)
+
+        js = r"""
+        return (function() {
+            try {
+                const selector = __SELECTOR_JSON__;
+                const btn = document.querySelector(selector);
+                if (!btn) {
+                    return {ready: false, reason: 'send_button_missing'};
+                }
+
+                const style = window.getComputedStyle ? window.getComputedStyle(btn) : null;
+                const rect = btn.getBoundingClientRect ? btn.getBoundingClientRect() : null;
+                const visible = (
+                    (!style || (style.display !== 'none' && style.visibility !== 'hidden'))
+                    && (!rect || (rect.width > 0 && rect.height > 0))
+                );
+
+                const disabled = (
+                    !!btn.disabled
+                    || (
+                        btn.getAttribute
+                        && btn.getAttribute('aria-disabled') === 'true'
+                    )
+                );
+
+                const meta = [
+                    btn.getAttribute ? btn.getAttribute('aria-label') : '',
+                    btn.getAttribute ? btn.getAttribute('title') : '',
+                    btn.getAttribute ? btn.getAttribute('data-testid') : '',
+                    btn.className || '',
+                    btn.innerText || '',
+                    btn.textContent || ''
+                ].join(' ').toLowerCase();
+
+                const stopLike = (
+                    /\bstop\b|\bstopping\b|\bcancel\b|\babort\b/.test(meta)
+                    || /停止|中止|取消/.test(meta)
+                );
+
+                const testid = btn.getAttribute
+                    ? String(btn.getAttribute('data-testid') || '')
+                    : '';
+
+                return {
+                    ready: visible && !disabled && !stopLike && testid === 'send-button',
+                    visible: visible,
+                    disabled: disabled,
+                    stopLike: stopLike,
+                    testid: testid
+                };
+            } catch (error) {
+                return {ready: false, reason: String(error)};
+            }
+        })();
+        """.replace("__SELECTOR_JSON__", selector_json)
+
+        try:
+            state = tab.run_js(js) or {}
+        except Exception as exc:
+            logger.debug(f"[SEND] ChatGPT composer readiness probe failed: {exc}")
+            return False
+
+        ready = bool(state.get("ready"))
+        if ready:
+            logger.info(
+                "[SEND] ChatGPT composer send button is ready; "
+                "ignoring unrelated page-level stop/streaming indicators"
+            )
+        return ready
+
     def _wait_for_send_idle_before_action(self, send_selector: str) -> bool:
         """Wait out or interrupt generation owned by an earlier action before submitting this prompt."""
+        if self._chatgpt_composer_send_ready(send_selector):
+            return True
+
         state = self._probe_send_post_click_state(send_selector)
         if not self._is_send_post_click_confirmed(state):
             return True
