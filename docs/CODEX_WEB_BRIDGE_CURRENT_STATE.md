@@ -28,6 +28,7 @@ P1.3 uncertain tool-effect retry safety               PASS / CLOSED
 Hybrid H0 metadata route audit                        PASS / CI
 Hybrid H1 exact route/model/effort guard              PASS / CI
 Hybrid H2 fresh Desktop route probe                   PASS / LIVE / CLOSED
+ChatGPT idle-composer send repair                     PASS / LIVE
 Desktop D1 real local-tool round trip                 PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
@@ -47,7 +48,7 @@ Release-critical hybrid scope:
 H0 metadata-only route audit helper                   PASS
 H1 explicit route intent + fail-closed quality floor  PASS
 H2 tiny fresh-thread route probe                      PASS
-H3 explicit official -> UWA stateful handoff          CURRENT; official source half PASS
+H3 explicit official -> UWA stateful handoff          CURRENT; source half PASS; client-tool + metadata-helper blockers
 H4 private metadata-only transition ledger            marker foundation present
 H5 synthetic hybrid acceptance                        pending
 ```
@@ -81,7 +82,11 @@ The repaired lifecycle rerun then passed at T+0, T+3, T+10 and T+20 with zero re
 
 After official Codex allowance became available again, a fresh actual Codex Desktop conversation completed a bounded synthetic local task through the restored official route. The signed-in account picker exposed GPT-6 Astra. Authoritative local session metadata recorded `openai / gpt-6-astra / low`, matching the selected Light reasoning tier. The independent checker proved the official source effect occurred exactly once, UWA remained unavailable by design, and post-marker UWA wire activity was zero. Route expectation for `provider=openai` passed. This closes D5 and the Desktop D1-D5 gate.
 
-The synthetic official workspace diff is intentionally preserved as the source state for H3. H3 must now switch to UWA, open a fresh UWA Desktop thread in the same workspace, inspect the durable existing diff, append exactly one UWA continuation effect and prove the official effect remains exactly once.
+The synthetic official workspace diff is intentionally preserved as the source state for H3. H3 must switch to UWA, open a fresh UWA Desktop thread in the same workspace, inspect the durable existing diff, append exactly one UWA continuation effect and prove the official effect remains exactly once.
+
+During H3 recovery work, a direct High Responses probe reproduced the long stall even with Codex CLI bypassed. The controlled ChatGPT page showed that UWA had filled the composer but had not submitted the message because generic page-level stop/streaming detection falsely classified the idle composer as an old active generation. Commit `1dac853` added a narrow ChatGPT idle-composer readiness check. The same direct High probe then returned the expected model text, emitted `response.completed`, returned the browser tab to idle and left zero running requests. This closes the browser-send/SSE blocker.
+
+A tiny `codex exec` probe after the send repair also reached `turn.completed` without the former five-minute stream disconnect. The controlled web turn then reported that the expected `exec_command` client tool was unavailable, so no local tool call occurred. H3 therefore remains open while metadata-only wire evidence determines whether the client tool is absent from the Codex request, present but not exposed to the ChatGPT Web turn, or present with required-tool detection missed. The earlier hidden title/description metadata-helper interference also remains to be isolated before H3 can close.
 
 Detailed records:
 
@@ -92,6 +97,8 @@ Detailed records:
 - `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
+- `docs/CODEX_H3_METADATA_HELPER_INTERFERENCE_2026-09-09.md`
+- `docs/CODEX_DIRECT_HIGH_BROWSER_STALL_2026-09-09.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Current release-critical path
@@ -99,7 +106,7 @@ Detailed records:
 ```text
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
-M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 source half PASS
+M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 source half PASS, tool-exposure diagnosis current
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
 M4 one real-project long-task pilot                   pending
 M5 final A-F + compaction + restart regression        pending
