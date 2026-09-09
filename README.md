@@ -36,17 +36,20 @@ P1.2 same-thread post-remote recovery               PASS / CLOSED
 P1.3 minimal continuity blockers                    PASS / CLOSED
 Hybrid H0 route audit                               PASS / CI
 Hybrid H1 route/model/effort guard                  PASS / CI
-Hybrid H2 fresh Desktop route probe                 PASS / LIVE
-Hybrid H3-H5                                        CURRENT / mandatory
+Hybrid H2 fresh Desktop route probe                 PASS / LIVE / CLOSED
+ChatGPT idle-composer send repair                   PASS / LIVE
+Hybrid H3                                           CURRENT / source PASS
+Hybrid H4-H5                                        pending
 Codex Desktop D1                                    PASS / LIVE / CLOSED
 Codex Desktop D2                                    PASS / LIVE / CLOSED
 Codex Desktop D3                                    PASS / LIVE / CLOSED
 Codex Desktop D4                                    PASS / LIVE / CLOSED
-Codex Desktop D5 lifecycle                          PASS / LIVE
-Codex Desktop D5 final official request             pending quota availability
+Codex Desktop D5                                    PASS / LIVE / CLOSED
 ```
 
-Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。fresh Desktop probe 实机证明了 `uwa / chatgpt / high` 的新线程路由，包含健康的 UWA/browser 状态、marker 后真实 UWA request/response 和 exact route expectation PASS。随后 Desktop D1-D4 已完成实机验收，覆盖真实本地工具、多轮上下文、Desktop 重启恢复以及 Desktop + UWA 双重重启恢复。Desktop D5 首次 official restore 暴露 `start.py` launcher 遗留并导致 `main.py` respawn 的生命周期缺陷；该缺陷已完成代码修复、18 项 focused regression 和 GitHub CI，修复后的 live rerun 在 T+0、T+3、T+10、T+20 均确认 launcher、listener、TCP 8199 与 pidfile 持续消失。当前 D5 只剩官方额度可用后的一次 harmless official-provider request。H3-H5 仍作为 `main` 前的最小 Hybrid Routing Safety 工作。
+Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continuity blockers 已完成。fresh Desktop probe 实机证明了 `uwa / chatgpt / high` 的新线程路由，随后 Desktop D1-D5 已完成实机验收，覆盖真实本地工具、多轮上下文、Desktop 重启恢复、Desktop + UWA 双重重启恢复，以及 official provider 的干净恢复与一次 bounded harmless task。
+
+H3 的 official source half 已通过并保留。H3 UWA 侧随后先暴露隐藏 title/description metadata helper 干扰，又暴露 ChatGPT idle composer 被通用页面级 stop/streaming 探测误判的问题。后者已经由 commit `1dac853` 修复，并通过 direct High 真实浏览器链路验证：prompt 实际发送、目标模型文本返回、`response.completed` 出现、浏览器回到 idle、running request 清零。修复后的 tiny `codex exec` 也不再出现此前的五分钟 stream disconnect；当前 release-critical blocker 已收敛到 `exec_command` 客户端工具在真实 UWA agent turn 中的暴露/required-tool 路径，以及 metadata helper 与 agent turn 的隔离。
 
 详细记录：
 
@@ -56,7 +59,9 @@ Codex 0.153.4 的 native remote V2 compaction、同线程恢复和最小 continu
 - `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`
 - `docs/CODEX_HYBRID_H2_FRESH_ROUTE_PROBE_PASS_2026-09-08.md`
 - `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`
-- `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
+- `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
+- `docs/CODEX_H3_METADATA_HELPER_INTERFERENCE_2026-09-09.md`
+- `docs/CODEX_DIRECT_HIGH_BROWSER_STALL_2026-09-09.md`
 - `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`
 
 ## 快速开始
@@ -387,14 +392,15 @@ P1.2 native remote compact macOS live    PASS
 P1.2 post-remote same-thread recovery    PASS / CLOSED
 P1.3 minimal continuity                  PASS / CLOSED
 Hybrid H0-H2                             PASS
-Hybrid H3-H5                             CURRENT / mandatory
-Desktop reasoning Medium/High            pending / part of UI gate
-Desktop UI D1                            PASS / LIVE / CLOSED
-Desktop UI D2                            PASS / LIVE / CLOSED
-Desktop UI D3                            PASS / LIVE / CLOSED
-Desktop UI D4                            PASS / LIVE / CLOSED
-Desktop UI D5 lifecycle                  PASS / LIVE
-Desktop UI D5 final official request     pending quota availability
+ChatGPT idle-composer send repair        PASS / LIVE
+Hybrid H3                               CURRENT / source PASS
+Hybrid H4-H5                            pending
+Medium/High request/page verification   PASS
+Desktop UI D1                           PASS / LIVE / CLOSED
+Desktop UI D2                           PASS / LIVE / CLOSED
+Desktop UI D3                           PASS / LIVE / CLOSED
+Desktop UI D4                           PASS / LIVE / CLOSED
+Desktop UI D5                           PASS / LIVE / CLOSED
 ```
 
 操作验收脚本时不要把任务文本写入 zsh 特殊变量，例如 `PROMPT`、`PS1` 或 `PATH`。需要保存 prompt 时使用普通变量名，例如 `ACCEPTANCE_PROMPT`。
@@ -406,14 +412,16 @@ Desktop UI D5 final official request     pending quota availability
 ```text
 P1.2 same-thread post-remote recovery          PASS / CLOSED
 → P1.3 最小 continuity blockers               PASS / CLOSED
-→ Hybrid Routing Safety H0-H5                 H0-H2 PASS / H3-H5 CURRENT
-→ Desktop UI D1-D5 + Medium/High reasoning    D1-D4 PASS / D5 lifecycle PASS / final official request pending
+→ Hybrid Routing Safety H0-H5                 H0-H2 PASS / H3 CURRENT / H4-H5 pending
+→ Desktop UI D1-D5                            PASS / LIVE / CLOSED
 → 一个 real-project long-task pilot
 → final A-F / compaction / restart regression
 → CI + public-repo safety + docs/provenance/license
 → inspect branch topology
 → merge verified V2 to main
 ```
+
+当前 H3 的 immediate blocker 是真实 UWA agent turn 的客户端工具暴露/required-tool 诊断，同时还需完成 metadata helper 与 agent turn 的隔离。浏览器发送卡死已经通过 `1dac853` 和 direct High live rerun 关闭。
 
 广义 P2 concurrency/governance、P3 MCP/schema normalization、P4 evidence framework、P5 doctor/preflight 和可选 first-party page-runtime research 移到 `main` 之后继续，除非剩余 live gate 证明某一项必须提前修。
 
