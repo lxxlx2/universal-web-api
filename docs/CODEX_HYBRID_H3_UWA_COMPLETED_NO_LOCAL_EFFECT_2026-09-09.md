@@ -1,48 +1,29 @@
-# Hybrid H3 UWA continuation completed without local effect — 2026-09-09
+# Codex Hybrid H3 UWA Completed With No Local Effect — 2026-09-09
 
-## Classification
+## Status
 
-H3 remains OPEN. The official source half previously passed. The first UWA continuation attempt reached the intended `uwa / chatgpt / high` route and produced a completed UWA Responses result, but the required local continuation effect was not applied.
+Historical failure record. H3 remains CURRENT.
 
-## Live evidence
+The first UWA-side continuation attempt after the accepted official source half completed at the UWA Responses layer but did not create the expected local continuation effect. The synthetic source state remained unchanged.
 
-Post-marker route audit reported:
+Subsequent inspection showed that the visible controlled ChatGPT request for that attempt was a hidden Codex title/description metadata helper rather than the actual coding-agent turn. Therefore the original no-tool/no-effect trace is retained as evidence of metadata-helper interference and must not be used as proof that the real H3 agent turn lacked client-tool capability.
 
-```text
-CONFIGURED_PROVIDER=uwa
-CONFIGURED_MODEL=chatgpt
-CONFIGURED_EFFORT=high
-LATEST_SESSION_PROVIDER=uwa
-LATEST_SESSION_MODEL=chatgpt
-LATEST_SESSION_EFFORT=high
-CONFIG_SESSION_ROUTE=MATCH
-UWA_HEALTH=healthy
-UWA_BROWSER_CONNECTED=YES
-UWA_WIRE_REQUEST_COUNT=1
-UWA_WIRE_RESPONSE_COUNT=1
-UWA_WIRE_LATEST_MODEL=chatgpt
-UWA_WIRE_LATEST_EFFORT=high
-UWA_WIRE_LATEST_STATUS=completed
-ROUTE_EXPECTATION_PASS=YES
-```
+A later independent direct High diagnostic found and repaired a ChatGPT pre-send false positive. Commit `1dac853` now allows a verified idle ChatGPT composer to submit normally, and live direct validation reaches `response.completed` with clean browser/request cleanup.
 
-The UWA health endpoint showed zero running requests after completion and one idle ChatGPT tab.
+The first tiny Codex CLI probe after that browser repair also reached `turn.completed` without the former stream disconnect, but its controlled web turn reported that the expected `exec_command` client tool was unavailable. Current H3 diagnosis therefore focuses on the client-tool exposure / required-tool layer while metadata helpers are isolated from agent turns.
 
-The synthetic workspace still contained only:
+## Closure criteria for H3
+
+The official source half must not be repeated unnecessarily. H3 closes only after a fresh UWA agent turn in the preserved synthetic workspace proves:
 
 ```text
-BASELINE
-OFFICIAL_EFFECT_ONCE
+metadata helper is not counted as the agent turn
+real required client tool call occurs
+UWA continuation effect count = 1
+official source effect count remains = 1
+route = uwa / chatgpt / high
 ```
 
-`UWA_CONTINUATION_ONCE` was absent, so the handoff checker could not pass.
+## Safety
 
-## Interpretation
-
-This is not a route-selection failure. The intended UWA route completed successfully.
-
-The remaining diagnostic question is whether the completed UWA response contained a real client `exec_command` function call that Codex Desktop failed to consume, or whether the web/model response completed without emitting the required tool call. That distinction must be resolved from metadata-only wire evidence before retrying H3.
-
-Do not rerun the official source half. Preserve the existing synthetic workspace diff until the UWA continuation failure is diagnosed.
-
-No private prompt bodies, raw thread ids, process ids, browser ids, cookies, credentials or full traces are recorded here.
+No private prompt, account identifier, thread identifier, browser identifier, process identifier, cookie, credential, local workspace path, raw trace, command body or tool output is stored here.
