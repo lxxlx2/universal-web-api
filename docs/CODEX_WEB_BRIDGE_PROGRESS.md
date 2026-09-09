@@ -42,7 +42,7 @@ Current status:
 H0 metadata-only route audit helper                   PASS / CI
 H1 exact provider/model/effort fail-closed guard      PASS / CI
 H2 tiny fresh Desktop route probe                     PASS / LIVE / CLOSED
-H3 explicit official -> UWA stateful handoff          CURRENT; official source half PASS
+H3 explicit official -> UWA stateful handoff          CURRENT; official source PASS; metadata-helper isolation blocker
 H4 private metadata-only transition ledger            marker foundation present
 H5 synthetic hybrid acceptance                        pending
 D1 real Desktop local tool round trip                 PASS / LIVE / CLOSED
@@ -143,19 +143,25 @@ provider=openai route expectation = PASS
 
 This closes Desktop D5 and the full Desktop D1-D5 gate. The successful official source effect remains intentionally uncommitted in the synthetic workspace for H3.
 
+The first H3 UWA-side rerun exposed a new acceptance-observability blocker. The controlled ChatGPT browser request was a hidden Codex title/description metadata helper that embedded the H3 source prompt as data and explicitly requested metadata instead of task execution. The corresponding UWA trace completed with no client function calls and no output text, while the synthetic workspace still lacked the UWA continuation effect. This trace is now classified as metadata-helper interference rather than an H3 agent-tool failure.
+
+Recent upstream Codex behavior confirms that Desktop/App metadata helpers are separate background requests and may carry broad agent context and tools. H3 must therefore distinguish metadata helpers from actual agent turns before required-tool detection, web-session affinity and post-marker route counting. The existing imperative-English required-tool detector repair remains relevant for the eventual real H3 agent turn.
+
 H3 next step:
 
 ```text
 source official effect already present exactly once
-→ record private handoff checkpoint
-→ switch managed config to UWA
-→ verify UWA health + route marker
-→ start fresh UWA Desktop thread in same workspace
-→ inspect existing diff
-→ append one UWA continuation effect
+→ keep current UWA provider state
+→ classify Codex Responses requests as agent_turn vs metadata_helper
+→ isolate/short-circuit metadata helpers before required-tool detection and main conversation affinity
+→ report helper traffic separately in route/wire audit
+→ add redacted regression fixture matching observed title/description helper shape
+→ review focused tests and CI
+→ rerun one fresh H3 UWA Desktop turn
+→ append one UWA continuation effect only from the real agent turn
 → prove official effect count remains exactly one
 → prove UWA effect count exactly one
-→ verify uwa / chatgpt / high route
+→ verify uwa / chatgpt / high agent route
 ```
 
 Detailed records:
@@ -167,6 +173,7 @@ Detailed records:
 - `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
 - `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
+- `docs/CODEX_H3_METADATA_HELPER_INTERFERENCE_2026-09-09.md`
 - `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
 
 ## Accelerated release-critical path
@@ -174,7 +181,7 @@ Detailed records:
 ```text
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
-M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 source half PASS
+M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 metadata-helper isolation blocker
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
 M4 one real-project long-task pilot
 M5 final A-F + compaction + restart regression
