@@ -46,13 +46,18 @@ Hybrid H0-H5                                        PASS / LIVE / CLOSED
 M3a Hybrid Routing Safety                           PASS / LIVE / CLOSED
 Desktop D1-D5                                       PASS / LIVE / CLOSED
 M3b Desktop UI                                      PASS / LIVE / CLOSED
-M4 real-project long-task pilot                     CURRENT
-M5 final regression                                 pending
+M4 real-project long-task pilot                     PASS / LIVE / CLOSED
+remote-compaction cancellation follow-up            PASS / CI
+M5 final regression                                 CURRENT
 M6 CI / public safety / docs / provenance           pending
 M7 merge verified V2 to main                        pending
 ```
 
-The latest M4 local recovery has already reached 3/3 focused cancellation regressions plus a completed bounded Codex/UWA review. Final M4 closure now relies on structural post-marker route/tool/completion evidence rather than a cosmetic model-authored text marker.
+M4 is closed. The accepted implementation passed all three focused cancellation regressions, a bounded real Codex/UWA review, multi-source real client-tool proof, authoritative `uwa / chatgpt / high` route verification, and final request-manager/browser health checks.
+
+A 2026-09-10 reference-project compatibility scan found one separate release-critical lifecycle hole in native remote compaction. That path now applies the same pending-worker cancel-and-await discipline on generator unwind, keeps normal completion unchanged, adds cancellation/`aclose()` regression coverage, and tightens compact-summary guidance so completed historical requests are not revived as current actionable goals. Security hardening CI for that follow-up passed.
+
+M5 is the current gate. Its one-shot runner rechecks Stage A-F, the complete current `test_codex_*.py` regression family, current-code UWA restart, and a same-thread continuity smoke across a real UWA restart without using the official provider.
 
 ## Quick start
 
@@ -191,6 +196,8 @@ request-manager returns to zero
 
 The original real-project M4 turn sustained real tool/result continuation for roughly twelve minutes without a stream-disconnect failure. Recovery then isolated and validated the cancellation behavior with deterministic stdlib tests.
 
+Native remote compaction owns a separate backing task and now follows the same generator-unwind cleanup rule. This was added after the release-reference scan and is covered by dedicated cancellation and `aclose()` regressions before M5.
+
 ## Observability
 
 Metadata-only Codex wire traces live under:
@@ -210,13 +217,15 @@ M1 same-thread post-remote recovery             PASS / CLOSED
 M2 minimal continuity blockers                  PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                 PASS / LIVE / CLOSED
 M3b Desktop D1-D5                               PASS / LIVE / CLOSED
-M4 real-project long-task pilot                 CURRENT
-M5 final A-F + compaction + restart regression
+M4 real-project long-task pilot                 PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression CURRENT
 M6 CI + public-repo safety + docs/provenance
 M7 topology inspection + merge to main
 ```
 
 After the verified V2 branch reaches `main`, the next phase is a dependency audit and extraction of the bridge core plus genuinely required upstream runtime into a clearer standalone attributed repository.
+
+Recent public reference-project ideas that do not block this release, including structured MCP outputs, durable AgentTask/TaskAttempt/checkpoint orchestration, multi-agent wait semantics, optional tunnel/Desktop packaging, and broader file-tool safety fencing, are deferred to the post-main standalone dependency/runtime audit.
 
 ## Security defaults
 
