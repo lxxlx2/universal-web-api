@@ -204,3 +204,48 @@ M5 final A-F + compaction + restart regression        CURRENT
 M6 CI green + public-repo safety + docs/license       pending
 M7 inspect branch topology + merge V2 to main         pending
 ```
+
+## M5 closed — M6 is current
+
+The final M5 safe-v2 run completed successfully on 2026-09-10. It used a fresh private deterministic Stage A-F replay, kept the historical live workspace untouched, ran the complete current Codex regression family, restarted UWA twice, and resumed the same Codex thread through the second restart.
+
+Final M5 evidence:
+
+```text
+Stage A-F deterministic replay                    PASS
+current Codex test files                           37
+Codex regression                                   201 passed / 0 failed
+py_compile                                         PASS
+git diff --check                                  PASS
+first UWA restart                                  PASS
+seed turn                                          PASS
+second UWA restart                                 PASS
+same Codex thread after restart                    YES
+real local client tool activity                    YES
+continuity result exact                            YES
+post-marker agent request/response                 5 / 5
+post-marker latest status                          completed
+authoritative route                                uwa / chatgpt / high
+final request-manager running count                0
+final browser connection                           healthy
+repository clean                                   YES
+private workspace cleanup                          PASS
+```
+
+M5 is `PASS / LIVE / CLOSED`. M6 is `CURRENT` and owns final CI, public-repository safety, documentation, provenance and license review. M7 remains pending until M6 closes.
+
+M5 live record: `docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`.
+M6 audit: `docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`.
+
+Current release-critical state:
+
+```text
+M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
+M2 P1.3 minimal continuity blockers                   PASS / CLOSED
+M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
+M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
+M4 one real-project long-task pilot                   PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression        PASS / LIVE / CLOSED
+M6 CI green + public-repo safety + docs/license       CURRENT
+M7 inspect branch topology + merge V2 to main         pending
+```
