@@ -134,3 +134,11 @@ The text marker is no longer treated as authoritative acceptance evidence. `turn
 `tools/codex_m4_finalize_completed_review.py` now reuses the completed review, reruns only deterministic local validation, checks the post-marker `agent_turn` route/tool/completion evidence and final UWA health, then commits/pushes only the two expected M4 paths if all checks pass.
 
 Record: `docs/CODEX_M4_COMPLETED_REVIEW_STRUCTURAL_GATE_2026-09-10.md`.
+
+## Latest checkpoint — response-summary tool field incomplete
+
+The first structural-finalizer rerun again kept local correctness green: all three focused regressions passed, `py_compile` passed, and `git diff --check` passed. Post-marker metadata showed one agent request, one agent response, `chatgpt / high`, and a completed response. The only failed assertion was `function_call_names` not containing `exec_command` in that response summary.
+
+That field is no longer the sole real-tool proof. The bounded Codex CLI review had already surfaced a command-execution start/completion pair and `turn.completed`. The new `tools/codex_m4_finalize_completed_review_v2.py` therefore uses three fail-closed metadata-only proof paths and accepts the tool gate when at least one is present: an UWA response function call, a Responses `function_call_output`, or a timestamped post-marker Codex rollout command/function-call event. Route, completion, health, local regressions and exact change scope remain mandatory.
+
+The V2 finalizer does not repeat the Web review and does not print private command/tool/session content.
