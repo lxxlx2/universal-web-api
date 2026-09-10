@@ -49,8 +49,8 @@ M3b Desktop UI                                      PASS / LIVE / CLOSED
 M4 real-project long-task pilot                     PASS / LIVE / CLOSED
 remote-compaction cancellation follow-up            PASS / CI
 M5 final regression                                 PASS / LIVE / CLOSED
-M6 CI / public safety / docs / provenance           CURRENT
-M7 merge verified V2 to main                        pending
+M6 CI / public safety / docs / provenance           PASS / CLOSED
+M7 merge verified V2 to main                        CURRENT
 ```
 
 M4 is closed. The accepted implementation passed all three focused cancellation regressions, a bounded real Codex/UWA review, multi-source real client-tool proof, authoritative `uwa / chatgpt / high` route verification, and final request-manager/browser health checks.
@@ -65,7 +65,7 @@ The final M5 run passed: the Stage A-F replay was green, all 201 tests across th
 
 M5 record: `docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`.
 
-M6 is now the current release gate. It is limited to final CI, public-repository safety, documentation, provenance and license continuity. It does not expand first-release functionality.
+M6 release safety review is closed. The release-facing documentation, public-repository safety controls, AGPL-3.0 license continuity, upstream fork provenance and attribution records have been reviewed, and the documentation head passed the Security hardening workflow. M7 branch-topology inspection and merge preparation are now current.
 
 M6 audit: `docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`.
 
@@ -227,8 +227,8 @@ M3a Hybrid Routing Safety H0-H5                 PASS / LIVE / CLOSED
 M3b Desktop D1-D5                               PASS / LIVE / CLOSED
 M4 real-project long-task pilot                 PASS / LIVE / CLOSED
 M5 final A-F + compaction + restart regression  PASS / LIVE / CLOSED
-M6 CI + public-repo safety + docs/provenance    CURRENT
-M7 topology inspection + merge to main          pending
+M6 CI + public-repo safety + docs/provenance    PASS / CLOSED
+M7 topology inspection + merge to main          CURRENT
 ```
 
 After the verified V2 branch reaches `main`, the next phase is a dependency audit and extraction of the bridge core plus genuinely required upstream runtime into a clearer standalone attributed repository.
