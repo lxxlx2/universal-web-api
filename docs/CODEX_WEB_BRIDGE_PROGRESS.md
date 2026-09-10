@@ -142,3 +142,40 @@ The first structural-finalizer rerun again kept local correctness green: all thr
 That field is no longer the sole real-tool proof. The bounded Codex CLI review had already surfaced a command-execution start/completion pair and `turn.completed`. The new `tools/codex_m4_finalize_completed_review_v2.py` therefore uses three fail-closed metadata-only proof paths and accepts the tool gate when at least one is present: an UWA response function call, a Responses `function_call_output`, or a timestamped post-marker Codex rollout command/function-call event. Route, completion, health, local regressions and exact change scope remain mandatory.
 
 The V2 finalizer does not repeat the Web review and does not print private command/tool/session content.
+
+## M4 closed — M5 current
+
+The multi-source finalizer passed on 2026-09-10 and pushed the accepted cancellation hardening commit `38554bd9d2301783d1bc2d9aff8005c60c70f389`.
+
+```text
+focused cancellation regressions                 PASS 3/3
+py_compile                                       PASS
+git diff --check                                 PASS
+post-marker agent request/response               present
+post-marker chatgpt/high route                    PASS
+Responses function_call_output proof             present
+Codex rollout command-event proof                present
+completed response                               present
+authoritative route audit                        uwa / chatgpt / high PASS
+final request-manager running count              0
+final browser connection                         healthy
+commit + push                                    PASS
+M4 real-project long-task pilot                  PASS / LIVE / CLOSED
+```
+
+M5 is now `CURRENT`. It will run a one-shot final regression over the already-proven Stage A-F workspace, current compaction/continuity regressions, a versioned UWA restart so the accepted M4 production code is actually loaded, and a fresh same-thread Codex continuity smoke across that restart. It will not consume official Codex quota.
+
+M4 record: `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_LIVE_PASS_2026-09-10.md`.
+
+Updated accelerated path:
+
+```text
+M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
+M2 P1.3 minimal continuity blockers                   PASS / CLOSED
+M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
+M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
+M4 one real-project long-task pilot                   PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression        CURRENT
+M6 CI green + public-repo safety + docs/provenance    pending
+M7 branch-topology inspection + merge to main         pending
+```
