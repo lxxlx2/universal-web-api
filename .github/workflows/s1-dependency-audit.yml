@@ -1,0 +1,32 @@
+name: S1 dependency audit
+
+on:
+  push:
+    branches:
+      - codex-standalone-s1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: s1-dependency-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt pytest
+      - run: python -m py_compile tools/codex_s1_dependency_audit.py tools/codex_s1_public_report.py
+      - name: Run private S1 audit
+        run: python tools/codex_s1_dependency_audit.py
+      - name: Emit sanitized S1 report
+        run: python tools/codex_s1_public_report.py
+      - name: Public repository safety
+        run: python tools/public_repo_safety_check.py
