@@ -265,6 +265,8 @@ def scan_wire_activity(
         summary = data.get("summary")
         if not isinstance(summary, dict):
             continue
+        if _clean(summary.get("request_kind")) == "metadata_helper":
+            continue
 
         if path.name.endswith("-request.json"):
             request_count += 1

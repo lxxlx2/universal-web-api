@@ -52,6 +52,10 @@ from app.services.chatgpt_web_mode import (
     web_mode_enabled,
 )
 from app.services.codex_network_tuning import install_codex_chatgpt_network_tuning
+from app.services.codex_metadata_helper import (
+    build_metadata_json,
+    classify_metadata_helper,
+)
 from app.services.codex_web_policy import (
     inspect_codex_web_mode_status,
     normalize_codex_reasoning,
@@ -243,6 +247,105 @@ def _stream_headers() -> Dict[str, str]:
 
 def _pack_event(event: str, payload: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _summary_with_request_kind(
+    body: ResponsesRequest,
+    *,
+    request_kind: str,
+    required_tool: str = "",
+) -> Dict[str, Any]:
+    summary = summarize_responses_request(body, required_tool or None)
+    summary["request_kind"] = request_kind
+    return summary
+
+
+async def _metadata_helper_stream(
+    body: ResponsesRequest,
+    trace_id: str,
+) -> AsyncIterator[str]:
+    """Answer known Codex UI metadata requests locally without touching ChatGPT Web."""
+
+    response_id = _new_response_id()
+    created_at = int(time.time())
+    prompt = _latest_user_text(body.input)
+    structured_text = build_metadata_json(prompt, body.text)
+    chat_payload = {
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": structured_text},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+    in_progress = _build_responses_object(
+        body,
+        {"choices": [], "usage": {}},
+        response_id=response_id,
+        created_at=created_at,
+        status="in_progress",
+        error=None,
+    )
+    completed = _build_responses_object(
+        body,
+        chat_payload,
+        response_id=response_id,
+        created_at=created_at,
+        status="completed",
+        error=None,
+    )
+
+    chunks: List[str] = []
+    sequence = 1
+    chunks.append(
+        _codex_event(
+            "response.created",
+            sequence_number=sequence,
+            response=in_progress,
+        )
+    )
+    sequence += 1
+
+    output = completed.get("output") if isinstance(completed.get("output"), list) else []
+    for output_index, item in enumerate(output):
+        if not isinstance(item, dict):
+            continue
+        chunks.append(
+            _codex_event(
+                "response.output_item.done",
+                sequence_number=sequence,
+                output_index=output_index,
+                item=_codex_wire_item(item),
+            )
+        )
+        sequence += 1
+
+    chunks.append(
+        _codex_event(
+            "response.completed",
+            sequence_number=sequence,
+            response=completed,
+        )
+    )
+
+    response_summary = summarize_responses_sse(chunks)
+    response_summary["request_kind"] = "metadata_helper"
+    write_trace_attempt(
+        trace_id=trace_id,
+        attempt=1,
+        request_summary=_summary_with_request_kind(
+            body,
+            request_kind="metadata_helper",
+        ),
+        response_summary=response_summary,
+        full_request=body,
+        raw_sse="".join(chunks),
+    )
+    logger.info("[CODEX_RESPONSES_V2] metadata helper served locally")
+    for chunk in chunks:
+        yield chunk
 
 
 def _required_tool_failed_events(body: ResponsesRequest, required_tool: str) -> List[str]:
@@ -552,10 +655,14 @@ async def _trace_passthrough(
         chunks.append(text)
         yield text
     summary = summarize_responses_sse(chunks)
+    summary["request_kind"] = "agent_turn"
     write_trace_attempt(
         trace_id=trace_id,
         attempt=1,
-        request_summary=summarize_responses_request(body),
+        request_summary=_summary_with_request_kind(
+            body,
+            request_kind="agent_turn",
+        ),
         response_summary=summary,
         full_request=body,
         raw_sse="".join(chunks),
@@ -589,13 +696,18 @@ async def _strict_required_tool_stream(
                 buffered.append(text)
 
         response_summary = summarize_responses_sse(buffered)
+        response_summary["request_kind"] = "agent_turn"
         names = response_summary.get("function_call_names") or []
         satisfied = required_tool in names
         response_summary["required_tool"] = required_tool
         response_summary["required_tool_satisfied"] = satisfied
         response_summary["strict_attempt"] = attempt
 
-        request_summary = summarize_responses_request(current_body, required_tool)
+        request_summary = _summary_with_request_kind(
+            current_body,
+            request_kind="agent_turn",
+            required_tool=required_tool,
+        )
         request_summary["previous_response_id_present"] = bool(
             str(current_body.previous_response_id or "").strip()
         )
@@ -647,6 +759,21 @@ async def codex_responses_v2(
     body: ResponsesRequest,
     authenticated: bool = Depends(verify_auth),
 ):
+    prompt = _latest_user_text(body.input)
+    request_kind = classify_metadata_helper(prompt, body.text)
+    if (
+        request_kind == "metadata_helper"
+        and str(body.model or "").strip().lower() == "chatgpt"
+        and web_mode_enabled()
+        and bool(body.stream)
+    ):
+        trace_id = new_trace_id()
+        return StreamingResponse(
+            _metadata_helper_stream(body, trace_id),
+            media_type="text/event-stream",
+            headers=_stream_headers(),
+        )
+
     is_codex_web_tool_turn = (
         str(body.model or "").strip().lower() == "chatgpt"
         and web_mode_enabled()
