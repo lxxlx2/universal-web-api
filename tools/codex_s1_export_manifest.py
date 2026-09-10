@@ -33,6 +33,12 @@ def safe_paths(values: object) -> list[str]:
     return sorted(dict.fromkeys(out))
 
 
+def safe_names(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return sorted(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+
+
 def repo_python_files() -> list[str]:
     result: list[str] = []
     for path in REPO.rglob("*.py"):
@@ -70,6 +76,8 @@ def main() -> int:
     required_support = safe_paths(classification.get("required_support", []))
     static_reachable = safe_paths(private.get("static_reachable", []))
     runtime_local = safe_paths(runtime.get("local_files", []))
+    static_external = safe_names(private.get("external_import_roots", []))
+    runtime_external = safe_names(runtime.get("external_roots", []))
     all_python = repo_python_files()
     validation = validation_files(all_python)
 
@@ -94,7 +102,7 @@ def main() -> int:
     )
 
     payload = {
-        "schema": 1,
+        "schema": 2,
         "source_baseline": "main:a140002e65a02a3323abcde3e1fdb8674710c996",
         "audit_branch": "codex-standalone-s1",
         "core": core,
@@ -106,7 +114,9 @@ def main() -> int:
         "validation": validation,
         "generic_api_shell_coupling_candidates": generic_api_shell,
         "python_exclusion_candidates": exclude_python,
-        "requirements_current": sorted(str(x) for x in (private.get("requirements_entries") or [])),
+        "static_external_import_roots": static_external,
+        "runtime_external_import_roots": runtime_external,
+        "requirements_current": safe_names(private.get("requirements_entries", [])),
         "counts": {
             "all_python": len(all_python),
             "core": len(core),
@@ -118,6 +128,8 @@ def main() -> int:
             "validation": len(validation),
             "generic_api_shell_coupling_candidates": len(generic_api_shell),
             "python_exclusion_candidates": len(exclude_python),
+            "static_external_import_roots": len(static_external),
+            "runtime_external_import_roots": len(runtime_external),
         },
         "notes": [
             "required_upstream_runtime_provisional is an integration-tree closure, not the final standalone keep-set",
