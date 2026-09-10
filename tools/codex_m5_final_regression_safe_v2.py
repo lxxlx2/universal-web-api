@@ -53,17 +53,23 @@ def _fresh_replay_root() -> Path:
         PRIVATE_REPLAY_PARENT.chmod(0o700)
     except OSError:
         pass
-    suffix = time.strftime("%Y%m%dT%H%M%S", time.gmtime()) + "-" + secrets.token_hex(4)
-    root = PRIVATE_REPLAY_PARENT / suffix
-    root.mkdir(mode=0o700)
-    _write(root / REPLAY_MARKER, "M5 private Stage A-F deterministic replay\n")
-    return root
+    for _ in range(8):
+        suffix = time.strftime("%Y%m%dT%H%M%S", time.gmtime()) + "-" + secrets.token_hex(4)
+        root = PRIVATE_REPLAY_PARENT / suffix
+        if not root.exists():
+            return root
+    raise base.GateError("stage_a_f_replay_path_allocation_failed")
 
 
 def _cleanup_replay(root: Path) -> None:
     resolved_parent = PRIVATE_REPLAY_PARENT.resolve()
     resolved = root.resolve()
-    if resolved.parent != resolved_parent or not (resolved / REPLAY_MARKER).is_file():
+    if resolved.parent != resolved_parent:
+        raise base.GateError("stage_a_f_replay_cleanup_guard_failed")
+    if not resolved.exists():
+        return
+    owned = (resolved / REPLAY_MARKER).is_file() or (resolved / base.ACCEPTANCE_MARKER).is_file()
+    if not owned:
         raise base.GateError("stage_a_f_replay_cleanup_guard_failed")
     shutil.rmtree(resolved)
 
@@ -125,6 +131,8 @@ def run_stage_a_f_replay(python_executable: str) -> None:
         if setup.returncode != 0:
             raise base.GateError("stage_a_f_replay_setup_failed")
 
+        _write(root / REPLAY_MARKER, "M5 private Stage A-F deterministic replay\n")
+        print("M5_STAGE_A_F_REPLAY_OWNERSHIP_MARKER=YES")
         _materialize_completed_state(root)
 
         result = base.run(
