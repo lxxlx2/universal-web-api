@@ -31,7 +31,7 @@ The 2026-09-10 reference refresh remains documented separately in `docs/REFERENC
 
 ## Public-repository safety review
 
-The Security hardening workflow for the accepted pre-M6 branch head completed successfully. Its release-relevant jobs include:
+The Security hardening workflow for the accepted M5/release branch completed successfully. Its release-relevant jobs include:
 
 ```text
 public-repo-safety                  PASS
@@ -42,7 +42,7 @@ security-tests macOS 3.13          PASS
 upstream-regression                 PASS
 ```
 
-The public-repository safety scanner rejects tracked runtime/sensitive path classes including `.env`, browser profiles, `.uwa`, Codex wire/response dumps, SQLite state, logs and several high-confidence secret formats. No workflow artifacts were published by the accepted pre-M6 CI run.
+The public-repository safety scanner rejects tracked runtime/sensitive path classes including `.env`, browser profiles, `.uwa`, Codex wire/response dumps, SQLite state, logs and several high-confidence secret formats. No workflow artifacts were published by the reviewed CI run.
 
 Private runtime state remains outside the repository. Public acceptance records use sanitized metadata only and omit raw prompt/tool bodies, thread identifiers, cookies, browser identifiers, credentials and local runtime databases.
 
@@ -61,9 +61,17 @@ docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md narrow release-critical sequence
 docs/REFERENCES_AND_ATTRIBUTION.md              provenance and licensing record
 ```
 
-M6 will close only after the final documentation-only release-state commits themselves receive green CI on the branch head.
+The Chinese and Codex-specific English READMEs were synchronized after M5 without removing their existing project sections. Current state, progress and accelerated merge-gate documents were also advanced to M7 preparation.
 
-## Current state
+## CI closure evidence
+
+The synchronized documentation head prior to the final M6 audit marker passed GitHub Actions Security hardening run #660. That run covered the public-repository safety job, Ubuntu/macOS security matrices and upstream regression.
+
+The final M6 audit/status commit is documentation-only. M7 must still require green CI on the actual release head before changing `main`; no merge is allowed while the final-head workflow is pending or failed.
+
+## Result
+
+M6 is `PASS / CLOSED` subject to the ordinary final-head CI precondition that is rechecked as the first M7 topology/merge assertion.
 
 ```text
 M1   PASS / CLOSED
@@ -72,6 +80,8 @@ M3a  PASS / LIVE / CLOSED
 M3b  PASS / LIVE / CLOSED
 M4   PASS / LIVE / CLOSED
 M5   PASS / LIVE / CLOSED
-M6   CURRENT
-M7   pending
+M6   PASS / CLOSED
+M7   CURRENT
 ```
+
+No product behavior was added during M6.
