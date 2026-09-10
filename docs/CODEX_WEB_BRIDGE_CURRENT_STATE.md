@@ -249,3 +249,26 @@ M5 final A-F + compaction + restart regression        PASS / LIVE / CLOSED
 M6 CI green + public-repo safety + docs/license       CURRENT
 M7 inspect branch topology + merge V2 to main         pending
 ```
+
+## M6 closed — M7 is current
+
+M6 release safety review completed on 2026-09-10. The documentation head passed the Security hardening workflow, including public-repository safety, Ubuntu/macOS security matrices and upstream regression. GitHub repository metadata still identifies the project as a public fork of `lumingya/universal-web-api` under AGPL-3.0. `LICENSE`, `SECURITY.md`, `docs/REFERENCES_AND_ATTRIBUTION.md`, the Chinese README and the Codex-specific English README all retain the required release-facing safety and provenance information.
+
+No workflow artifacts containing runtime state were published by the reviewed CI run. No new product behavior was added during M6.
+
+M6 is `PASS / CLOSED`. M7 is `CURRENT` and owns final branch-topology inspection and merge of the verified V2 branch into `main`.
+
+M6 record: `docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`.
+
+Current release-critical state:
+
+```text
+M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
+M2 P1.3 minimal continuity blockers                   PASS / CLOSED
+M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
+M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
+M4 one real-project long-task pilot                   PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression        PASS / LIVE / CLOSED
+M6 CI green + public-repo safety + docs/license       PASS / CLOSED
+M7 inspect branch topology + merge V2 to main         CURRENT
+```
