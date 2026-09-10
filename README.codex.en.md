@@ -48,8 +48,8 @@ Desktop D1-D5                                       PASS / LIVE / CLOSED
 M3b Desktop UI                                      PASS / LIVE / CLOSED
 M4 real-project long-task pilot                     PASS / LIVE / CLOSED
 remote-compaction cancellation follow-up            PASS / CI
-M5 final regression                                 CURRENT
-M6 CI / public safety / docs / provenance           pending
+M5 final regression                                 PASS / LIVE / CLOSED
+M6 CI / public safety / docs / provenance           CURRENT
 M7 merge verified V2 to main                        pending
 ```
 
@@ -57,17 +57,17 @@ M4 is closed. The accepted implementation passed all three focused cancellation 
 
 A 2026-09-10 reference-project compatibility scan found one separate release-critical lifecycle hole in native remote compaction. That path now applies the same pending-worker cancel-and-await discipline on generator unwind, keeps normal completion unchanged, adds cancellation/`aclose()` regression coverage, and tightens compact-summary guidance so completed historical requests are not revived as current actionable goals. Security hardening CI for that follow-up passed.
 
-M5 is the current gate. Its first live attempt stopped before any correctness regression because the original validation probe required the runtime Python to import the development-only `pytest` package. Production `requirements.txt` intentionally does not include pytest. This is classified as a harness/environment precondition issue, not a product regression.
+The first M5 live attempt stopped before any correctness regression because the original validation probe required the runtime Python to import the development-only `pytest` package. Production `requirements.txt` intentionally does not include pytest. This was classified as a harness/environment precondition issue, not a product regression.
 
-The safe M5 runner now selects a Python that can import the UWA/Codex runtime first. If pytest is absent, it bootstraps pytest only into private `~/.uwa` validation state and leaves the repository and production requirements untouched. Security hardening CI for this safe bootstrap passed.
+The safe M5 runner selects a Python that can import the UWA/Codex runtime first. If pytest is absent, it bootstraps pytest only into private `~/.uwa` validation state and leaves the repository and production requirements untouched. The Stage A-F recheck also uses a fresh private deterministic replay instead of relying on a mutable historical live workspace.
 
-Current one-shot runner:
+The final M5 run passed: the Stage A-F replay was green, all 201 tests across the current 37 `test_codex_*.py` files passed, UWA restarted twice successfully, the same Codex thread resumed across the second restart, real local `exec_command` activity occurred, the continuity result matched exactly, the authoritative route remained `uwa / chatgpt / high`, the request manager returned to zero, and the repository stayed clean.
 
-```text
-tools/codex_m5_final_regression_safe.py
-```
+M5 record: `docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`.
 
-M5 still rechecks Stage A-F, the complete current `test_codex_*.py` regression family, current-code UWA restart, and a same-thread continuity smoke across a real UWA restart without using the official provider.
+M6 is now the current release gate. It is limited to final CI, public-repository safety, documentation, provenance and license continuity. It does not expand first-release functionality.
+
+M6 audit: `docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`.
 
 ## Quick start
 
@@ -226,9 +226,9 @@ M2 minimal continuity blockers                  PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                 PASS / LIVE / CLOSED
 M3b Desktop D1-D5                               PASS / LIVE / CLOSED
 M4 real-project long-task pilot                 PASS / LIVE / CLOSED
-M5 final A-F + compaction + restart regression  CURRENT
-M6 CI + public-repo safety + docs/provenance
-M7 topology inspection + merge to main
+M5 final A-F + compaction + restart regression  PASS / LIVE / CLOSED
+M6 CI + public-repo safety + docs/provenance    CURRENT
+M7 topology inspection + merge to main          pending
 ```
 
 After the verified V2 branch reaches `main`, the next phase is a dependency audit and extraction of the bridge core plus genuinely required upstream runtime into a clearer standalone attributed repository.
