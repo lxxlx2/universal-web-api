@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Fail-closed S1 wrapper that ignores syntax errors outside the bridge closure."""
+"""Fail-closed S1 wrapper with BOM-safe parsing and reachability-aware errors."""
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import sys
 from pathlib import Path
@@ -23,11 +24,32 @@ def load_base():
 
 
 base = load_base()
-_original_static_graph = base.static_graph
 
 
-def safe_static_graph(files):
-    graph, externals, parse_errors = _original_static_graph(files)
+def bom_safe_static_graph(files):
+    by_module, by_path = base.build_module_index(files)
+    graph = {path: set() for path in files}
+    externals = {path: set() for path in files}
+    parse_errors = []
+    stdlib = set(getattr(sys, "stdlib_module_names", set()))
+
+    for path in files:
+        rel = path.relative_to(base.REPO).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=rel)
+        except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+            parse_errors.append(f"{rel}:{type(exc).__name__}")
+            continue
+        current = by_path.get(path, "")
+        for name in base.imported_candidates(tree, current):
+            local = base.resolve_local(name, by_module)
+            if local is not None and local != path:
+                graph[path].add(local)
+                continue
+            root = name.split(".", 1)[0]
+            if root and root not in stdlib and root not in {"__future__"}:
+                externals[path].add(root)
+
     seed_paths = [base.REPO / rel for rel in base.SEED_FILES if (base.REPO / rel).is_file()]
     reachable = base.closure(graph, seed_paths)
     reachable_rel = {path.relative_to(base.REPO).as_posix() for path in reachable}
@@ -51,7 +73,7 @@ def safe_static_graph(files):
     return graph, externals, blocking
 
 
-base.static_graph = safe_static_graph
+base.static_graph = bom_safe_static_graph
 
 
 if __name__ == "__main__":
