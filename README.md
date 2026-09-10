@@ -30,8 +30,8 @@ M3b Desktop UI                                      PASS / LIVE / CLOSED
 M4 real-project long-task pilot                     PASS / LIVE / CLOSED
 remote-compaction cancellation follow-up            PASS / CI
 M5 final regression                                 PASS / LIVE / CLOSED
-M6 CI / safety / docs / provenance                  CURRENT
-M7 merge verified V2 to main                        pending
+M6 CI / safety / docs / provenance                  PASS / CLOSED
+M7 merge verified V2 to main                        CURRENT
 ```
 
 M3a 已完成完整 official → UWA 合成 handoff 实机验收。最终状态证明 official source effect 和 UWA continuation effect 都恰好发生一次，真实 `exec_command` client tool round trip 成功，agent route 为 `uwa / chatgpt / high`，metadata helper 不计入 agent traffic，private transition ledger 通过，request-manager 最终归零。
@@ -54,7 +54,7 @@ M5 final regression 已完成。第一次 M5 实机运行在任何 correctness r
 
 M5 记录：`docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`。
 
-当前进入 M6 release safety review，只做最终 CI、public-repo safety、文档、provenance 和 license 连续性检查，不再扩大首个稳定 `main` 的功能范围。
+M6 release safety review 已完成：最终文档前置 head 的 Security hardening CI 全绿，public-repo safety、macOS/Ubuntu security matrix 和 upstream regression 均通过；仓库继续保持 AGPL-3.0，GitHub fork parent/source 仍为 `lumingya/universal-web-api`，provenance、attribution 和 SECURITY 边界均已复核。当前进入 M7 branch topology inspection 与 verified V2 合并准备。
 
 M6 audit：`docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`。
 
@@ -266,8 +266,8 @@ M3a Hybrid Routing Safety H0-H5               PASS / LIVE / CLOSED
 M3b Desktop D1-D5                             PASS / LIVE / CLOSED
 M4 real-project long-task pilot               PASS / LIVE / CLOSED
 M5 final A-F + compaction + restart regression PASS / LIVE / CLOSED
-M6 CI + public-repo safety + docs/provenance/license CURRENT
-M7 topology inspection + merge to main        pending
+M6 CI + public-repo safety + docs/provenance/license PASS / CLOSED
+M7 topology inspection + merge to main        CURRENT
 ```
 
 M5 one-shot runner：
@@ -276,7 +276,7 @@ M5 one-shot runner：
 tools/codex_m5_final_regression_safe_v2.py
 ```
 
-M5 已通过；当前只剩 release-safety/docs/provenance 与 topology/merge 阶段，不再扩大首个稳定 `main` 的功能范围。
+M5 与 M6 已通过；当前仅剩 branch topology / merge 阶段，不再扩大首个稳定 `main` 的功能范围。
 
 ## Post-main standalone plan
 
