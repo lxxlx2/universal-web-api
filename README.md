@@ -29,8 +29,8 @@ Desktop D1-D5                                       PASS / LIVE / CLOSED
 M3b Desktop UI                                      PASS / LIVE / CLOSED
 M4 real-project long-task pilot                     PASS / LIVE / CLOSED
 remote-compaction cancellation follow-up            PASS / CI
-M5 final regression                                 CURRENT
-M6 CI / safety / docs / provenance                  pending
+M5 final regression                                 PASS / LIVE / CLOSED
+M6 CI / safety / docs / provenance                  CURRENT
 M7 merge verified V2 to main                        pending
 ```
 
@@ -46,13 +46,17 @@ M4 记录：`docs/CODEX_M4_REAL_PROJECT_LONG_TASK_LIVE_PASS_2026-09-10.md`。
 
 参考项目复核：`docs/REFERENCE_PROJECT_UPDATE_SCAN_2026-09-10.md`。
 
-当前进入 M5 final regression。第一次 M5 实机运行在任何 correctness regression 开始之前，因为原 runner 把开发期 `pytest` 和生产 runtime import 绑在同一个 Python probe 中而提前失败。生产 `requirements.txt` 本身不包含 pytest，因此该失败归类为验收环境/harness 前置条件问题，不代表产品回归失败。
+M5 final regression 已完成。第一次 M5 实机运行在任何 correctness regression 开始之前，因为原 runner 把开发期 `pytest` 和生产 runtime import 绑在同一个 Python probe 中而提前失败。生产 `requirements.txt` 本身不包含 pytest，因此该失败归类为验收环境/harness 前置条件问题，不代表产品回归失败。
 
-安全版 M5 runner 现在先选择能够 import UWA/Codex runtime 的 Python；如果该解释器缺少 pytest，只把 pytest bootstrap 到私有 `~/.uwa` 验收目录，不修改生产 requirements，也不修改仓库。对应 Security hardening CI 已通过。
+安全版 M5 runner 先选择能够 import UWA/Codex runtime 的 Python；如果该解释器缺少 pytest，只把 pytest bootstrap 到私有 `~/.uwa` 验收目录，不修改生产 requirements，也不修改仓库。Stage A-F 复验也不再依赖可变的历史 live workspace，而是使用私有 deterministic replay fixture。
 
-M5 仍使用一次命令完成 Stage A-F aggregate、全部 `test_codex_*.py` regression、当前代码 UWA restart，以及同一 Codex thread 跨真实 UWA restart 的 UWA/chatgpt/high continuity + real `exec_command` smoke，不使用 official provider。
+最终 M5 实机结果为：Stage A-F replay PASS，当前 37 个 `test_codex_*.py` 文件共 201 tests 全部通过，两次真实 UWA restart 成功，同一 Codex thread 跨 restart continuity 成功，真实本地 `exec_command` 生效，最终 route 为 `uwa / chatgpt / high`，request-manager 归零，仓库保持 clean。
 
-M5 gate：`docs/CODEX_M5_FINAL_REGRESSION_GATE_2026-09-10.md`。
+M5 记录：`docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`。
+
+当前进入 M6 release safety review，只做最终 CI、public-repo safety、文档、provenance 和 license 连续性检查，不再扩大首个稳定 `main` 的功能范围。
+
+M6 audit：`docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`。
 
 ## 快速开始
 
@@ -261,18 +265,18 @@ M2 P1.3 minimal continuity                    PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5               PASS / LIVE / CLOSED
 M3b Desktop D1-D5                             PASS / LIVE / CLOSED
 M4 real-project long-task pilot               PASS / LIVE / CLOSED
-M5 final A-F + compaction + restart regression CURRENT
-M6 CI + public-repo safety + docs/provenance/license
-M7 topology inspection + merge to main
+M5 final A-F + compaction + restart regression PASS / LIVE / CLOSED
+M6 CI + public-repo safety + docs/provenance/license CURRENT
+M7 topology inspection + merge to main        pending
 ```
 
 M5 one-shot runner：
 
 ```text
-tools/codex_m5_final_regression_safe.py
+tools/codex_m5_final_regression_safe_v2.py
 ```
 
-M5 通过后进入最终 release-safety/docs/provenance 与 topology/merge 阶段，不再扩大首个稳定 `main` 的功能范围。
+M5 已通过；当前只剩 release-safety/docs/provenance 与 topology/merge 阶段，不再扩大首个稳定 `main` 的功能范围。
 
 ## Post-main standalone plan
 
