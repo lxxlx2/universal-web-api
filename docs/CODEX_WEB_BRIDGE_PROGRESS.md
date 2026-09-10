@@ -46,7 +46,7 @@ post-timeout request-manager                 0
 post-timeout browser                         connected
 ```
 
-The deterministic recovery path then reached the focused async-stream regression layer:
+Recovery has now crossed environment, dirty-scope and implementation-preparation blockers:
 
 ```text
 ignored baseline handling                    PASS
@@ -56,23 +56,21 @@ canonical implementation written              YES
 regression test written                       YES
 py_compile                                    PASS
 normal completion regression                  PASS
-explicit aclose regression                    FAIL
-consumer cancellation regression              FAIL
 ```
 
-The detailed diagnostic isolated the failures.
+The first focused diagnostic exposed a cleanup ordering weakness: the backing worker was cancelled, but the workflow reuse hint was still true at the assertion point. The implementation now clears the reuse hint before cancellation-sensitive cleanup, then cancels and awaits the unfinished backing task.
 
-`test_aclose_cleans_backing_task_after_keepalive` failed because it required the literal substring `keepalive` but the observed non-terminal transport event was `response.in_progress`. This is an overconstrained test assumption for the lifecycle behavior M4 is validating.
+The next rerun failed two tests before either lifecycle assertion was reached. Both tests expected the first yielded chunk to contain `response.created`; the actual local first chunk was `response.in_progress`. This is now classified as a test-only preamble event assumption, not evidence of another production cancellation failure.
 
-`test_consumer_cancellation_cleans_backing_task` confirmed the backing worker received cancellation, but the workflow reuse hint was still true at the assertion point. The focused implementation repair therefore clears the reuse hint immediately on unwind before the cancellation-sensitive await, then cancels and awaits the backing task. The consumer test also uses a long heartbeat interval to remove a heartbeat/cancellation race while still requiring caller `CancelledError` propagation.
-
-The one-shot closer is now:
+The corrected closer is still:
 
 ```text
 tools/codex_m4_focused_repair_and_close.py
 ```
 
-It performs safe resume-state checks, UWA readiness, the focused implementation/test rewrite, three deterministic stdlib regressions, `py_compile`, `git diff --check`, one bounded read-only Codex/UWA review, route and health verification, then commits/pushes only the implementation and regression-test paths if every gate passes.
+It now ignores the exact preamble event spelling. The consumer-cancellation test validates caller `CancelledError` propagation, backing-task cancellation and final reuse-hint state. The `aclose()` test consumes the preamble, accepts any non-empty progress chunk, closes the generator, then validates backing-task cancellation and final reuse-hint state. Normal completion remains required to finish without worker cancellation and to emit a completed terminal event.
+
+If all three regressions pass, the same runner continues automatically with `py_compile`, `git diff --check`, one bounded read-only Codex/UWA validation turn, authoritative `uwa / chatgpt / high` route verification, request-manager cleanup, then commits/pushes only the implementation and regression test.
 
 Do not rerun the original 12-minute long task.
 
@@ -81,6 +79,7 @@ Detailed records:
 - `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
 - `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
 - `docs/CODEX_M4_FOCUSED_REPAIR_2026-09-10.md`
+- `docs/CODEX_M4_EVENT_ASSUMPTION_REPAIR_2026-09-10.md`
 
 ## Accelerated release-critical path
 
@@ -109,16 +108,6 @@ S4 publish first standalone research release
 ```
 
 The standalone extraction keeps genuinely required upstream runtime and preserves AGPL-3.0 plus explicit attribution while removing unrelated generic fork surface only after dependency proof.
-
-## Current records
-
-- `docs/CODEX_M4_FOCUSED_REPAIR_2026-09-10.md`
-- `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
-- `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
-- `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_GATE_2026-09-10.md`
-- `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`
-- `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
-- `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`
 
 ## Recording discipline
 
