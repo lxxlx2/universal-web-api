@@ -29,7 +29,7 @@ The one-shot hybrid finalizer completed successfully on 2026-09-10. H3 preserved
 
 Canonical live record: `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`.
 
-## Current gate: M4 focused regression recovery
+## Current gate: M4 focused cancellation repair
 
 The first M4 long turn was real and non-trivial but did not finish inside the harness wall-clock bound.
 
@@ -46,7 +46,7 @@ post-timeout request-manager                 0
 post-timeout browser                         connected
 ```
 
-The deterministic recovery path has now passed its environment and implementation-preparation stages:
+The deterministic recovery path then reached the focused async-stream regression layer:
 
 ```text
 ignored baseline handling                    PASS
@@ -55,19 +55,32 @@ canonical cancellation patch target           unique
 canonical implementation written              YES
 regression test written                       YES
 py_compile                                    PASS
-focused unittest                              3 run / 2 failed
+normal completion regression                  PASS
+explicit aclose regression                    FAIL
+consumer cancellation regression              FAIL
 ```
 
-The current blocker is therefore isolated to the focused cancellation regression layer. The bounded read-only Codex review, post-marker route verification, final health gate, commit and push were correctly skipped.
+The detailed diagnostic isolated the failures.
 
-`tools/codex_m4_focused_unittest_diagnose.py` is the next read-only gate. It selects a repository-capable Python, reruns the generated stdlib suite verbosely, prints sanitized failing test names and traceback/assertion details, and prints the tracked implementation diff hunk. It does not edit, stage, restore, reset, commit or push local files.
+`test_aclose_cleans_backing_task_after_keepalive` failed because it required the literal substring `keepalive` but the observed non-terminal transport event was `response.in_progress`. This is an overconstrained test assumption for the lifecycle behavior M4 is validating.
 
-Do not rerun the original 12-minute long task. Preserve the current local M4 implementation/test artifacts, diagnose the two focused failures, then repair only the proven defect.
+`test_consumer_cancellation_cleans_backing_task` confirmed the backing worker received cancellation, but the workflow reuse hint was still true at the assertion point. The focused implementation repair therefore clears the reuse hint immediately on unwind before the cancellation-sensitive await, then cancels and awaits the backing task. The consumer test also uses a long heartbeat interval to remove a heartbeat/cancellation race while still requiring caller `CancelledError` propagation.
+
+The one-shot closer is now:
+
+```text
+tools/codex_m4_focused_repair_and_close.py
+```
+
+It performs safe resume-state checks, UWA readiness, the focused implementation/test rewrite, three deterministic stdlib regressions, `py_compile`, `git diff --check`, one bounded read-only Codex/UWA review, route and health verification, then commits/pushes only the implementation and regression-test paths if every gate passes.
+
+Do not rerun the original 12-minute long task.
 
 Detailed records:
 
 - `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
 - `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
+- `docs/CODEX_M4_FOCUSED_REPAIR_2026-09-10.md`
 
 ## Accelerated release-critical path
 
@@ -76,7 +89,7 @@ M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
-M4 one real-project long-task pilot                   CURRENT / focused regression recovery
+M4 one real-project long-task pilot                   CURRENT / focused cancellation repair
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/provenance    pending
 M7 branch-topology inspection + merge to main         pending
@@ -99,6 +112,7 @@ The standalone extraction keeps genuinely required upstream runtime and preserve
 
 ## Current records
 
+- `docs/CODEX_M4_FOCUSED_REPAIR_2026-09-10.md`
 - `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
 - `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
 - `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_GATE_2026-09-10.md`
