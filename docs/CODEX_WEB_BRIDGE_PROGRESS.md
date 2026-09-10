@@ -29,7 +29,7 @@ The one-shot hybrid finalizer completed successfully on 2026-09-10. H3 preserved
 
 Canonical live record: `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`.
 
-## Current gate: M4 real-project long-task pilot recovery
+## Current gate: M4 focused regression recovery
 
 The first M4 long turn was real and non-trivial but did not finish inside the harness wall-clock bound.
 
@@ -46,11 +46,28 @@ post-timeout request-manager                 0
 post-timeout browser                         connected
 ```
 
-The Web turn continued issuing real `exec_command` calls and near timeout was probing Python/runtime candidates for validation. The bridge therefore demonstrated sustained tool/result continuation without a transport disconnect or orphan request, while the pilot completion gate itself remains open because `turn.completed` was not reached.
+The deterministic recovery path has now passed its environment and implementation-preparation stages:
 
-Recovery is intentionally bounded and deterministic. `tools/codex_m4_resume_after_timeout.py` accepts only the expected partial M4 dirty scope, rebuilds the intended cancellation cleanup from tracked base, writes stdlib regression tests, validates locally outside Codex, then runs one constrained read-only Codex/UWA validation turn with exactly one required `exec_command`. It verifies `turn.completed`, real tool evidence, `uwa / chatgpt / high`, clean request-manager state, and only then commits/pushes the implementation and regression test.
+```text
+ignored baseline handling                    PASS
+repository-capable Python selection           PASS
+canonical cancellation patch target           unique
+canonical implementation written              YES
+regression test written                       YES
+py_compile                                    PASS
+focused unittest                              3 run / 2 failed
+```
 
-Detailed record: `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`.
+The current blocker is therefore isolated to the focused cancellation regression layer. The bounded read-only Codex review, post-marker route verification, final health gate, commit and push were correctly skipped.
+
+`tools/codex_m4_focused_unittest_diagnose.py` is the next read-only gate. It selects a repository-capable Python, reruns the generated stdlib suite verbosely, prints sanitized failing test names and traceback/assertion details, and prints the tracked implementation diff hunk. It does not edit, stage, restore, reset, commit or push local files.
+
+Do not rerun the original 12-minute long task. Preserve the current local M4 implementation/test artifacts, diagnose the two focused failures, then repair only the proven defect.
+
+Detailed records:
+
+- `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
+- `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
 
 ## Accelerated release-critical path
 
@@ -59,7 +76,7 @@ M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
-M4 one real-project long-task pilot                   CURRENT / recovery
+M4 one real-project long-task pilot                   CURRENT / focused regression recovery
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/provenance    pending
 M7 branch-topology inspection + merge to main         pending
@@ -82,6 +99,7 @@ The standalone extraction keeps genuinely required upstream runtime and preserve
 
 ## Current records
 
+- `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
 - `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
 - `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_GATE_2026-09-10.md`
 - `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`
