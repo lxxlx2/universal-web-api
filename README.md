@@ -27,8 +27,9 @@ Hybrid H0-H5                                        PASS / LIVE / CLOSED
 M3a Hybrid Routing Safety                           PASS / LIVE / CLOSED
 Desktop D1-D5                                       PASS / LIVE / CLOSED
 M3b Desktop UI                                      PASS / LIVE / CLOSED
-M4 real-project long-task pilot                     CURRENT
-M5 final regression                                 pending
+M4 real-project long-task pilot                     PASS / LIVE / CLOSED
+remote-compaction cancellation follow-up            PASS / CI
+M5 final regression                                 CURRENT
 M6 CI / safety / docs / provenance                  pending
 M7 merge verified V2 to main                        pending
 ```
@@ -37,9 +38,17 @@ M3a 已完成完整 official → UWA 合成 handoff 实机验收。最终状态�
 
 详细记录：`docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`。
 
-当前 M4 使用本仓库本身做真实项目长任务。任务是关闭 V2 streamed Responses 的 cancellation/orphan hardening：外层 stream 被取消或提前关闭时，`_run_chat_completion_final` 的 backing task 必须被 cancel + await，不能继续成为后台孤儿任务，同时保持 caller cancellation 与正常完成语义不变。
+M4 已在本仓库真实项目上完成长任务与 cancellation/orphan hardening。外层 streamed Responses 被取消或提前关闭时，`_run_chat_completion_final` backing task 会被 cancel + await，同时保留 caller cancellation 与正常完成语义。三项 focused regression、真实 Codex tool activity、`uwa / chatgpt / high` 路由和最终 request-manager 清理均已通过。
 
-M4 gate：`docs/CODEX_M4_REAL_PROJECT_LONG_TASK_GATE_2026-09-10.md`。
+M4 记录：`docs/CODEX_M4_REAL_PROJECT_LONG_TASK_LIVE_PASS_2026-09-10.md`。
+
+2026-09-10 对参考项目和近期 OpenAI Codex 兼容性变化的复核又发现一个同类但独立的 release blocker：native remote-compaction V2 路径也拥有自己的 backing task，原实现缺少 async-generator cancellation / `aclose()` 的 unconditional cleanup。该路径已经补上 `try/finally` cancel + await，并增加 consumer cancellation 与 `aclose()` regression；同时 compaction summary 明确区分“已完成历史请求”和“当前 active goal”，降低旧指令在 compaction 后重新变成 actionable 的风险。Security hardening CI 已通过。
+
+参考项目复核：`docs/REFERENCE_PROJECT_UPDATE_SCAN_2026-09-10.md`。
+
+当前进入 M5 final regression，使用一次命令完成 Stage A-F aggregate、全部 `test_codex_*.py` regression、当前代码 UWA restart，以及同一 Codex thread 跨真实 UWA restart 的 UWA/chatgpt/high continuity + real `exec_command` smoke，不使用 official provider。
+
+M5 gate：`docs/CODEX_M5_FINAL_REGRESSION_GATE_2026-09-10.md`。
 
 ## 快速开始
 
@@ -209,6 +218,8 @@ native Codex remote V2 compaction_trigger through /v1/responses
 
 Codex 0.153.4 native remote V2 已通过真实 macOS live，随后 same-thread recovery 也已关闭。UWA 的 opaque compact envelope 仅作为本地兼容状态，不宣称是 OpenAI encryption。
 
+native remote-compaction stream 与普通 V2 stream 现在都遵循相同的 backing-task lifecycle：外层 generator unwind 时，仍 pending 的 Web worker 必须 cancel + await，避免 orphan browser/request work。
+
 ## Route audit 与 Hybrid Routing Safety
 
 M3a H0-H5 已全部完成：
@@ -245,19 +256,19 @@ M1 P1.2 post-remote recovery                  PASS / CLOSED
 M2 P1.3 minimal continuity                    PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5               PASS / LIVE / CLOSED
 M3b Desktop D1-D5                             PASS / LIVE / CLOSED
-M4 real-project long-task pilot               CURRENT
-M5 final A-F + compaction + restart regression
+M4 real-project long-task pilot               PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression CURRENT
 M6 CI + public-repo safety + docs/provenance/license
 M7 topology inspection + merge to main
 ```
 
-M4 one-shot runner：
+M5 one-shot runner：
 
 ```text
-tools/codex_m4_real_project_pilot_safe.py
+tools/codex_m5_final_regression.py
 ```
 
-M4 通过后进入 final regression，不再扩大首个稳定 `main` 的功能范围。
+M5 通过后进入最终 release-safety/docs/provenance 与 topology/merge 阶段，不再扩大首个稳定 `main` 的功能范围。
 
 ## Post-main standalone plan
 
@@ -271,6 +282,8 @@ S4 first standalone research release
 ```
 
 独立仓库只移除经依赖证明不需要的通用 UWA 表面积。实际需要的 upstream runtime、AGPL-3.0、copyright/license notice 与明确 attribution 必须保留。
+
+参考项目近期可借鉴但不影响当前发布的内容，例如 structured MCP output、durable AgentTask/TaskAttempt/checkpoint、multi-agent wait、可选 tunnel/Desktop packaging、image-heavy context 优化，会在 `main` 验证完成后结合 S1 dependency/runtime audit 再评估。
 
 ## 安全默认值
 
