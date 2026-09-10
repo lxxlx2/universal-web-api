@@ -135,3 +135,24 @@ The actual Responses request plus verified ChatGPT Web state is authoritative. A
 Every completed live stage, important failure, repair and disruptive checkpoint is committed before moving on. Repository docs, README, progress tracking and Draft PR should remain aligned with canonical state.
 
 Never commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, Responses SQLite contents, live thread/process/browser identifiers, private hybrid handoff content, or captured tool bodies/output.
+
+## Latest M4 checkpoint — completed bounded review
+
+The next focused rerun passed all three lifecycle regressions and reached the bounded Codex/UWA review successfully:
+
+```text
+focused cancellation regressions          PASS 3/3
+py_compile                                PASS
+git diff --check                          PASS
+bounded Codex review RC                   0
+review event flow                         thread.started -> turn.started -> item.started/item.completed -> turn.completed
+real local tool activity                  YES
+transport stderr errors                   NONE
+model-authored text marker                absent
+```
+
+The missing `M4_RECOVERY_REVIEW_OK` marker is now treated as a non-authoritative presentation assertion. The stronger acceptance evidence is a completed Codex turn plus real tool execution, post-marker `agent_turn` wire metadata, completed response metadata, exact `uwa / chatgpt / high` route proof, and a clean request-manager/browser postcondition.
+
+`tools/codex_m4_finalize_completed_review.py` performs that structural close without repeating the already-completed Web review. It reruns only the deterministic local regression checks, validates post-marker structural evidence and health, then commits/pushes the two expected M4 paths if every gate passes.
+
+Additional record: `docs/CODEX_M4_COMPLETED_REVIEW_STRUCTURAL_GATE_2026-09-10.md`.
