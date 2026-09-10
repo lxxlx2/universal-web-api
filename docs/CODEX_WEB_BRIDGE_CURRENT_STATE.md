@@ -46,7 +46,7 @@ The final H3 run preserved the official source effect exactly once, appended the
 
 Detailed record: `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`.
 
-## Current gate: M4 focused regression recovery
+## Current gate: M4 focused cancellation repair
 
 M4 uses this repository itself as the real project. The first long Codex/UWA turn passed route and health preconditions and performed substantial local tool activity, but the harness reached its 720-second wall-clock limit before `turn.completed`.
 
@@ -62,7 +62,7 @@ request-manager after                    0
 browser after                            connected
 ```
 
-The deterministic recovery path has since passed environment/preflight handling and reached the focused cancellation regression layer. Current evidence is:
+The deterministic recovery path passed environment/preflight handling and isolated the remaining failure to the three focused async-stream regressions:
 
 ```text
 canonical cancellation patch target      unique
@@ -70,19 +70,24 @@ canonical implementation written         YES
 regression test written                   YES
 repository-capable Python selected        YES
 py_compile                                PASS
-focused unittest                          3 run / 2 failed
+normal completion regression              PASS
+explicit aclose regression                FAIL: overconstrained progress event shape
+consumer cancellation regression          FAIL: reuse hint remained true at assertion
 ```
 
-M4 therefore remains open. The bounded read-only Codex review, post-marker route gate, final health gate, commit and push were correctly skipped by the fail-closed runner.
+The explicit `aclose()` failure is a test-contract issue: the observed non-terminal event was `response.in_progress`, while the test required the literal substring `keepalive`. M4 only needs a non-terminal progress suspension before `aclose()`, so the repaired test accepts either supported progress representation.
 
-The exact failing assertions were not exposed by the first sanitized recovery output. `tools/codex_m4_focused_unittest_diagnose.py` now performs a read-only detailed rerun and prints sanitized failing test names, traceback/assertion detail and the local implementation diff hunk. It does not edit, stage, restore, reset, commit or push local files.
+The consumer-cancellation failure exposed a real cleanup-ordering weakness. The focused implementation repair clears the Codex workflow reuse hint immediately when the generator unwinds, before awaiting backing-task cancellation, then cancels and awaits the backing task. The consumer test uses a long heartbeat interval to make cancellation injection deterministic and still requires `CancelledError` to propagate.
 
-Do not rerun the original 12-minute long task. Preserve the current M4 local artifacts and diagnose/fix only the focused regression blocker.
+`tools/codex_m4_focused_repair_and_close.py` now performs the complete remaining closure path: safe resume-state checks, UWA readiness, focused implementation/test rewrite, deterministic stdlib regressions, `py_compile`, `git diff --check`, one bounded read-only Codex/UWA review, route/health verification, then commit/push of only the implementation and regression-test paths.
+
+Do not rerun the original 12-minute long task.
 
 Current records:
 
 - `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
 - `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
+- `docs/CODEX_M4_FOCUSED_REPAIR_2026-09-10.md`
 
 ## Current release-critical path
 
@@ -91,13 +96,13 @@ M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
-M4 one real-project long-task pilot                   CURRENT / focused regression recovery
+M4 one real-project long-task pilot                   CURRENT / focused cancellation repair
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/license       pending
 M7 inspect branch topology + merge V2 to main         pending
 ```
 
-M4 closes only after the repaired recovery path reports `M4_REAL_PROJECT_LONG_TASK_PILOT=PASS_LIVE_CLOSED`.
+M4 closes only after the focused closer reports `M4_REAL_PROJECT_LONG_TASK_PILOT=PASS_LIVE_CLOSED`.
 
 ## Post-main standalone plan
 
