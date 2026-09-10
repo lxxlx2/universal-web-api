@@ -533,6 +533,12 @@ async def _stream_codex_v2_attempt(
         return
     finally:
         set_codex_workflow_reuse_hint(False)
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     payload = _sanitize_codex_root_workdirs(
         _sanitize_codex_tool_payload(raw_payload),
