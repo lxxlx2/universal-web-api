@@ -27,6 +27,7 @@ Desktop D1-D5                                      PASS / LIVE / CLOSED
 M3b Desktop UI                                     PASS / LIVE / CLOSED
 M4 real-project long-task pilot                    PASS / LIVE / CLOSED
 remote-compaction cancellation follow-up           PASS / CI
+M5 final regression                               PASS / LIVE / CLOSED
 ```
 
 ## M3a closed
@@ -47,17 +48,38 @@ The 2026-09-10 reference-project scan found the same orphan-task class on the se
 
 Reference scan: `docs/REFERENCE_PROJECT_UPDATE_SCAN_2026-09-10.md`.
 
+## M5 closed
+
+The final M5 safe-v2 run completed `PASS / LIVE / CLOSED` on the final-code branch.
+
+```text
+Stage A-F private deterministic replay            PASS
+current Codex tests                                201 passed / 0 failed
+py_compile                                         PASS
+git diff --check                                  PASS
+first UWA restart                                  PASS
+seed turn                                          PASS
+second UWA restart                                 PASS
+same Codex thread after restart                    YES
+real local exec_command activity                   YES
+continuity result                                  exact
+post-marker route                                  uwa / chatgpt / high
+latest post-marker response                        completed
+final request-manager                              0
+browser                                            healthy
+repository                                         clean
+private workspace cleanup                          PASS
+```
+
+Detailed record: `docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`.
+
 ## Current gate
 
-M5 final regression is current.
+M6 release safety review is current.
 
-The one-shot M5 gate performs the already-proven Stage A-F aggregate check, requires the current release-critical Codex regression set, runs the complete current `tests/test_codex_*.py` family, restarts UWA from the final checkout so M4 and the native remote-compaction lifecycle fix are actually loaded, then performs a fresh same-Codex-thread continuity smoke across another real UWA restart.
+M6 is limited to final CI, public-repository safety, documentation, provenance and license continuity. No new feature scope is allowed. The branch remains a public fork of `lumingya/universal-web-api` under AGPL-3.0; attribution and security boundaries are documented in `docs/REFERENCES_AND_ATTRIBUTION.md` and `SECURITY.md`.
 
-The live M5 smoke remains on `uwa / chatgpt / high`, requires real local `exec_command` activity on the resumed turn, verifies the runtime-only continuity token independently, proves post-marker UWA route/completion metadata, requires request-manager cleanup, and does not use the official Codex provider.
-
-Gate: `docs/CODEX_M5_FINAL_REGRESSION_GATE_2026-09-10.md`.
-
-Runner: `tools/codex_m5_final_regression.py`.
+M6 audit: `docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`.
 
 ## Release-critical sequence
 
@@ -67,8 +89,8 @@ M2 P1.3 minimal continuity blockers               PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                   PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                              PASS / LIVE / CLOSED
 M4 real-project long-task pilot                   PASS / LIVE / CLOSED
-M5 final A-F + compaction + restart regression    CURRENT
-M6 CI + public-repo safety + docs/license         pending
+M5 final A-F + compaction + restart regression    PASS / LIVE / CLOSED
+M6 CI + public-repo safety + docs/license         CURRENT
 M7 branch topology inspection + merge to main     pending
 ```
 
