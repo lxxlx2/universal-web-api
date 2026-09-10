@@ -13,7 +13,6 @@ Stage A-F protocol/CLI acceptance                    PASS
 aggregate A-F checker                                PASS
 P1.1 legacy Responses compact direct live            PASS
 versioned lifecycle/provider switch CI/live          PASS
-P1.2 stream/usage + TokenCount                       PASS
 P1.2 native auto-compact + remote V2 compaction      PASS / LIVE
 P1.2 same-thread post-remote recovery                 PASS / CLOSED
 P1.3 minimal continuity blockers                     PASS / CLOSED
@@ -26,64 +25,32 @@ M3b Desktop UI                                       PASS / LIVE / CLOSED
 
 ## M3a final acceptance
 
-The one-shot hybrid finalizer completed successfully on 2026-09-10.
-
-H3 final evidence:
-
-```text
-source official effect count                         1
-source UWA effect count                              0
-official checker                                     PASS
-fresh UWA Codex turn                                 turn.completed
-real client tool items                               YES
-final official effect count                          1
-final UWA effect count                               1
-handoff checker                                      PASS
-agent exec_command response                          YES
-agent completed response                             YES
-agent request route                                  chatgpt / high
-authoritative latest route                           uwa / chatgpt / high
-metadata helper excluded from agent accounting       YES
-request-manager after                                0
-browser connected after                              YES
-H3 final handoff                                     PASS / LIVE
-```
-
-H4 evidence:
-
-```text
-private transition ledger present                    YES
-private file mode                                    YES
-source route                                         openai / gpt-6-astra / low
-target route                                         uwa / chatgpt / high
-workspace/session persisted as hashes only           YES
-last event                                           complete
-H4 transition ledger                                 PASS
-```
-
-H5 rechecked the exact two effects, independent checker, no-duplicate rule and UWA route. Result: PASS.
+The one-shot hybrid finalizer completed successfully on 2026-09-10. H3 preserved the official source effect exactly once and appended the UWA continuation exactly once; a real client tool call occurred; authoritative route was `uwa / chatgpt / high`; metadata helpers were excluded from agent accounting; H4 private ledger and H5 aggregate acceptance passed; request-manager returned to zero.
 
 Canonical live record: `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`.
 
-## Current gate: M4 real-project long-task pilot
+## Current gate: M4 real-project long-task pilot recovery
 
-M4 is now current. It should use the actual Codex Web Bridge repository rather than another synthetic workspace. The pilot must be a bounded but non-trivial coding task through a fresh UWA Codex turn and must prove:
+The first M4 long turn was real and non-trivial but did not finish inside the harness wall-clock bound.
 
 ```text
-preflight route = uwa / chatgpt / high
-real local exec_command / file editing = YES
-non-trivial implementation diff = YES
-regression coverage added = YES
-focused validation = PASS
-git diff --check = PASS
-post-turn request-manager running count = 0
-authoritative post-marker route = uwa / chatgpt / high
-verified change committed and pushed only after checks pass
+preflight route                              uwa / chatgpt / high
+preflight health                             running=0 / browser connected
+route marker                                 PASS
+Codex elapsed                                719 seconds
+Codex event classes                          thread.started, turn.started, item.started, item.completed
+real tool items                              14
+stream disconnect                            absent
+workspace after timeout                      only app/api/codex_responses_v2.py modified
+post-timeout request-manager                 0
+post-timeout browser                         connected
 ```
 
-The selected task is the outstanding V2 stream-cancellation hardening item: when the outer streamed ASGI generator is cancelled or closed before `_run_chat_completion_final` completes, its backing task must be cancelled and awaited so no browser/request work survives as an orphan. Caller cancellation must still propagate, and normal completion behavior must remain unchanged.
+The Web turn continued issuing real `exec_command` calls and near timeout was probing Python/runtime candidates for validation. The bridge therefore demonstrated sustained tool/result continuation without a transport disconnect or orphan request, while the pilot completion gate itself remains open because `turn.completed` was not reached.
 
-One-shot runner: `tools/codex_m4_real_project_pilot.py`.
+Recovery is intentionally bounded and deterministic. `tools/codex_m4_resume_after_timeout.py` accepts only the expected partial M4 dirty scope, rebuilds the intended cancellation cleanup from tracked base, writes stdlib regression tests, validates locally outside Codex, then runs one constrained read-only Codex/UWA validation turn with exactly one required `exec_command`. It verifies `turn.completed`, real tool evidence, `uwa / chatgpt / high`, clean request-manager state, and only then commits/pushes the implementation and regression test.
+
+Detailed record: `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`.
 
 ## Accelerated release-critical path
 
@@ -92,11 +59,13 @@ M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
-M4 one real-project long-task pilot                   CURRENT
+M4 one real-project long-task pilot                   CURRENT / recovery
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/provenance    pending
 M7 branch-topology inspection + merge to main         pending
 ```
+
+M4 closes only on `M4_REAL_PROJECT_LONG_TASK_PILOT=PASS_LIVE_CLOSED`.
 
 ## Post-main standalone plan
 
@@ -113,10 +82,9 @@ The standalone extraction keeps genuinely required upstream runtime and preserve
 
 ## Current records
 
+- `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
+- `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_GATE_2026-09-10.md`
 - `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`
-- `docs/CODEX_H3_REQUIRED_TOOL_REPAIR_LIVE_PASS_2026-09-10.md`
-- `docs/CODEX_H3_METADATA_HELPER_ISOLATION_LIVE_PASS_2026-09-10.md`
-- `docs/CODEX_H3_FINAL_HANDOFF_LIVE_GATE_2026-09-10.md`
 - `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
 - `docs/ACCELERATED_MAIN_MERGE_GATE_2026-09-08.md`
 
