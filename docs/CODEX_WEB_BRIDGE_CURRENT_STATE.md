@@ -31,7 +31,7 @@ M3b Desktop UI                                       PASS / LIVE / CLOSED
 
 ## M3a Hybrid Routing Safety closed
 
-The full hybrid gate is now complete:
+The full hybrid gate is complete:
 
 ```text
 H0 metadata-only route audit helper                   PASS / CLOSED
@@ -44,19 +44,35 @@ H5 aggregate synthetic hybrid acceptance              PASS / CLOSED
 
 The final H3 run preserved the official source effect exactly once, appended the UWA continuation effect exactly once, passed the independent handoff checker, emitted a real `exec_command` client tool call, proved `uwa / chatgpt / high`, excluded metadata-helper traffic from agent accounting, and ended with request-manager running count zero.
 
-H4 writes only metadata and hashed identities to a private local ledger. H5 rechecked exact effect counts, route identity and no-duplicate behavior.
-
 Detailed record: `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`.
 
-## H3 blockers found and closed
+## Current gate: M4 recovery
+
+M4 uses this repository itself as the real project. The first long Codex/UWA turn passed route and health preconditions and performed substantial local tool activity, but the harness reached its 720-second wall-clock limit before `turn.completed`.
+
+Safe observed metadata:
 
 ```text
-browser composer send false-positive                 CLOSED by 1dac853
-required exec_command phrasing miss                   CLOSED by 38ede75
-hidden Codex metadata-helper interference             CLOSED by de875e4
+configured route                         uwa / chatgpt / high
+Codex elapsed                            719 seconds
+real tool item count                     14
+stream disconnect                        absent
+workspace after timeout                  only app/api/codex_responses_v2.py modified
+request-manager after                    0
+browser after                            connected
 ```
 
-The browser repair was proven by direct High `response.completed`. The required-tool repair was proven by a genuine client `exec_command` round trip and `function_call_output`. The metadata helper is now classified before required-tool logic, answered locally, excluded from affinity/agent route accounting and does not consume the controlled ChatGPT Web coding lane.
+The controlled Web turn visibly continued issuing real `exec_command` calls and was still probing Python/runtime candidates near the timeout. This is recorded as a bounded completion failure, not a transport disconnect or leaked UWA request.
+
+Do not discard the partial workspace and do not rerun another unconstrained 12-minute coding turn. Current recovery runner:
+
+```text
+tools/codex_m4_resume_after_timeout.py
+```
+
+It accepts only the expected M4 dirty scope, rebuilds the intended stream-cancellation cleanup from tracked base, writes stdlib regression coverage, validates outside the Codex sandbox, runs one bounded read-only Codex/UWA validation turn with a required real `exec_command`, verifies `turn.completed`, `uwa / chatgpt / high`, and request-manager cleanup, then commits/pushes only the two expected code/test paths.
+
+Detailed record: `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`.
 
 ## Current release-critical path
 
@@ -65,15 +81,13 @@ M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
-M4 one real-project long-task pilot                   CURRENT
+M4 one real-project long-task pilot                   CURRENT / recovery after bounded timeout
 M5 final A-F + compaction + restart regression        pending
 M6 CI green + public-repo safety + docs/license       pending
 M7 inspect branch topology + merge V2 to main         pending
 ```
 
-M4 deliberately uses this repository as the real project. The pilot must perform a non-trivial bounded code/test task through a fresh verified UWA Codex turn, prove real local tools and route metadata, leave request-manager clean, validate the resulting diff, and only then push the verified change.
-
-A known release-hardening item is suitable for this pilot: ensure a backing `_run_chat_completion_final` task created by the streamed V2 attempt cannot survive cancellation/closure of the outer ASGI generator. The task must be cancelled and awaited without swallowing the caller's `CancelledError`, with regression coverage and no behavior change on normal completion.
+M4 closes only after the recovery runner reports `M4_REAL_PROJECT_LONG_TASK_PILOT=PASS_LIVE_CLOSED`.
 
 ## Post-main standalone plan
 
@@ -101,6 +115,6 @@ The actual Responses request plus verified ChatGPT Web state is authoritative. A
 
 ## Collaboration and safety
 
-Every completed live stage, important failure, repair and disruptive checkpoint is committed before moving on. Repository docs, README, progress tracking and the Draft PR should remain aligned with canonical state.
+Every completed live stage, important failure, repair and disruptive checkpoint is committed before moving on. Repository docs, README, progress tracking and Draft PR #2 should remain aligned with canonical state.
 
 Never commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, Responses SQLite contents, live thread/process/browser identifiers, private hybrid handoff content, or captured tool bodies/output.
