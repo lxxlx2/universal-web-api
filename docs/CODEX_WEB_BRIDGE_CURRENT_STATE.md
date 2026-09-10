@@ -62,24 +62,25 @@ request-manager after                    0
 browser after                            connected
 ```
 
-The deterministic recovery path passed environment/preflight handling and isolated the remaining failure to the three focused async-stream regressions:
+The deterministic recovery path passed environment/preflight handling and isolated the remaining work to focused async-stream cancellation regressions.
+
+The first focused diagnostic found one real cleanup-ordering issue and one overconstrained transport assertion. The implementation was then changed so unwind clears the workflow reuse hint before cancelling/awaiting an unfinished backing task.
+
+The latest rerun still reported two failures, but both failed before reaching any cancellation assertion. Both tests required their first yielded chunk to contain `response.created`, while the observed first chunk was `response.in_progress`. Normal completion still passed.
+
+Current interpretation:
 
 ```text
-canonical cancellation patch target      unique
-canonical implementation written         YES
-regression test written                   YES
-repository-capable Python selected        YES
-py_compile                                PASS
-normal completion regression              PASS
-explicit aclose regression                FAIL: overconstrained progress event shape
-consumer cancellation regression          FAIL: reuse hint remained true at assertion
+production cleanup ordering                         prepared
+normal completion regression                        PASS
+consumer-cancellation lifecycle assertion            not reached
+explicit aclose lifecycle assertion                  not reached
+latest blocker                                      test-only preamble event assumption
 ```
 
-The explicit `aclose()` failure is a test-contract issue: the observed non-terminal event was `response.in_progress`, while the test required the literal substring `keepalive`. M4 only needs a non-terminal progress suspension before `aclose()`, so the repaired test accepts either supported progress representation.
+`tools/codex_m4_focused_repair_and_close.py` is now updated so the lifecycle tests do not depend on a specific initial Responses event spelling. Consumer cancellation now ignores the preamble chunk and validates cancellation propagation, backing-task cleanup and final reuse-hint state. The `aclose()` test ignores the preamble, requires only a non-empty progress chunk, then validates backing-task cleanup and final reuse-hint state.
 
-The consumer-cancellation failure exposed a real cleanup-ordering weakness. The focused implementation repair clears the Codex workflow reuse hint immediately when the generator unwinds, before awaiting backing-task cancellation, then cancels and awaits the backing task. The consumer test uses a long heartbeat interval to make cancellation injection deterministic and still requires `CancelledError` to propagate.
-
-`tools/codex_m4_focused_repair_and_close.py` now performs the complete remaining closure path: safe resume-state checks, UWA readiness, focused implementation/test rewrite, deterministic stdlib regressions, `py_compile`, `git diff --check`, one bounded read-only Codex/UWA review, route/health verification, then commit/push of only the implementation and regression-test paths.
+The remaining closure flow is still fail-closed: three focused stdlib regressions, `py_compile`, `git diff --check`, one bounded read-only Codex/UWA review, authoritative `uwa / chatgpt / high` verification, request-manager cleanup, and commit/push of only the implementation and regression-test paths.
 
 Do not rerun the original 12-minute long task.
 
@@ -88,6 +89,7 @@ Current records:
 - `docs/CODEX_M4_LONG_TASK_TIMEOUT_RECOVERY_2026-09-10.md`
 - `docs/CODEX_M4_FOCUSED_UNITTEST_FAILURE_2026-09-10.md`
 - `docs/CODEX_M4_FOCUSED_REPAIR_2026-09-10.md`
+- `docs/CODEX_M4_EVENT_ASSUMPTION_REPAIR_2026-09-10.md`
 
 ## Current release-critical path
 
@@ -130,6 +132,6 @@ The actual Responses request plus verified ChatGPT Web state is authoritative. A
 
 ## Collaboration and safety
 
-Every completed live stage, important failure, repair and disruptive checkpoint is committed before moving on. Repository docs, README, progress tracking and Draft PR #2 should remain aligned with canonical state.
+Every completed live stage, important failure, repair and disruptive checkpoint is committed before moving on. Repository docs, README, progress tracking and Draft PR should remain aligned with canonical state.
 
 Never commit browser profiles, cookies, local storage, credentials, private logs, full wire traces, Responses SQLite contents, live thread/process/browser identifiers, private hybrid handoff content, or captured tool bodies/output.
