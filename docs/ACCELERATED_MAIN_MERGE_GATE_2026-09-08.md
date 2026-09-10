@@ -28,6 +28,7 @@ M3b Desktop UI                                     PASS / LIVE / CLOSED
 M4 real-project long-task pilot                    PASS / LIVE / CLOSED
 remote-compaction cancellation follow-up           PASS / CI
 M5 final regression                               PASS / LIVE / CLOSED
+M6 release safety                                 PASS / CLOSED
 ```
 
 ## M3a closed
@@ -73,13 +74,17 @@ private workspace cleanup                          PASS
 
 Detailed record: `docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`.
 
-## Current gate
+## M6 closed
 
-M6 release safety review is current.
-
-M6 is limited to final CI, public-repository safety, documentation, provenance and license continuity. No new feature scope is allowed. The branch remains a public fork of `lumingya/universal-web-api` under AGPL-3.0; attribution and security boundaries are documented in `docs/REFERENCES_AND_ATTRIBUTION.md` and `SECURITY.md`.
+M6 release-safety review is closed. The synchronized documentation head passed the Security hardening workflow, including public-repo safety, Ubuntu/macOS security matrices and upstream regression. GitHub repository metadata still identifies this repository as a public fork of `lumingya/universal-web-api` under AGPL-3.0. The release-facing Chinese/English READMEs, `SECURITY.md`, `LICENSE` and `docs/REFERENCES_AND_ATTRIBUTION.md` retain the required safety, provenance and attribution information. No runtime-state workflow artifact was published by the reviewed CI run.
 
 M6 audit: `docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`.
+
+## Current gate
+
+M7 branch-topology inspection and merge to `main` is current.
+
+Before changing `main`, M7 must prove that `main` and `security-hardening` are ancestors of the release branch, the release branch is not behind either verified base, the final release head has green CI, and the merge does not introduce an unreviewed side branch or rewrite history.
 
 ## Release-critical sequence
 
@@ -90,13 +95,13 @@ M3a Hybrid Routing Safety H0-H5                   PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                              PASS / LIVE / CLOSED
 M4 real-project long-task pilot                   PASS / LIVE / CLOSED
 M5 final A-F + compaction + restart regression    PASS / LIVE / CLOSED
-M6 CI + public-repo safety + docs/license         CURRENT
-M7 branch topology inspection + merge to main     pending
+M6 CI + public-repo safety + docs/license         PASS / CLOSED
+M7 branch topology inspection + merge to main     CURRENT
 ```
 
 ## Main merge rules
 
-Before M7:
+Before M7 merge:
 
 - all release-critical CI must be green;
 - public-repo safety checks must pass;
@@ -105,7 +110,7 @@ Before M7:
 - no private browser/session/prompt/tool state may be committed;
 - branch topology must be inspected before changing `main`.
 
-The Draft PR stays Draft until these gates are complete.
+The Draft PR stays Draft until the topology gate is complete.
 
 ## Post-main standalone repository
 
