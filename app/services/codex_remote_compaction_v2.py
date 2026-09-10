@@ -52,6 +52,9 @@ Create a compact replacement-history summary for a long-running coding thread.
 Preserve facts needed to continue work correctly: user goals, explicit constraints,
 important decisions, repository/file paths, edits already made, tests and their
 results, failures and diagnoses, unresolved work, and the next intended actions.
+Explicitly distinguish completed historical requests from the current active goal.
+Never present a completed old user request as a current actionable instruction; only
+unresolved work and the current next actions may remain actionable.
 Do not invent facts. Do not call tools. Do not output function calls. Do not add
 ceremonial prose. Return only the concise continuation summary for the next model
 turn. Prefer durable facts over transient chatter or verbose command output.
@@ -349,66 +352,74 @@ async def _stream_remote_compaction_v2(
             authenticated=authenticated,
         )
     )
-    while not task.done():
-        try:
-            await asyncio.wait_for(
-                asyncio.shield(task),
-                timeout=v2._CODEX_SSE_KEEPALIVE_SEC,
-            )
-        except asyncio.TimeoutError:
-            if await request.is_disconnected():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                return
-            # Installed stream compatibility turns this transport comment into a
-            # parseable response.in_progress heartbeat for Codex's idle timer.
-            yield ": keepalive\n\n"
+    try:
+        while not task.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(task),
+                    timeout=v2._CODEX_SSE_KEEPALIVE_SEC,
+                )
+            except asyncio.TimeoutError:
+                if await request.is_disconnected():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+                # Installed stream compatibility turns this transport comment into a
+                # parseable response.in_progress heartbeat for Codex's idle timer.
+                yield ": keepalive\n\n"
 
-    status_code, payload = task.result()
-    if status_code >= 400 or not isinstance(payload, dict) or "error" in payload:
-        raise RemoteCompactionV2ProtocolError("compaction backing request failed")
+        status_code, payload = task.result()
+        if status_code >= 400 or not isinstance(payload, dict) or "error" in payload:
+            raise RemoteCompactionV2ProtocolError("compaction backing request failed")
 
-    summary = extract_backing_summary(payload)
-    envelope = encode_compaction_envelope(summary)
-    item = {
-        "type": "compaction",
-        "encrypted_content": envelope,
-    }
-    usage = compaction_usage(backing_body, summary)
+        summary = extract_backing_summary(payload)
+        envelope = encode_compaction_envelope(summary)
+        item = {
+            "type": "compaction",
+            "encrypted_content": envelope,
+        }
+        usage = compaction_usage(backing_body, summary)
 
-    yield v2._codex_event(
-        "response.output_item.done",
-        sequence_number=sequence,
-        output_index=0,
-        item=item,
-    )
-    sequence += 1
+        yield v2._codex_event(
+            "response.output_item.done",
+            sequence_number=sequence,
+            output_index=0,
+            item=item,
+        )
+        sequence += 1
 
-    completed = v2._build_responses_object(
-        body,
-        {"choices": [], "usage": usage},
-        response_id=response_id,
-        created_at=created_at,
-        status="completed",
-        error=None,
-    )
-    completed["output"] = [item]
-    completed["usage"] = usage
-    completed["status"] = "completed"
+        completed = v2._build_responses_object(
+            body,
+            {"choices": [], "usage": usage},
+            response_id=response_id,
+            created_at=created_at,
+            status="completed",
+            error=None,
+        )
+        completed["output"] = [item]
+        completed["usage"] = usage
+        completed["status"] = "completed"
 
-    logger.info(
-        "[CODEX_REMOTE_COMPACTION_V2] completed remote compact: "
-        f"summary_bytes={len(summary.encode('utf-8'))} "
-        f"envelope_bytes={len(envelope.encode('utf-8'))} output_items=1"
-    )
-    yield v2._codex_event(
-        "response.completed",
-        sequence_number=sequence,
-        response=completed,
-    )
+        logger.info(
+            "[CODEX_REMOTE_COMPACTION_V2] completed remote compact: "
+            f"summary_bytes={len(summary.encode('utf-8'))} "
+            f"envelope_bytes={len(envelope.encode('utf-8'))} output_items=1"
+        )
+        yield v2._codex_event(
+            "response.completed",
+            sequence_number=sequence,
+            response=completed,
+        )
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 def _normalize_stream_kwargs(kwargs: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
@@ -516,17 +527,3 @@ def install_codex_remote_compaction_v2() -> None:
 
     _INSTALLED = True
     logger.info("[CODEX_REMOTE_COMPACTION_V2] compatibility installed")
-
-
-__all__ = [
-    "RemoteCompactionV2ProtocolError",
-    "build_compaction_backing_body",
-    "compaction_usage",
-    "decode_compaction_envelope",
-    "encode_compaction_envelope",
-    "extract_backing_summary",
-    "has_remote_compaction_trigger",
-    "install_codex_remote_compaction_v2",
-    "normalize_history_body",
-    "rewrite_uwa_compaction_history",
-]
