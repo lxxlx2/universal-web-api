@@ -164,3 +164,43 @@ The first structural finalizer rerun kept all deterministic validation green and
 `tools/codex_m4_finalize_completed_review_v2.py` now closes that gap without repeating the Web review. It keeps the response-summary proof when available and adds two independent metadata-only fallbacks: a post-marker Responses `function_call_output`, or a post-marker Codex rollout command/function-call event. It still requires post-marker `agent_turn` traffic, `chatgpt / high`, a completed response, the authoritative `uwa / chatgpt / high` route audit, clean UWA health, and the three focused regressions before commit/push.
 
 The new scanner requires event timestamps and never prints command bodies, tool output, prompts, raw thread ids, rollout paths, cookies or credentials. M4 remains CURRENT until this finalizer reports `M4_REAL_PROJECT_LONG_TASK_PILOT=PASS_LIVE_CLOSED`.
+
+## M4 closed — M5 is current
+
+The multi-source finalizer completed successfully on 2026-09-10. The accepted implementation commit is `38554bd9d2301783d1bc2d9aff8005c60c70f389` and changes only `app/api/codex_responses_v2.py` plus `tests/test_codex_v2_stream_cancellation.py`.
+
+Final M4 evidence:
+
+```text
+focused cancellation regressions                 PASS 3/3
+py_compile                                       PASS
+git diff --check                                 PASS
+post-marker agent request/response               present
+post-marker chatgpt/high route                    PASS
+Responses function_call_output proof             present
+Codex rollout command-event proof                present
+completed response                               present
+authoritative route audit                        uwa / chatgpt / high PASS
+final request-manager running count              0
+final browser connection                         healthy
+commit + push                                    PASS
+```
+
+The model-authored text marker is not part of the authoritative gate. Real client-tool execution is proven independently by a returned `function_call_output` and a timestamped Codex command-execution event.
+
+M4 is now `PASS / LIVE / CLOSED`. M5 is `CURRENT` and owns the final aggregate A-F, compaction/continuity regression, and fresh post-restart runtime smoke before M6.
+
+Detailed record: `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_LIVE_PASS_2026-09-10.md`.
+
+Updated release-critical state:
+
+```text
+M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
+M2 P1.3 minimal continuity blockers                   PASS / CLOSED
+M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
+M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
+M4 one real-project long-task pilot                   PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression        CURRENT
+M6 CI green + public-repo safety + docs/license       pending
+M7 inspect branch topology + merge V2 to main         pending
+```
