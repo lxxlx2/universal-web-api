@@ -17,64 +17,44 @@ Stage A-F protocol/CLI acceptance                  PASS
 aggregate A-F checker                              PASS
 P1.1 compact direct live                           PASS
 P1.2 stream/usage/TokenCount                       PASS
-P1.2 native auto-compact                           PASS
-P1.2 remote V2 compaction                          PASS / LIVE
+P1.2 native auto-compact + remote V2 compaction    PASS / LIVE
 P1.2 same-thread post-remote recovery              PASS / CLOSED
 P1.3 minimal continuity blockers                   PASS / CLOSED
-Hybrid H0-H2                                       PASS
+ChatGPT idle-composer send repair                  PASS / LIVE / CLOSED
+Hybrid H0-H5                                       PASS / LIVE / CLOSED
+M3a Hybrid Routing Safety                          PASS / LIVE / CLOSED
 Desktop D1-D5                                      PASS / LIVE / CLOSED
-ChatGPT idle-composer send repair                  PASS / LIVE
+M3b Desktop UI                                     PASS / LIVE / CLOSED
 ```
+
+## M3a closed
+
+The final synthetic official -> UWA handoff acceptance passed. The official source effect remained exactly once, the UWA continuation effect occurred exactly once, the independent handoff checker passed, a real `exec_command` client tool call occurred, metadata-helper traffic was excluded from agent accounting, authoritative route metadata resolved to `uwa / chatgpt / high`, the private transition ledger passed, and request-manager returned to zero.
+
+Detailed record: `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`.
 
 ## Current gate
 
-Hybrid H3 is current.
+M4 real-project long-task pilot is current.
 
-The official source half is already accepted and must not be rerun unnecessarily. The UWA continuation half remains open.
+The pilot uses this repository itself and closes a known V2 runtime lifecycle item: the backing `_run_chat_completion_final` task created by the streamed Responses attempt must be cancelled and awaited when the outer async/ASGI stream is cancelled or closed early. Caller cancellation must still propagate and normal completion behavior must remain unchanged.
 
-Two H3-specific issues remain:
+M4 requires one fresh verified `uwa / chatgpt / high` Codex coding turn, real local client tool activity, a bounded implementation diff plus regression coverage, independent focused validation, clean post-turn request-manager state, and guarded commit/push only after all checks pass.
 
-```text
-client-tool exposure / required-tool path
-metadata_helper vs agent_turn isolation
-```
-
-The earlier browser-send stall is closed. Commit `1dac853` repaired the ChatGPT idle-composer false positive, and the direct High live rerun now reaches the terminal Responses completion path with clean browser/request cleanup.
-
-A tiny post-fix Codex CLI probe also reaches `turn.completed` without the former stream disconnect, but the controlled web turn reports that `exec_command` is unavailable. Metadata-only wire evidence must now identify whether the tool was missing from the Codex request, lost inside UWA tool exposure, or present with required-tool detection missed.
+Gate: `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_GATE_2026-09-10.md`.
 
 ## Release-critical sequence
 
 ```text
 M1 P1.2 same-thread post-remote recovery          PASS / CLOSED
 M2 P1.3 minimal continuity blockers               PASS / CLOSED
-M3a Hybrid Routing Safety H0-H5                   CURRENT
-     H0                                           PASS
-     H1                                           PASS
-     H2                                           PASS / LIVE / CLOSED
-     H3                                           CURRENT
-     H4                                           marker foundation present
-     H5                                           pending
+M3a Hybrid Routing Safety H0-H5                   PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                              PASS / LIVE / CLOSED
-M4 real-project long-task pilot                   pending
+M4 real-project long-task pilot                   CURRENT
 M5 final A-F + compaction + restart regression    pending
 M6 CI + public-repo safety + docs/license         pending
 M7 branch topology inspection + merge to main     pending
 ```
-
-## H3 closure requirements
-
-The preserved synthetic handoff workspace must prove:
-
-```text
-official source effect count = 1
-UWA continuation effect count = 1
-real required client tool call = YES
-metadata helper excluded from agent accounting = YES
-agent route = uwa / chatgpt / high
-```
-
-No result from a hidden title/description helper can satisfy the agent-turn requirement.
 
 ## Main merge rules
 
