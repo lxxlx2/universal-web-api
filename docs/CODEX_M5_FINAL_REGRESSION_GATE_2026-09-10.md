@@ -9,10 +9,12 @@ M5 does not expand product scope and does not use the official Codex provider.
 ## One-shot runner
 
 ```text
-tools/codex_m5_final_regression.py
+tools/codex_m5_final_regression_safe.py
 ```
 
-The runner is validation-only. It does not edit repository files, stage changes, commit, push, reset, restore, switch providers or consume official Codex quota.
+The safe runner delegates to `tools/codex_m5_final_regression.py` after resolving the local validation environment. Production requirements intentionally do not include `pytest`; if the selected runtime-capable Python lacks pytest, the safe wrapper installs pytest only into private `~/.uwa` validation state and leaves the repository and production requirements untouched.
+
+The M5 flow is validation-only with respect to the repository. It does not edit repository files, stage changes, commit, push, reset, restore, switch providers or consume official Codex quota.
 
 ## Preconditions
 
@@ -91,6 +93,14 @@ remove the private synthetic workspace on success
 ```
 
 The second restart is intentional. It ensures the final code can recover through persisted/reconstructed continuation after process-local Web affinity is lost, while the official Codex client still owns the real local tool execution.
+
+## Local validation bootstrap
+
+The first live M5 attempt stopped before any correctness regression because the original interpreter probe required `pytest` together with runtime imports. `requirements.txt` does not include pytest, so a valid runtime Python was rejected solely for lacking the development test dependency.
+
+The safe wrapper now separates runtime capability from test-runner availability. It first requires a Python that imports the project runtime. If pytest is absent, it bootstraps pytest into private `~/.uwa/m5-validation-deps` state and uses a local launcher that adds only that private dependency target to `PYTHONPATH` for M5 validation.
+
+Record: `docs/CODEX_M5_LOCAL_VALIDATION_BOOTSTRAP_2026-09-10.md`.
 
 ## Pass contract
 
