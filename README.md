@@ -310,3 +310,11 @@ V2 也研究了多个公开 coding bridge / Responses compatibility 项目的设
 本项目用于个人学习、实验、协议兼容研究与工程验证，不是 OpenAI、ChatGPT、Codex 或其他参考项目的官方产品，也不代表任何合作、授权或背书。
 
 本项目不会改变第三方服务本身的账号、订阅、额度或模型开放范围。使用者需要自行遵守所使用软件、网站和服务的适用条款、政策与法律要求。
+
+---
+
+## English project documentation
+
+A dedicated English overview for the Codex Web Bridge V2 work is available at [`README.codex.en.md`](./README.codex.en.md).
+
+The Chinese README above is preserved as-is. The repository's existing [`README.en.md`](./README.en.md) continues to describe the broader Universal Web API project, while `README.codex.en.md` focuses on the Codex-specific V2 architecture, routing, continuity, safety model, validation status and release path.
