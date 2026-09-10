@@ -46,7 +46,11 @@ M4 记录：`docs/CODEX_M4_REAL_PROJECT_LONG_TASK_LIVE_PASS_2026-09-10.md`。
 
 参考项目复核：`docs/REFERENCE_PROJECT_UPDATE_SCAN_2026-09-10.md`。
 
-当前进入 M5 final regression，使用一次命令完成 Stage A-F aggregate、全部 `test_codex_*.py` regression、当前代码 UWA restart，以及同一 Codex thread 跨真实 UWA restart 的 UWA/chatgpt/high continuity + real `exec_command` smoke，不使用 official provider。
+当前进入 M5 final regression。第一次 M5 实机运行在任何 correctness regression 开始之前，因为原 runner 把开发期 `pytest` 和生产 runtime import 绑在同一个 Python probe 中而提前失败。生产 `requirements.txt` 本身不包含 pytest，因此该失败归类为验收环境/harness 前置条件问题，不代表产品回归失败。
+
+安全版 M5 runner 现在先选择能够 import UWA/Codex runtime 的 Python；如果该解释器缺少 pytest，只把 pytest bootstrap 到私有 `~/.uwa` 验收目录，不修改生产 requirements，也不修改仓库。对应 Security hardening CI 已通过。
+
+M5 仍使用一次命令完成 Stage A-F aggregate、全部 `test_codex_*.py` regression、当前代码 UWA restart，以及同一 Codex thread 跨真实 UWA restart 的 UWA/chatgpt/high continuity + real `exec_command` smoke，不使用 official provider。
 
 M5 gate：`docs/CODEX_M5_FINAL_REGRESSION_GATE_2026-09-10.md`。
 
@@ -265,7 +269,7 @@ M7 topology inspection + merge to main
 M5 one-shot runner：
 
 ```text
-tools/codex_m5_final_regression.py
+tools/codex_m5_final_regression_safe.py
 ```
 
 M5 通过后进入最终 release-safety/docs/provenance 与 topology/merge 阶段，不再扩大首个稳定 `main` 的功能范围。
