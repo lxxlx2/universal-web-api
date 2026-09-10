@@ -28,15 +28,15 @@ P1.3 uncertain tool-effect retry safety               PASS / CLOSED
 Hybrid H0 metadata route audit                        PASS / CI
 Hybrid H1 exact route/model/effort guard              PASS / CI
 Hybrid H2 fresh Desktop route probe                   PASS / LIVE / CLOSED
-ChatGPT idle-composer send repair                     PASS / LIVE
+ChatGPT idle-composer send repair                     PASS / LIVE / CLOSED
+H3 required client-tool path                          PASS / LIVE / CLOSED
+H3 metadata-helper isolation                          PASS / LIVE / CLOSED
 Desktop D1 real local-tool round trip                 PASS / LIVE / CLOSED
 Desktop D2 same-thread continuation                   PASS / LIVE / CLOSED
 Desktop D3 Desktop restart + history resume           PASS / LIVE / CLOSED
 Desktop D4 Desktop + UWA restart recovery             PASS / LIVE / CLOSED
 Desktop D5 official restore + harmless task           PASS / LIVE / CLOSED
 ```
-
-Detailed historical evidence remains in the dedicated `docs/CODEX_*` live/closure records.
 
 ## Hybrid Routing Safety
 
@@ -48,7 +48,7 @@ Release-critical hybrid scope:
 H0 metadata-only route audit helper                   PASS
 H1 explicit route intent + fail-closed quality floor  PASS
 H2 tiny fresh-thread route probe                      PASS
-H3 explicit official -> UWA stateful handoff          CURRENT; source half PASS; client-tool + metadata-helper blockers
+H3 explicit official -> UWA stateful handoff          CURRENT; source PASS; blockers closed; final handoff acceptance next
 H4 private metadata-only transition ledger            marker foundation present
 H5 synthetic hybrid acceptance                        pending
 ```
@@ -56,6 +56,29 @@ H5 synthetic hybrid acceptance                        pending
 No silent premium-quota spend and no silent quality downgrade are allowed. Unknown quota state must not be guessed. Route checks remain mandatory before long or real-project work.
 
 Detailed design: `docs/CODEX_HYBRID_ROUTING_SAFETY_2026-09-08.md`.
+
+## H3 blocker closure
+
+The preserved synthetic official source state remains valid: the official task produced `OFFICIAL_EFFECT_ONCE` exactly once and was verified on `openai / gpt-6-astra / low` with UWA stopped.
+
+During the UWA-side work, three independent blockers were found and closed:
+
+```text
+browser composer send false-positive                 CLOSED by 1dac853; direct High response.completed live-proven
+required exec_command phrasing miss                   CLOSED by 38ede75; real client function call live-proven
+hidden Codex metadata-helper interference             CLOSED by de875e4; local isolated helper live-proven
+```
+
+The required-tool live probe proved the real agent request declared `exec_command`, the detector selected it, a bounded repair emitted a genuine `exec_command` function call, Codex executed it locally and returned `function_call_output`, the final response completed, and request-manager running count returned to zero.
+
+The metadata-helper live probe proved a current-Codex hidden thread-title shaped request is classified before required-tool logic. The helper completed locally with a bounded structured title, emitted no function call, touched no ChatGPT Web coding lane, left zero running requests, was traced as `metadata_helper`, and was ignored by agent-route audit counts.
+
+Detailed records:
+
+- `docs/CODEX_H3_REQUIRED_TOOL_REPAIR_LIVE_PASS_2026-09-10.md`
+- `docs/CODEX_H3_METADATA_HELPER_ISOLATION_LIVE_PASS_2026-09-10.md`
+- `docs/CODEX_H3_METADATA_HELPER_INTERFERENCE_2026-09-09.md`
+- `docs/CODEX_DIRECT_HIGH_BROWSER_STALL_2026-09-09.md`
 
 ## Desktop UI live gate
 
@@ -68,45 +91,16 @@ D5 clean official-account restore + harmless task     PASS / LIVE / CLOSED
 Desktop UI D1-D5                                      PASS / LIVE / CLOSED
 ```
 
-D1 proved real Desktop local execution/edit/test through `uwa / chatgpt / high` with metadata-only `exec_command` function-call evidence.
+D1-D4 prove real Desktop local tool execution, context continuity and restart recovery through `uwa / chatgpt / high`. D5 proves clean restoration to signed-in official Codex plus one harmless local-tool task on authoritative `openai / gpt-6-astra / low` metadata with UWA unavailable by design.
 
-D2 proved two-turn context continuity in the same actual Desktop conversation with `CONTEXT_READY`, `CONTEXT_PASS`, independent `ACCEPTANCE_PASS`, and exact UWA route verification.
-
-D3 proved Desktop history recovery after a full app exit/reopen. The same session identity was observed before and after restart, the context checker passed, and the resumed turn remained on `uwa / chatgpt / high` with three post-marker UWA request/response pairs and exact route expectation PASS.
-
-D4 proved recovery across both Desktop and UWA process boundaries. The same Desktop session identity survived the double restart, the context checker passed, the post-restart route remained `uwa / chatgpt / high`, and metadata-only traces proved real `exec_command` calls plus a completed Responses turn.
-
-D5 first exposed a confirmed lifecycle blocker. The old provider-switch stop path killed only the active `main.py` listener while leaving the repository-owned `start.py` launcher alive. Commit `143b396` repaired the defect by delegating provider-switch shutdown to hardened launcher-aware `codex_uwa_lifecycle.stop_uwa()` semantics. Focused provider-switch/lifecycle regression coverage passes with 18 tests and Security hardening CI succeeded.
-
-The repaired lifecycle rerun then passed at T+0, T+3, T+10 and T+20 with zero repository-owned `start.py`, zero repository-owned `main.py`, zero TCP 8199 listeners and no UWA pidfile. The lifecycle helper reported `STATUS=STOPPED`, provider/model/effort remained account defaults, and the private UWA restore state was absent.
-
-After official Codex allowance became available again, a fresh actual Codex Desktop conversation completed a bounded synthetic local task through the restored official route. The signed-in account picker exposed GPT-6 Astra. Authoritative local session metadata recorded `openai / gpt-6-astra / low`, matching the selected Light reasoning tier. The independent checker proved the official source effect occurred exactly once, UWA remained unavailable by design, and post-marker UWA wire activity was zero. Route expectation for `provider=openai` passed. This closes D5 and the Desktop D1-D5 gate.
-
-The synthetic official workspace diff is intentionally preserved as the source state for H3. H3 must switch to UWA, open a fresh UWA Desktop thread in the same workspace, inspect the durable existing diff, append exactly one UWA continuation effect and prove the official effect remains exactly once.
-
-During H3 recovery work, a direct High Responses probe reproduced the long stall even with Codex CLI bypassed. The controlled ChatGPT page showed that UWA had filled the composer but had not submitted the message because generic page-level stop/streaming detection falsely classified the idle composer as an old active generation. Commit `1dac853` added a narrow ChatGPT idle-composer readiness check. The same direct High probe then returned the expected model text, emitted `response.completed`, returned the browser tab to idle and left zero running requests. This closes the browser-send/SSE blocker.
-
-A tiny `codex exec` probe after the send repair also reached `turn.completed` without the former five-minute stream disconnect. The controlled web turn then reported that the expected `exec_command` client tool was unavailable, so no local tool call occurred. H3 therefore remains open while metadata-only wire evidence determines whether the client tool is absent from the Codex request, present but not exposed to the ChatGPT Web turn, or present with required-tool detection missed. The earlier hidden title/description metadata-helper interference also remains to be isolated before H3 can close.
-
-Detailed records:
-
-- `docs/CODEX_DESKTOP_D1_LIVE_PASS_2026-09-08.md`
-- `docs/CODEX_DESKTOP_D2_LIVE_PASS_2026-09-09.md`
-- `docs/CODEX_DESKTOP_D3_LIVE_PASS_2026-09-09.md`
-- `docs/CODEX_DESKTOP_D4_LIVE_PASS_2026-09-09.md`
-- `docs/CODEX_DESKTOP_D5_OFFICIAL_UWA_RESPAWN_FAILURE_2026-09-09.md`
-- `docs/CODEX_DESKTOP_D5_LIFECYCLE_RERUN_PASS_2026-09-09.md`
-- `docs/CODEX_DESKTOP_D5_LIVE_PASS_2026-09-09.md`
-- `docs/CODEX_H3_METADATA_HELPER_INTERFERENCE_2026-09-09.md`
-- `docs/CODEX_DIRECT_HIGH_BROWSER_STALL_2026-09-09.md`
-- `docs/CODEX_DESKTOP_UI_ACCEPTANCE.md`
+The synthetic D5 official workspace diff is intentionally preserved as H3 source state. The next gate must start a fresh UWA Codex agent turn in the same workspace, inspect durable state first, append `UWA_CONTINUATION_ONCE` exactly once, keep `OFFICIAL_EFFECT_ONCE` exactly once, pass the independent handoff checker, and prove `uwa / chatgpt / high` from authoritative agent-turn metadata and post-marker UWA wire activity.
 
 ## Current release-critical path
 
 ```text
 M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
 M2 P1.3 minimal continuity blockers                   PASS / CLOSED
-M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 source half PASS, tool-exposure diagnosis current
+M3a Hybrid Routing Safety H0-H5                       CURRENT; H0-H2 PASS, H3 final handoff acceptance next
 M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
 M4 one real-project long-task pilot                   pending
 M5 final A-F + compaction + restart regression        pending
@@ -137,14 +131,6 @@ request effort=low/light    unsupported / fail closed
 ```
 
 The actual Responses request plus verified ChatGPT Web state is authoritative. A visible Desktop slider position alone is not accepted as proof.
-
-## Continuity layers
-
-1. Codex Desktop / CLI thread history.
-2. UWA private Responses persistence at `~/.uwa/codex_responses.sqlite3`.
-3. Process-local ChatGPT web-session / call-id affinity.
-4. Local-only hybrid handoff/route metadata under `~/.uwa`.
-5. Git-tracked handoff documents as long-term project truth.
 
 ## Collaboration and safety
 
