@@ -156,3 +156,11 @@ The missing `M4_RECOVERY_REVIEW_OK` marker is now treated as a non-authoritative
 `tools/codex_m4_finalize_completed_review.py` performs that structural close without repeating the already-completed Web review. It reruns only the deterministic local regression checks, validates post-marker structural evidence and health, then commits/pushes the two expected M4 paths if every gate passes.
 
 Additional record: `docs/CODEX_M4_COMPLETED_REVIEW_STRUCTURAL_GATE_2026-09-10.md`.
+
+## Latest M4 checkpoint — multi-source real-tool proof
+
+The first structural finalizer rerun kept all deterministic validation green and found one post-marker `agent_turn` response with `chatgpt / high` and `response_status=completed`, but its response summary contained no `exec_command` name. The earlier bounded Codex CLI review had already emitted a command-execution start/completion pair and `turn.completed`, so the remaining mismatch is confined to one observability field.
+
+`tools/codex_m4_finalize_completed_review_v2.py` now closes that gap without repeating the Web review. It keeps the response-summary proof when available and adds two independent metadata-only fallbacks: a post-marker Responses `function_call_output`, or a post-marker Codex rollout command/function-call event. It still requires post-marker `agent_turn` traffic, `chatgpt / high`, a completed response, the authoritative `uwa / chatgpt / high` route audit, clean UWA health, and the three focused regressions before commit/push.
+
+The new scanner requires event timestamps and never prints command bodies, tool output, prompts, raw thread ids, rollout paths, cookies or credentials. M4 remains CURRENT until this finalizer reports `M4_REAL_PROJECT_LONG_TASK_PILOT=PASS_LIVE_CLOSED`.
