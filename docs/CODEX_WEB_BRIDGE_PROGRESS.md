@@ -223,3 +223,39 @@ M5 final A-F + compaction + restart regression        PASS / LIVE / CLOSED
 M6 CI green + public-repo safety + docs/provenance    CURRENT
 M7 branch-topology inspection + merge to main         pending
 ```
+
+## M6 release safety closed
+
+M6 completed on 2026-09-10 after the release-facing documentation, provenance and safety state were synchronized.
+
+```text
+Security hardening workflow                         PASS
+public-repo-safety                                  PASS
+Ubuntu security matrix                             PASS
+macOS security matrix                              PASS
+upstream regression                                PASS
+workflow artifacts containing runtime state         none
+LICENSE                                             AGPL-3.0 present
+GitHub fork parent/source                           lumingya/universal-web-api
+REFERENCES_AND_ATTRIBUTION                          reviewed
+SECURITY                                            reviewed
+Chinese README                                     synchronized
+Codex-specific English README                      synchronized
+```
+
+M6 is `PASS / CLOSED`. No product behavior was added during the gate. M7 branch-topology inspection and merge to `main` are now current.
+
+M6 record: `docs/CODEX_M6_RELEASE_SAFETY_AUDIT_2026-09-10.md`.
+
+Current accelerated path:
+
+```text
+M1 P1.2 same-thread post-remote recovery              PASS / CLOSED
+M2 P1.3 minimal continuity blockers                   PASS / CLOSED
+M3a Hybrid Routing Safety H0-H5                       PASS / LIVE / CLOSED
+M3b Desktop UI D1-D5                                  PASS / LIVE / CLOSED
+M4 one real-project long-task pilot                   PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression        PASS / LIVE / CLOSED
+M6 CI green + public-repo safety + docs/provenance    PASS / CLOSED
+M7 branch-topology inspection + merge to main         CURRENT
+```
