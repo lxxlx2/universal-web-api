@@ -9,10 +9,10 @@ M5 does not expand product scope and does not use the official Codex provider.
 ## One-shot runner
 
 ```text
-tools/codex_m5_final_regression_safe.py
+tools/codex_m5_final_regression_safe_v2.py
 ```
 
-The safe runner delegates to `tools/codex_m5_final_regression.py` after resolving the local validation environment. Production requirements intentionally do not include `pytest`; if the selected runtime-capable Python lacks pytest, the safe wrapper installs pytest only into private `~/.uwa` validation state and leaves the repository and production requirements untouched.
+The safe v2 runner delegates to the existing M5 flow after resolving two environment-sensitive validation concerns. Production requirements intentionally do not include `pytest`; if the selected runtime-capable Python lacks pytest, the wrapper installs pytest only into private `~/.uwa` validation state and leaves the repository and production requirements untouched. The historical Stage A-F workspace is also treated as mutable live-test state rather than an immutable release artifact; M5 reruns the current aggregate checker against a fresh private deterministic replay fixture instead of changing or trusting the old workspace.
 
 The M5 flow is validation-only with respect to the repository. It does not edit repository files, stage changes, commit, push, reset, restore, switch providers or consume official Codex quota.
 
@@ -25,26 +25,27 @@ configured provider       uwa
 configured model          chatgpt
 configured effort         high
 Codex CLI                 available
-Stage A-F workspace       present and guarded
 M4 implementation         present in branch history
 remote-compaction fix     present in branch history
 ```
 
 M5 fails closed if any precondition is not met.
 
-## Deterministic regression block
+## Deterministic Stage A-F replay block
 
-The runner executes the existing aggregate acceptance checker against the already-proven Stage A-F workspace:
+The original Stage A-F live acceptance and aggregate checker are already historical `PASS / CLOSED` evidence. The old `~/uwa-codex-acceptance` directory is intentionally reusable by `prepare --scenario`, so later Desktop/recovery exercises can reset individual scenario state. M5 therefore does not use that mutable directory as an immutable release artifact.
 
-```text
-python3 tools/codex_desktop_acceptance.py check
-```
+The safe v2 runner creates a fresh guarded replay workspace under private `~/.uwa` state, initializes it from the current `tools/codex_desktop_acceptance.py` harness, materializes the documented successful end state for each scenario, reruns the current aggregate checker, and removes the private replay workspace afterward.
 
 Required result:
 
 ```text
-ACCEPTANCE_PASS
+M5_STAGE_A_F_AGGREGATE=PASS
+M5_STAGE_A_F_AGGREGATE_SOURCE=PRIVATE_DETERMINISTIC_REPLAY
+M5_STAGE_A_F_REPLAY_CLEANED=YES
 ```
+
+This replay validates the current checker and scenario invariants. It is not represented as a new live Stage A-F route/tool run. The fresh live route/tool proof in M5 remains the restart-continuity block below.
 
 It then selects a repository-capable Python interpreter and runs the complete current `tests/test_codex_*.py` regression family. Before execution, the runner requires the release-critical test files for remote compaction, post-compaction recovery, auto-compaction, restart/lost-affinity fallback, identity fencing, uncertain tool-effect retry safety, route auditing, provider switching, metadata-helper isolation, ordinary stream cancellation and native remote-compaction stream cancellation.
 
@@ -98,9 +99,17 @@ The second restart is intentional. It ensures the final code can recover through
 
 The first live M5 attempt stopped before any correctness regression because the original interpreter probe required `pytest` together with runtime imports. `requirements.txt` does not include pytest, so a valid runtime Python was rejected solely for lacking the development test dependency.
 
-The safe wrapper now separates runtime capability from test-runner availability. It first requires a Python that imports the project runtime. If pytest is absent, it bootstraps pytest into private `~/.uwa/m5-validation-deps` state and uses a local launcher that adds only that private dependency target to `PYTHONPATH` for M5 validation.
+The safe wrapper separates runtime capability from test-runner availability. It first requires a Python that imports the project runtime. If pytest is absent, it bootstraps pytest into private `~/.uwa/m5-validation-deps` state and uses a local launcher that adds only that private dependency target to `PYTHONPATH` for M5 validation.
 
 Record: `docs/CODEX_M5_LOCAL_VALIDATION_BOOTSTRAP_2026-09-10.md`.
+
+## Stage A-F mutable-workspace recovery
+
+The second live M5 attempt passed runtime selection and the private pytest bootstrap, then stopped at the aggregate checker with `multi_file` and `context` green while `failure_recovery`, `git_diff` and `interactive` were no longer in their historical completed state. This occurred before the current Codex regression family or restart-continuity live smoke.
+
+That failure is classified as an acceptance-workspace lifecycle issue. The old workspace is mutable by design and is preserved untouched. Safe v2 now uses the private deterministic replay described above.
+
+Record: `docs/CODEX_M5_STAGE_AF_REPLAY_RECOVERY_2026-09-10.md`.
 
 ## Pass contract
 
