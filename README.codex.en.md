@@ -57,7 +57,17 @@ M4 is closed. The accepted implementation passed all three focused cancellation 
 
 A 2026-09-10 reference-project compatibility scan found one separate release-critical lifecycle hole in native remote compaction. That path now applies the same pending-worker cancel-and-await discipline on generator unwind, keeps normal completion unchanged, adds cancellation/`aclose()` regression coverage, and tightens compact-summary guidance so completed historical requests are not revived as current actionable goals. Security hardening CI for that follow-up passed.
 
-M5 is the current gate. Its one-shot runner rechecks Stage A-F, the complete current `test_codex_*.py` regression family, current-code UWA restart, and a same-thread continuity smoke across a real UWA restart without using the official provider.
+M5 is the current gate. Its first live attempt stopped before any correctness regression because the original validation probe required the runtime Python to import the development-only `pytest` package. Production `requirements.txt` intentionally does not include pytest. This is classified as a harness/environment precondition issue, not a product regression.
+
+The safe M5 runner now selects a Python that can import the UWA/Codex runtime first. If pytest is absent, it bootstraps pytest only into private `~/.uwa` validation state and leaves the repository and production requirements untouched. Security hardening CI for this safe bootstrap passed.
+
+Current one-shot runner:
+
+```text
+tools/codex_m5_final_regression_safe.py
+```
+
+M5 still rechecks Stage A-F, the complete current `test_codex_*.py` regression family, current-code UWA restart, and a same-thread continuity smoke across a real UWA restart without using the official provider.
 
 ## Quick start
 
@@ -181,7 +191,7 @@ The first release uses an explicit handoff model. Durable local project state an
 
 ## Streaming cancellation hardening
 
-M4 uses this repository itself as the real-project pilot. The selected production hardening target is the V2 streamed Responses backing task.
+M4 used this repository itself as the real-project pilot. The selected production hardening target was the V2 streamed Responses backing task.
 
 When an outer streamed response is cancelled or explicitly closed, the backing `_run_chat_completion_final` task must not remain alive as orphan browser/request work. The final contract requires:
 
@@ -195,8 +205,6 @@ request-manager returns to zero
 ```
 
 The original real-project M4 turn sustained real tool/result continuation for roughly twelve minutes without a stream-disconnect failure. Recovery then isolated and validated the cancellation behavior with deterministic stdlib tests.
-
-Native remote compaction owns a separate backing task and now follows the same generator-unwind cleanup rule. This was added after the release-reference scan and is covered by dedicated cancellation and `aclose()` regressions before M5.
 
 ## Observability
 
@@ -218,14 +226,12 @@ M2 minimal continuity blockers                  PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                 PASS / LIVE / CLOSED
 M3b Desktop D1-D5                               PASS / LIVE / CLOSED
 M4 real-project long-task pilot                 PASS / LIVE / CLOSED
-M5 final A-F + compaction + restart regression CURRENT
+M5 final A-F + compaction + restart regression  CURRENT
 M6 CI + public-repo safety + docs/provenance
 M7 topology inspection + merge to main
 ```
 
 After the verified V2 branch reaches `main`, the next phase is a dependency audit and extraction of the bridge core plus genuinely required upstream runtime into a clearer standalone attributed repository.
-
-Recent public reference-project ideas that do not block this release, including structured MCP outputs, durable AgentTask/TaskAttempt/checkpoint orchestration, multi-agent wait semantics, optional tunnel/Desktop packaging, and broader file-tool safety fencing, are deferred to the post-main standalone dependency/runtime audit.
 
 ## Security defaults
 
