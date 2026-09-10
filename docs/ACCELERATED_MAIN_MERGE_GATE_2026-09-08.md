@@ -25,6 +25,8 @@ Hybrid H0-H5                                       PASS / LIVE / CLOSED
 M3a Hybrid Routing Safety                          PASS / LIVE / CLOSED
 Desktop D1-D5                                      PASS / LIVE / CLOSED
 M3b Desktop UI                                     PASS / LIVE / CLOSED
+M4 real-project long-task pilot                    PASS / LIVE / CLOSED
+remote-compaction cancellation follow-up           PASS / CI
 ```
 
 ## M3a closed
@@ -33,15 +35,29 @@ The final synthetic official -> UWA handoff acceptance passed. The official sour
 
 Detailed record: `docs/CODEX_HYBRID_M3A_LIVE_PASS_2026-09-10.md`.
 
+## M4 closed
+
+The real-project long-task gate is closed. The accepted implementation in `app/api/codex_responses_v2.py` now guarantees that an unfinished `_run_chat_completion_final` backing task is cancelled and awaited when the outer async stream unwinds, while caller cancellation propagates and normal completion remains unchanged.
+
+M4 closure evidence includes three focused cancellation regressions, `py_compile`, `git diff --check`, a completed bounded real Codex/UWA review, independent real-client-tool proof, authoritative `uwa / chatgpt / high` route evidence, request-manager running count zero and healthy browser state.
+
+Detailed record: `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_LIVE_PASS_2026-09-10.md`.
+
+The 2026-09-10 reference-project scan found the same orphan-task class on the separate native remote-compaction V2 worker path. That release blocker has also been corrected with unconditional pending-worker cancel/await cleanup and dedicated consumer-cancellation plus `aclose()` regression coverage. Security hardening CI for the correction passed.
+
+Reference scan: `docs/REFERENCE_PROJECT_UPDATE_SCAN_2026-09-10.md`.
+
 ## Current gate
 
-M4 real-project long-task pilot is current.
+M5 final regression is current.
 
-The pilot uses this repository itself and closes a known V2 runtime lifecycle item: the backing `_run_chat_completion_final` task created by the streamed Responses attempt must be cancelled and awaited when the outer async/ASGI stream is cancelled or closed early. Caller cancellation must still propagate and normal completion behavior must remain unchanged.
+The one-shot M5 gate performs the already-proven Stage A-F aggregate check, requires the current release-critical Codex regression set, runs the complete current `tests/test_codex_*.py` family, restarts UWA from the final checkout so M4 and the native remote-compaction lifecycle fix are actually loaded, then performs a fresh same-Codex-thread continuity smoke across another real UWA restart.
 
-M4 requires one fresh verified `uwa / chatgpt / high` Codex coding turn, real local client tool activity, a bounded implementation diff plus regression coverage, independent focused validation, clean post-turn request-manager state, and guarded commit/push only after all checks pass.
+The live M5 smoke remains on `uwa / chatgpt / high`, requires real local `exec_command` activity on the resumed turn, verifies the runtime-only continuity token independently, proves post-marker UWA route/completion metadata, requires request-manager cleanup, and does not use the official Codex provider.
 
-Gate: `docs/CODEX_M4_REAL_PROJECT_LONG_TASK_GATE_2026-09-10.md`.
+Gate: `docs/CODEX_M5_FINAL_REGRESSION_GATE_2026-09-10.md`.
+
+Runner: `tools/codex_m5_final_regression.py`.
 
 ## Release-critical sequence
 
@@ -50,8 +66,8 @@ M1 P1.2 same-thread post-remote recovery          PASS / CLOSED
 M2 P1.3 minimal continuity blockers               PASS / CLOSED
 M3a Hybrid Routing Safety H0-H5                   PASS / LIVE / CLOSED
 M3b Desktop UI D1-D5                              PASS / LIVE / CLOSED
-M4 real-project long-task pilot                   CURRENT
-M5 final A-F + compaction + restart regression    pending
+M4 real-project long-task pilot                   PASS / LIVE / CLOSED
+M5 final A-F + compaction + restart regression    CURRENT
 M6 CI + public-repo safety + docs/license         pending
 M7 branch topology inspection + merge to main     pending
 ```
@@ -81,3 +97,5 @@ S4 first standalone research release
 ```
 
 Extraction preserves the genuinely required upstream runtime and AGPL-3.0/copyright attribution while removing unrelated generic UWA surface only when dependency proof says it is safe.
+
+Recent reference-project ideas that do not affect first-release correctness, including structured MCP outputs, durable AgentTask/TaskAttempt/checkpoint orchestration, multi-agent wait semantics, optional Desktop/tunnel packaging and broader file-tool safety fencing, remain deferred until the post-main S1 audit.
