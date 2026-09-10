@@ -93,7 +93,14 @@ _REQUIRED_TOOL_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:must|required\s+to|have\s+to)\s+(?:use|call|invoke)\s+`?"
+        r"\b(?:must|required\s+to|have\s+to)\s+(?:use|call|invoke)\s+"
+        r"(?:(?:the|a|an)\s+)?(?:(?:local|client|client-side|declared)\s+){0,3}`?"
+        r"(exec_command|shell_command|local_shell|apply_patch|write_stdin)`?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:^|[\n.!?]\s+)(?:first\s+)?(?:use|call|invoke)\s+"
+        r"(?:(?:the|a|an)\s+)?(?:(?:local|client|client-side|declared)\s+){0,3}`?"
         r"(exec_command|shell_command|local_shell|apply_patch|write_stdin)`?\b",
         re.IGNORECASE,
     ),
