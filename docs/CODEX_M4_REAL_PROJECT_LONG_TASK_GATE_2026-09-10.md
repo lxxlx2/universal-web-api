@@ -47,7 +47,7 @@ UWA health after                                   running=0
 verified diff committed/pushed only after checks   YES
 ```
 
-The Codex agent must not commit or push by itself. The one-shot runner performs guarded staging/commit/push after independent local checks.
+The Codex agent must not commit or push by itself. The one-shot runner performs guarded staging/commit/push after independent local checks. Transient Python bytecode/cache files are excluded from the scope comparison; all substantive extra files still fail closed.
 
 ## Safety
 
@@ -56,7 +56,9 @@ The public acceptance record may contain only aggregate event/tool counts, chang
 ## Runner
 
 ```text
-tools/codex_m4_real_project_pilot.py
+tools/codex_m4_real_project_pilot_safe.py
 ```
+
+The safe wrapper delegates to the guarded M4 runner and only filters transient `__pycache__`, `.pyc` and `.pytest_cache` files from ignored-file delta checks.
 
 After PASS, M4 closes and the release path advances to M5 final A-F + compaction + restart regression.
