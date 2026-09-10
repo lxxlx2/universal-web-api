@@ -112,3 +112,25 @@ The standalone extraction keeps genuinely required upstream runtime and preserve
 ## Recording discipline
 
 Every live result, failure, repair and disruptive checkpoint is committed before the next step. README, canonical current state, this file and Draft PR #2 should stay aligned. Public records contain only non-sensitive evidence and omit private prompt/tool bodies, raw account/thread/process/browser identifiers and private trace contents.
+
+## Latest checkpoint — M4 review completed, structural close pending
+
+The latest focused rerun advanced beyond the regression blocker:
+
+```text
+focused unittest                              PASS 3/3
+py_compile                                    PASS
+git diff --check                              PASS
+validated change scope                        app/api/codex_responses_v2.py + tests/test_codex_v2_stream_cancellation.py
+bounded Codex recovery review RC              0
+review event flow                             thread.started, turn.started, item.started, item.completed, turn.completed
+real tool activity                            YES
+transport stderr errors                       NONE
+text marker                                   absent
+```
+
+The text marker is no longer treated as authoritative acceptance evidence. `turn.completed`, real local-tool activity and post-marker metadata-only wire evidence provide the protocol-level proof needed for M4.
+
+`tools/codex_m4_finalize_completed_review.py` now reuses the completed review, reruns only deterministic local validation, checks the post-marker `agent_turn` route/tool/completion evidence and final UWA health, then commits/pushes only the two expected M4 paths if all checks pass.
+
+Record: `docs/CODEX_M4_COMPLETED_REVIEW_STRUCTURAL_GATE_2026-09-10.md`.
