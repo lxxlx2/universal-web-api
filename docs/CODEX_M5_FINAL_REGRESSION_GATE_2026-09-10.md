@@ -144,3 +144,42 @@ M5   CURRENT
 M6   CI + public safety + docs/provenance/license
 M7   topology inspection + merge verified V2 to main
 ```
+
+## Live closure
+
+The final safe-v2 run completed successfully on 2026-09-10.
+
+```text
+Stage A-F private deterministic replay              PASS
+current Codex test files                             37
+Codex regression                                     201 passed / 0 failed
+py_compile                                           PASS
+git diff --check                                    PASS
+first UWA restart                                    PASS
+seed turn                                            PASS
+second UWA restart                                   PASS
+same Codex thread after restart                      YES
+real local client tool activity                      YES
+continuity result exact                              YES
+post-marker route                                    uwa / chatgpt / high
+post-marker response status                          completed
+final request-manager running count                  0
+final browser connection                             healthy
+repository clean                                     YES
+private workspace cleanup                            PASS
+```
+
+M5 is therefore `PASS / LIVE / CLOSED`. Canonical evidence: `docs/CODEX_M5_FINAL_REGRESSION_LIVE_PASS_2026-09-10.md`.
+
+Updated release path:
+
+```text
+M1   PASS / CLOSED
+M2   PASS / CLOSED
+M3a  PASS / LIVE / CLOSED
+M3b  PASS / LIVE / CLOSED
+M4   PASS / LIVE / CLOSED
+M5   PASS / LIVE / CLOSED
+M6   CURRENT
+M7   pending
+```
